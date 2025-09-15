@@ -1,11 +1,26 @@
 #include "ina226_adc.h"
 #include <cfloat>
 #include <algorithm>
+#include <map>
+
+// Initialize the static map of factory default shunt resistances.
+const std::map<uint16_t, float> INA226_ADC::factory_shunt_resistances = {
+    {50, 0.000789840f},
+    {100, 0.000789840f},
+    {150, 0.000789840f},
+    {200, 0.000789840f},
+    {250, 0.000789840f},
+    {300, 0.000789840f},
+    {350, 0.000789840f},
+    {400, 0.000789840f},
+    {450, 0.000789840f},
+    {500, 0.000789840f}
+};
 
 INA226_ADC::INA226_ADC(uint8_t address, float shuntResistorOhms, float batteryCapacityAh)
     : ina226(address),
-      defaultOhms(shuntResistorOhms), // Store the default value
-      calibratedOhms(shuntResistorOhms), // Initialize with default
+      defaultOhms(0.000789840f), // Store the default value
+      calibratedOhms(0.000789840f), // Initialize with default
       batteryCapacity(batteryCapacityAh),
       maxBatteryCapacity(batteryCapacityAh),
       lastUpdateTime(0),
@@ -44,7 +59,7 @@ void INA226_ADC::begin(int sdaPin, int sclPin) {
     // Load active shunt rating
     Preferences prefs;
     prefs.begin(NVS_CAL_NAMESPACE, true);
-    m_activeShuntA = prefs.getUShort(NVS_KEY_ACTIVE_SHUNT, 50); // Default 50A
+    m_activeShuntA = prefs.getUShort(NVS_KEY_ACTIVE_SHUNT, 100); // Default 100A
     prefs.end();
     Serial.printf("Using active shunt rating: %dA\n", m_activeShuntA);
 
@@ -54,11 +69,18 @@ void INA226_ADC::begin(int sdaPin, int sclPin) {
     ina226.setAverage(AVERAGE_16);
     ina226.setConversionTime(CONV_TIME_8244);
     
-    // Load the calibrated shunt resistance from NVS, if it exists
+    // Try to load the custom calibrated shunt resistance.
+    // If it fails, use the factory default for the active shunt.
     this->m_isConfigured = loadShuntResistance();
     if (!this->m_isConfigured) {
-        calibratedOhms = defaultOhms; // Use the default if not found
-        Serial.printf("No calibrated shunt resistance found. Using default: %.9f Ohms.\n", calibratedOhms);
+        auto it = factory_shunt_resistances.find(m_activeShuntA);
+        if (it != factory_shunt_resistances.end()) {
+            calibratedOhms = it->second;
+            Serial.printf("No custom calibrated shunt resistance found. Using factory default for %dA shunt: %.9f Ohms.\n", m_activeShuntA, calibratedOhms);
+        } else {
+            calibratedOhms = defaultOhms; // Fallback to the single firmware default
+            Serial.printf("No custom calibrated shunt resistance AND no factory default for %dA shunt found. Using firmware default: %.9f Ohms.\n", m_activeShuntA, calibratedOhms);
+        }
     }
     
     // Set the resistor range with the calibrated or default value
@@ -253,6 +275,31 @@ bool INA226_ADC::loadShuntResistance() {
     }
 
     return false;
+}
+
+bool INA226_ADC::loadFactoryDefaultResistance(uint16_t shuntRatedA) {
+    auto it = factory_shunt_resistances.find(shuntRatedA);
+    if (it != factory_shunt_resistances.end()) {
+        calibratedOhms = it->second;
+
+        // Remove any custom calibration from NVS to ensure factory default is used on next boot
+        Preferences prefs;
+        prefs.begin("ina_cal", false);
+        if (prefs.isKey("cal_ohms")) {
+            prefs.remove("cal_ohms");
+            Serial.println("Removed custom shunt resistance calibration from NVS.");
+        }
+        prefs.end();
+
+        // Immediately apply the new resistance to the INA226 configuration
+        ina226.setResistorRange(calibratedOhms, (float)shuntRatedA);
+        Serial.printf("Loaded factory default for %dA shunt: %.9f Ohms\n", shuntRatedA, calibratedOhms);
+        m_isConfigured = true; // Mark as configured even with factory defaults
+        return true;
+    } else {
+        Serial.printf("No factory default found for %dA shunt.\n", shuntRatedA);
+        return false;
+    }
 }
 
 // ---------------- Table-based calibration ----------------
@@ -545,6 +592,47 @@ void INA226_ADC::setProtectionSettings(float lv_cutoff, float hyst, float oc_thr
     overcurrentThreshold = oc_thresh;
     saveProtectionSettings();
     configureAlert(overcurrentThreshold); // Re-configure alert with new threshold
+}
+
+uint16_t INA226_ADC::getActiveShunt() const {
+    return m_activeShuntA;
+}
+
+void INA226_ADC::setActiveShunt(uint16_t shuntRatedA) {
+    m_activeShuntA = shuntRatedA;
+
+    // Save the selected shunt as the active one
+    Preferences prefs;
+    prefs.begin(NVS_CAL_NAMESPACE, false);
+    prefs.putUShort(NVS_KEY_ACTIVE_SHUNT, m_activeShuntA);
+    prefs.end();
+    Serial.printf("Set %dA as active shunt.\n", m_activeShuntA);
+
+    // Reload configuration for the new shunt
+    // Try to load the custom calibrated shunt resistance.
+    // If it fails, use the factory default for the active shunt.
+    this->m_isConfigured = loadShuntResistance();
+    if (!this->m_isConfigured) {
+        auto it = factory_shunt_resistances.find(m_activeShuntA);
+        if (it != factory_shunt_resistances.end()) {
+            calibratedOhms = it->second;
+            Serial.printf("No custom calibrated shunt resistance found. Using factory default for %dA shunt: %.9f Ohms.\n", m_activeShuntA, calibratedOhms);
+        } else {
+            calibratedOhms = defaultOhms; // Fallback to the single firmware default
+            Serial.printf("No custom calibrated shunt resistance AND no factory default for %dA shunt found. Using firmware default: %.9f Ohms.\n", m_activeShuntA, calibratedOhms);
+        }
+    }
+
+    // Set the resistor range with the calibrated or default value
+    ina226.setResistorRange(calibratedOhms, (float)m_activeShuntA);
+    Serial.printf("Set INA226 range for %.2fA\n", (float)m_activeShuntA);
+
+    // Load the calibration table for the new active shunt
+    if (loadCalibrationTable(m_activeShuntA)) {
+        Serial.printf("Loaded calibration table for %dA shunt.\n", m_activeShuntA);
+    } else {
+        Serial.printf("No calibration table found for %dA shunt.\n", m_activeShuntA);
+    }
 }
 
 float INA226_ADC::getLowVoltageCutoff() const {
