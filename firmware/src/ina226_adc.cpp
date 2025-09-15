@@ -40,6 +40,7 @@ INA226_ADC::INA226_ADC(uint8_t address, float shuntResistorOhms, float batteryCa
       m_activeShuntA(50), // Default to 50A
       m_disconnectReason(NONE),
       m_hardwareAlertsDisabled(false),
+      m_invertCurrent(false),
       sampleIndex(0),
       sampleCount(0),
       lastSampleTime(0),
@@ -95,6 +96,7 @@ void INA226_ADC::begin(int sdaPin, int sclPin) {
     }
 
     loadProtectionSettings();
+    loadInvertCurrent();
     configureAlert(overcurrentThreshold);
 }
 
@@ -114,11 +116,19 @@ float INA226_ADC::getBusVoltage_V() const { return busVoltage_V; }
 float INA226_ADC::getRawCurrent_mA() const { return current_mA; }
 
 float INA226_ADC::getCurrent_mA() const {
+    float result_mA;
     if (!calibrationTable.empty()) {
-        return getCalibratedCurrent_mA(current_mA);
+        result_mA = getCalibratedCurrent_mA(current_mA);
     }
-    // fallback: linear
-    return (current_mA * calibrationGain) + calibrationOffset_mA;
+    else {
+        // fallback: linear
+        result_mA = (current_mA * calibrationGain) + calibrationOffset_mA;
+    }
+
+    if (m_invertCurrent) {
+        return -result_mA;
+    }
+    return result_mA;
 }
 
 float INA226_ADC::getCalibratedCurrent_mA(float raw_mA) const {
@@ -779,6 +789,33 @@ void INA226_ADC::toggleHardwareAlerts() {
 
 bool INA226_ADC::areHardwareAlertsDisabled() const {
     return m_hardwareAlertsDisabled;
+}
+
+// ---------------- Invert Current ----------------
+
+void INA226_ADC::loadInvertCurrent() {
+    Preferences prefs;
+    prefs.begin("ina_cal", true);
+    m_invertCurrent = prefs.getBool("invert_curr", false);
+    prefs.end();
+    Serial.printf("Current inversion is %s\n", m_invertCurrent ? "ENABLED" : "DISABLED");
+}
+
+void INA226_ADC::saveInvertCurrent() {
+    Preferences prefs;
+    prefs.begin("ina_cal", false);
+    prefs.putBool("invert_curr", m_invertCurrent);
+    prefs.end();
+}
+
+void INA226_ADC::toggleInvertCurrent() {
+    m_invertCurrent = !m_invertCurrent;
+    saveInvertCurrent();
+    Serial.printf("Current inversion set to: %s\n", m_invertCurrent ? "ENABLED" : "DISABLED");
+}
+
+bool INA226_ADC::isInvertCurrentEnabled() const {
+    return m_invertCurrent;
 }
 
 void INA226_ADC::dumpRegisters() const {

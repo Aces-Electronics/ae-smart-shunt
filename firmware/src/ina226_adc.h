@@ -33,6 +33,7 @@ public:
     bool isOverflow() const;
     bool clearCalibrationTable(uint16_t shuntRatedA);
     String getAveragedRunFlatTime(float currentA, float warningThresholdHours, bool &warningTriggered);
+    String calculateRunFlatTimeFormatted(float currentA, float warningThresholdHours, bool &warningTriggered);
 
     // New shunt resistance calibration methods
     bool saveShuntResistance(float resistance);
@@ -64,6 +65,10 @@ public:
     bool areHardwareAlertsDisabled() const;
     float getHardwareAlertThreshold_A() const;
     void dumpRegisters() const;
+
+    // Invert current reading
+    void toggleInvertCurrent();
+    bool isInvertCurrentEnabled() const;
 
     // ---------- Linear calibration (legacy / fallback) ----------
     bool loadCalibration(uint16_t shuntRatedA);                          // apply stored linear (gain/offset)
@@ -100,6 +105,7 @@ private:
     uint16_t m_activeShuntA;
     DisconnectReason m_disconnectReason;
     bool m_hardwareAlertsDisabled;
+    bool m_invertCurrent;
 
     // Table-based calibration
     std::vector<CalPoint> calibrationTable;
@@ -115,6 +121,8 @@ private:
     int sampleCount;
     unsigned long lastSampleTime;
     int sampleIntervalSeconds;
-    String calculateRunFlatTimeFormatted(float currentA, float warningThresholdHours, bool &warningTriggered);
+
+    void loadInvertCurrent();
+    void saveInvertCurrent();
 };
 #endif

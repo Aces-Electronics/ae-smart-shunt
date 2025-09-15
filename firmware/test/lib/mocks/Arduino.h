@@ -7,6 +7,17 @@
 #include <vector>
 #include <algorithm>
 
+// Arduino constants
+#define HIGH 0x1
+#define LOW  0x0
+#define INPUT 0x0
+#define OUTPUT 0x1
+#define INPUT_PULLUP 0x2
+#define HEX 16
+
+// Arduino macros
+#define F(string_literal) (string_literal)
+
 // Mock millis() function
 unsigned long millis();
 void set_mock_millis(unsigned long value);
@@ -26,6 +37,7 @@ public:
     void println(int val) { std::cout << val << std::endl; }
     void println(float val) { std::cout << val << std::endl; }
     void println() { std::cout << std::endl; }
+    void println(uint16_t val, int base) { std::cout << val << std::endl; }
     template<typename T>
     void printf(const char* format, T value) {
         // A very basic printf mock
@@ -42,6 +54,23 @@ public:
 };
 
 extern MockSerial Serial;
+
+// Mock GPIO functions
+void pinMode(uint8_t pin, uint8_t mode);
+void digitalWrite(uint8_t pin, uint8_t val);
+int digitalRead(uint8_t pin);
+int analogRead(uint8_t pin);
+
+// Mock GPIO state inspection functions (for tests)
+void mock_digital_write_clear();
+int mock_digital_write_get_last_value(uint8_t pin);
+
+// Mock sleep functions
+void esp_sleep_enable_timer_wakeup(uint64_t time_in_us);
+void esp_deep_sleep_start();
+void mock_esp_deep_sleep_clear();
+bool mock_esp_deep_sleep_called();
+
 
 // Basic String mock
 class String : public std::string {
