@@ -5,6 +5,7 @@
 #include "ina226_adc.h"
 #include "ble_handler.h"
 #include "espnow_handler.h"
+#include "gpio_adc.h"
 #include "passwords.h"
 #include <esp_now.h>
 #include <esp_err.h>
@@ -44,6 +45,8 @@ struct_message_ae_smart_shunt_1 ae_smart_shunt_struct;
 // custom calibrated value from NVS or the factory default for the active shunt.
 INA226_ADC ina226_adc(I2C_ADDRESS, 0.000789840f, 100.00f);
 
+// ADC for the starter battery voltage on GPIO3
+GPIO_ADC starter_adc(3);
 
 ESPNowHandler espNowHandler(broadcastAddress); // ESP-NOW handler for sending data
 WiFiClientSecure wifi_client;
@@ -187,6 +190,40 @@ static String waitForEnterOrXWithDebug(INA226_ADC &ina, bool debugMode)
   }
 }
 
+void runStarterADC_Calibration(GPIO_ADC &adc) {
+  Serial.println(F("\n--- Starter Battery ADC Calibration ---"));
+  Serial.println(F("You will need a precise power supply."));
+  Serial.println(F("Press 'x' at any time to cancel."));
+
+  // --- Step 1: 10V ---
+  Serial.println(F("\nStep 1 of 2: Set power supply to 10.0V"));
+  Serial.println(F("Press Enter when ready."));
+  Serial.print("> ");
+  if (SerialReadLineBlocking().equalsIgnoreCase("x")) {
+    Serial.println(F("Canceled."));
+    return;
+  }
+  // Read raw ADC value
+  int raw_adc1 = analogRead(3); // Reading from GPIO3
+  Serial.printf("  -> Recorded raw ADC value: %d\n", raw_adc1);
+
+  // --- Step 2: 14V ---
+  Serial.println(F("\nStep 2 of 2: Set power supply to 14.0V"));
+  Serial.println(F("Press Enter when ready."));
+  Serial.print("> ");
+  if (SerialReadLineBlocking().equalsIgnoreCase("x")) {
+    Serial.println(F("Canceled."));
+    return;
+  }
+  // Read raw ADC value
+  int raw_adc2 = analogRead(3); // Reading from GPIO3
+  Serial.printf("  -> Recorded raw ADC value: %d\n", raw_adc2);
+
+  // --- Calculate and Save ---
+  adc.calibrate(10.0f, raw_adc1, 14.0f, raw_adc2);
+  Serial.println(F("\nCalibration complete and saved."));
+}
+
 // This is the main calibration entry point, combining shunt selection,
 // resistance calibration, and current table calibration.
 void runCurrentCalibrationMenu(INA226_ADC &ina)
@@ -257,6 +294,7 @@ void printShunt(const struct_message_ae_smart_shunt_1 *p)
       "Power          : %.2f W\n"
       "SOC            : %.1f %%\n"
       "Capacity       : %.2f Ah\n"
+      "Starter Voltage: %.2f V\n"
       "Error          : %d\n"
       "Run Flat Time  : %s\n"
       "===================\n",
@@ -267,6 +305,7 @@ void printShunt(const struct_message_ae_smart_shunt_1 *p)
       p->batteryPower,
       p->batterySOC * 100.0f,
       p->batteryCapacity,
+      p->starterBatteryVoltage,
       p->batteryState,
       p->runFlatTime);
 }
@@ -532,6 +571,7 @@ void setup()
 
   // The begin method now handles loading the calibrated resistance
   ina226_adc.begin(6, 10);
+  starter_adc.begin();
 
   // Clear any startup alerts before attaching the interrupt
   ina226_adc.clearAlerts();
@@ -655,6 +695,11 @@ void loop()
       // run the new shunt resistance calibration
       runShuntResistanceCalibration(ina226_adc);
     }
+    else if (s.equalsIgnoreCase("v"))
+    {
+      // run the starter battery ADC calibration
+      runStarterADC_Calibration(starter_adc);
+    }
     else if (s.equalsIgnoreCase("p"))
     {
       // run the protection configuration menu
@@ -741,6 +786,7 @@ void loop()
     ae_smart_shunt_struct.batteryVoltage = ina226_adc.getBusVoltage_V();
     ae_smart_shunt_struct.batteryCurrent = ina226_adc.getCurrent_mA() / 1000.0f;
     ae_smart_shunt_struct.batteryPower = ina226_adc.getPower_mW() / 1000.0f;
+    ae_smart_shunt_struct.starterBatteryVoltage = starter_adc.readVoltage();
 
     ae_smart_shunt_struct.batteryState = 0; // 0 = Normal, 1 = Warning, 2 = Critical
 
