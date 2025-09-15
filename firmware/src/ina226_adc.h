@@ -37,11 +37,14 @@ public:
     // New shunt resistance calibration methods
     bool saveShuntResistance(float resistance);
     bool loadShuntResistance();
+    bool loadFactoryDefaultResistance(uint16_t shuntRatedA);
 
     // Protection features
     void loadProtectionSettings();
     void saveProtectionSettings();
     void setProtectionSettings(float lv_cutoff, float hyst, float oc_thresh);
+    void setActiveShunt(uint16_t shuntRatedA);
+    uint16_t getActiveShunt() const;
     float getLowVoltageCutoff() const;
     float getHysteresis() const;
     float getOvercurrentThreshold() const;
@@ -101,6 +104,9 @@ private:
     // Table-based calibration
     std::vector<CalPoint> calibrationTable;
     float getCalibratedCurrent_mA(float raw_mA) const;
+
+    // Factory default resistances
+    static const std::map<uint16_t, float> factory_shunt_resistances;
 
     // run-flat time averaging
     const static int maxSamples = 10;
