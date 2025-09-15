@@ -40,11 +40,15 @@ const unsigned long led_blink_interval = 500; // ms
 struct_message_ae_smart_shunt_1 ae_smart_shunt_struct;
 // Initializing with a default shunt resistor value, which will be overwritten
 // if a calibrated value is loaded from NVS.
+// I hav measured 0.003 ohms on a 100A shunt with a fuor wire multimeter
 INA226_ADC ina226_adc(I2C_ADDRESS, 0.000944464f, 100.00f);
+
+
 ESPNowHandler espNowHandler(broadcastAddress); // ESP-NOW handler for sending data
 WiFiClientSecure wifi_client;
 
-void IRAM_ATTR alertISR() {
+void IRAM_ATTR alertISR()
+{
   ina226_adc.handleAlert();
 }
 
@@ -186,7 +190,8 @@ static String waitForEnterOrXWithDebug(INA226_ADC &ina, bool debugMode)
 void runCurrentCalibrationMenu(INA226_ADC &ina)
 {
   // First, check if the base shunt resistance has been calibrated.
-  if (!ina.isConfigured()) {
+  if (!ina.isConfigured())
+  {
     Serial.println(F("\n[ERROR] Base shunt resistance has not been calibrated."));
     Serial.println(F("Please run the 'r' (Shunt Resistance Calibration) command first."));
     return;
@@ -252,15 +257,15 @@ void runCurrentCalibrationMenu(INA226_ADC &ina)
 
   // build measurement percentages
   std::vector<float> perc;
-  perc.push_back(0.0f);    // 0%
-  perc.push_back(0.02f);   // 2%  (1A on 50A shunt)
-  perc.push_back(0.04f);   // 4%  (2A on 50A shunt)
-  perc.push_back(0.1f);    // 10% (5A on 50A shunt)
-  perc.push_back(0.2f);    // 20% (10A on 50A shunt)
-  perc.push_back(0.4f);    // 40% (20A on 50A shunt)
-  perc.push_back(0.6f);    // 60% (30A on 50A shunt)
-  perc.push_back(0.8f);    // 80% (40A on 50A shunt)
-  perc.push_back(1.0f);    // 100%(50A on 50A shunt)
+  perc.push_back(0.0f);  // 0%
+  perc.push_back(0.02f); // 2%  (1A on 50A shunt)
+  perc.push_back(0.04f); // 4%  (2A on 50A shunt)
+  perc.push_back(0.1f);  // 10% (5A on 50A shunt)
+  perc.push_back(0.2f);  // 20% (10A on 50A shunt)
+  perc.push_back(0.4f);  // 40% (20A on 50A shunt)
+  perc.push_back(0.6f);  // 60% (30A on 50A shunt)
+  perc.push_back(0.8f);  // 80% (40A on 50A shunt)
+  perc.push_back(1.0f);  // 100%(50A on 50A shunt)
 
   std::vector<float> measured_mA;
   std::vector<float> true_mA;
@@ -274,39 +279,46 @@ void runCurrentCalibrationMenu(INA226_ADC &ina)
     float true_milli = trueA * 1000.0f;
 
     // --- Measure points up to and including 50% ---
-    if (p <= 0.5f) {
-        if (p == 0.0f) {
+    if (p <= 0.5f)
+    {
+      if (p == 0.0f)
+      {
         Serial.printf("\nStep %u of %u: Target = %.3f A (Zero Load).\nDisconnect all loads from the shunt, then press Enter to record. Enter 'x' to cancel.\n",
-                        (unsigned)(i + 1), (unsigned)perc.size(), trueA);
-        } else {
+                      (unsigned)(i + 1), (unsigned)perc.size(), trueA);
+      }
+      else
+      {
         Serial.printf("\nStep %u of %u: Target = %.3f A (%.2f%% of %dA).\nSet test jig to the target current, then press Enter to record. Enter 'x' to cancel and accept measured so far.\n",
-                        (unsigned)(i + 1), (unsigned)perc.size(), trueA, p * 100.0f, shuntA);
-        }
+                      (unsigned)(i + 1), (unsigned)perc.size(), trueA, p * 100.0f, shuntA);
+      }
 
-        Serial.print("> ");
-        String line = waitForEnterOrXWithDebug(ina, debugMode);
-        if (line.equalsIgnoreCase("x")) {
-            Serial.println("User canceled early; accepting tests recorded so far.");
-            break;
-        }
+      Serial.print("> ");
+      String line = waitForEnterOrXWithDebug(ina, debugMode);
+      if (line.equalsIgnoreCase("x"))
+      {
+        Serial.println("User canceled early; accepting tests recorded so far.");
+        break;
+      }
 
-        const int samples = 8;
-        float sumRaw = 0.0f;
-        for (int s = 0; s < samples; ++s) {
-            ina.readSensors();
-            sumRaw += ina.getRawCurrent_mA();
-            delay(120);
-        }
-        float avgRaw = sumRaw / (float)samples;
-        Serial.printf("Recorded avg raw reading: %.3f mA  (expected true: %.3f mA)\n", avgRaw, true_milli);
-        measured_mA.push_back(avgRaw);
-        true_mA.push_back(true_milli);
-        last_measured_idx = i;
+      const int samples = 8;
+      float sumRaw = 0.0f;
+      for (int s = 0; s < samples; ++s)
+      {
+        ina.readSensors();
+        sumRaw += ina.getRawCurrent_mA();
+        delay(120);
+      }
+      float avgRaw = sumRaw / (float)samples;
+      Serial.printf("Recorded avg raw reading: %.3f mA  (expected true: %.3f mA)\n", avgRaw, true_milli);
+      measured_mA.push_back(avgRaw);
+      true_mA.push_back(true_milli);
+      last_measured_idx = i;
     }
   }
 
   // --- Extrapolate for points > 50% ---
-  if (last_measured_idx > 0 && last_measured_idx < perc.size() - 1) {
+  if (last_measured_idx > 0 && last_measured_idx < perc.size() - 1)
+  {
     Serial.println("\nExtrapolating remaining points > 50%...");
 
     // Get the last two measured points to establish a linear trend
@@ -318,17 +330,18 @@ void runCurrentCalibrationMenu(INA226_ADC &ina)
     // Calculate the slope (gain) of the last segment
     float slope = (raw2 - raw1) / (true2 - true1);
 
-    for (size_t i = last_measured_idx + 1; i < perc.size(); ++i) {
-        float p = perc[i];
-        float trueA = shuntA * p;
-        float true_milli = trueA * 1000.0f;
+    for (size_t i = last_measured_idx + 1; i < perc.size(); ++i)
+    {
+      float p = perc[i];
+      float trueA = shuntA * p;
+      float true_milli = trueA * 1000.0f;
 
-        // Extrapolate the raw value
-        float extrapolated_raw = raw2 + slope * (true_milli - true2);
+      // Extrapolate the raw value
+      float extrapolated_raw = raw2 + slope * (true_milli - true2);
 
-        Serial.printf("Extrapolated Point: raw=%.3f mA -> true=%.3f mA (%.2f%%)\n", extrapolated_raw, true_milli, p * 100.0f);
-        measured_mA.push_back(extrapolated_raw);
-        true_mA.push_back(true_milli);
+      Serial.printf("Extrapolated Point: raw=%.3f mA -> true=%.3f mA (%.2f%%)\n", extrapolated_raw, true_milli, p * 100.0f);
+      measured_mA.push_back(extrapolated_raw);
+      true_mA.push_back(true_milli);
     }
   }
 
@@ -370,7 +383,8 @@ void runCurrentCalibrationMenu(INA226_ADC &ina)
   Serial.println(F("Would you like to run guided tests to verify hardware functionality? (y/N)"));
   Serial.print(F("> "));
   String testAns = SerialReadLineBlocking();
-  if (!testAns.equalsIgnoreCase("y")) {
+  if (!testAns.equalsIgnoreCase("y"))
+  {
     Serial.println("Skipping hardware tests.");
     return;
   }
@@ -396,9 +410,12 @@ void runCurrentCalibrationMenu(INA226_ADC &ina)
   float no_load_current = measured_mA[0]; // First point was zero-load
   Serial.printf("Current after disconnect: %.3f mA (expected ~%.3f mA)\n", current_after, no_load_current);
 
-  if (abs(current_after - no_load_current) < 50.0f) { // Allow 50mA tolerance
+  if (abs(current_after - no_load_current) < 50.0f)
+  { // Allow 50mA tolerance
     Serial.println(F("SUCCESS: Load switch appears to be working."));
-  } else {
+  }
+  else
+  {
     Serial.println(F("FAILURE: Current did not drop to no-load value. Check MOSFET wiring."));
   }
 
@@ -424,18 +441,23 @@ void runCurrentCalibrationMenu(INA226_ADC &ina)
 
   bool alert_fired = false;
   unsigned long test_start = millis();
-  while(millis() - test_start < 15000) { // 15s timeout
-      if (ina.isAlertTriggered()) {
-          ina.processAlert();
-          alert_fired = true;
-          break;
-      }
-      delay(50);
+  while (millis() - test_start < 15000)
+  { // 15s timeout
+    if (ina.isAlertTriggered())
+    {
+      ina.processAlert();
+      alert_fired = true;
+      break;
+    }
+    delay(50);
   }
 
-  if (alert_fired) {
+  if (alert_fired)
+  {
     Serial.println(F("SUCCESS: Overcurrent alert triggered and load was disconnected."));
-  } else {
+  }
+  else
+  {
     Serial.println(F("FAILURE: Alert did not trigger within 15 seconds. Check INA226 wiring."));
   }
 
@@ -445,31 +467,32 @@ void runCurrentCalibrationMenu(INA226_ADC &ina)
   ina.setLoadConnected(true, NONE);
 }
 
-void printShunt(const struct_message_ae_smart_shunt_1 *p) {
-  if (!p) return;
+void printShunt(const struct_message_ae_smart_shunt_1 *p)
+{
+  if (!p)
+    return;
 
   Serial.printf(
-    "=== Local Shunt ===\n"
-    "Message ID     : %d\n"
-    "Data Changed   : %s\n"
-    "Voltage        : %.2f V\n"
-    "Current        : %.2f A\n"
-    "Power          : %.2f W\n"
-    "SOC            : %.1f %%\n"
-    "Capacity       : %.2f Ah\n"
-    "State          : %d\n"
-    "Run Flat Time  : %s\n"
-    "===================\n",
-    p->messageID,
-    p->dataChanged ? "true" : "false",
-    p->batteryVoltage,
-    p->batteryCurrent,
-    p->batteryPower,
-    p->batterySOC * 100.0f,
-    p->batteryCapacity,
-    p->batteryState,
-    p->runFlatTime
-  );
+      "=== Local Shunt ===\n"
+      "Message ID     : %d\n"
+      "Data Changed   : %s\n"
+      "Voltage        : %.2f V\n"
+      "Current        : %.2f A\n"
+      "Power          : %.2f W\n"
+      "SOC            : %.1f %%\n"
+      "Capacity       : %.2f Ah\n"
+      "Error          : %d\n"
+      "Run Flat Time  : %s\n"
+      "===================\n",
+      p->messageID,
+      p->dataChanged ? "true" : "false",
+      p->batteryVoltage,
+      p->batteryCurrent,
+      p->batteryPower,
+      p->batterySOC * 100.0f,
+      p->batteryCapacity,
+      p->batteryState,
+      p->runFlatTime);
 }
 
 // New function to handle shunt resistance calibration
@@ -579,13 +602,17 @@ void runProtectionConfigMenu(INA226_ADC &ina)
   Serial.print(current_lv_cutoff);
   Serial.print(F("]: "));
   String input = SerialReadLineBlocking();
-  if (input.length() > 0) {
+  if (input.length() > 0)
+  {
     new_lv_cutoff = input.toFloat();
-    if (new_lv_cutoff < 7.0 || new_lv_cutoff > 12.0) {
+    if (new_lv_cutoff < 7.0 || new_lv_cutoff > 12.0)
+    {
       Serial.println(F("Invalid value. Please enter a value between 7.0 and 12.0."));
       return;
     }
-  } else {
+  }
+  else
+  {
     new_lv_cutoff = current_lv_cutoff;
   }
 
@@ -594,13 +621,17 @@ void runProtectionConfigMenu(INA226_ADC &ina)
   Serial.print(current_hysteresis);
   Serial.print(F("]: "));
   input = SerialReadLineBlocking();
-  if (input.length() > 0) {
+  if (input.length() > 0)
+  {
     new_hysteresis = input.toFloat();
-    if (new_hysteresis < 0.1 || new_hysteresis > 2.0) {
+    if (new_hysteresis < 0.1 || new_hysteresis > 2.0)
+    {
       Serial.println(F("Invalid value. Please enter a value between 0.1 and 2.0."));
       return;
     }
-  } else {
+  }
+  else
+  {
     new_hysteresis = current_hysteresis;
   }
 
@@ -609,13 +640,17 @@ void runProtectionConfigMenu(INA226_ADC &ina)
   Serial.print(current_oc_thresh);
   Serial.print(F("]: "));
   input = SerialReadLineBlocking();
-  if (input.length() > 0) {
+  if (input.length() > 0)
+  {
     new_oc_thresh = input.toFloat();
-    if (new_oc_thresh < 1.0 || new_oc_thresh > 200.0) {
+    if (new_oc_thresh < 1.0 || new_oc_thresh > 200.0)
+    {
       Serial.println(F("Invalid value. Please enter a value between 1.0 and 200.0."));
       return;
     }
-  } else {
+  }
+  else
+  {
     new_oc_thresh = current_oc_thresh;
   }
 
@@ -624,43 +659,48 @@ void runProtectionConfigMenu(INA226_ADC &ina)
   Serial.println(F("Protection settings updated."));
 }
 
-void runExportCalibrationMenu(INA226_ADC &ina) {
-    Serial.println(F("\n--- Export Calibration Data ---"));
-    Serial.println(F("Choose shunt rating to export (50-500 A):"));
-    Serial.print(F("> "));
+void runExportCalibrationMenu(INA226_ADC &ina)
+{
+  Serial.println(F("\n--- Export Calibration Data ---"));
+  Serial.println(F("Choose shunt rating to export (50-500 A):"));
+  Serial.print(F("> "));
 
-    String sel = SerialReadLineBlocking();
-    if (sel.equalsIgnoreCase("x")) {
-        Serial.println(F("Export canceled."));
-        return;
-    }
+  String sel = SerialReadLineBlocking();
+  if (sel.equalsIgnoreCase("x"))
+  {
+    Serial.println(F("Export canceled."));
+    return;
+  }
 
-    int shuntA = sel.toInt();
-    if (shuntA < 50 || shuntA > 500 || (shuntA % 50) != 0) {
-        Serial.println(F("Invalid shunt rating. Aborting export."));
-        return;
-    }
+  int shuntA = sel.toInt();
+  if (shuntA < 50 || shuntA > 500 || (shuntA % 50) != 0)
+  {
+    Serial.println(F("Invalid shunt rating. Aborting export."));
+    return;
+  }
 
-    if (!ina.loadCalibrationTable(shuntA)) {
-        Serial.printf("No calibration table found for %dA shunt. Cannot export.\n", shuntA);
-        return;
-    }
+  if (!ina.loadCalibrationTable(shuntA))
+  {
+    Serial.printf("No calibration table found for %dA shunt. Cannot export.\n", shuntA);
+    return;
+  }
 
-    const std::vector<CalPoint>& table = ina.getCalibrationTable();
-    if (table.empty()) {
-        Serial.printf("Calibration table for %dA shunt is empty. Nothing to export.\n", shuntA);
-        return;
-    }
+  const std::vector<CalPoint> &table = ina.getCalibrationTable();
+  if (table.empty())
+  {
+    Serial.printf("Calibration table for %dA shunt is empty. Nothing to export.\n", shuntA);
+    return;
+  }
 
-    Serial.println(F("\n--- Copy the following C++ code ---"));
-    Serial.printf("std::vector<CalPoint> preCalibratedPoints_%d = {\n", shuntA);
-    for (const auto& point : table) {
-        Serial.printf("    {%.6f, %.6f},\n", point.raw_mA, point.true_mA);
-    }
-    Serial.println("};");
-    Serial.println(F("--- End of C++ code ---"));
+  Serial.println(F("\n--- Copy the following C++ code ---"));
+  Serial.printf("std::vector<CalPoint> preCalibratedPoints_%d = {\n", shuntA);
+  for (const auto &point : table)
+  {
+    Serial.printf("    {%.6f, %.6f},\n", point.raw_mA, point.true_mA);
+  }
+  Serial.println("};");
+  Serial.println(F("--- End of C++ code ---"));
 }
-
 
 void onDataSent(const uint8_t *mac_addr, esp_now_send_status_t status)
 {
@@ -700,7 +740,8 @@ void setup()
   // Attach interrupt for INA226 alert pin
   attachInterrupt(digitalPinToInterrupt(INA_ALERT_PIN), alertISR, FALLING);
 
-  if (!ina226_adc.isConfigured()) {
+  if (!ina226_adc.isConfigured())
+  {
     Serial.println("\n!!! DEVICE NOT CONFIGURED !!!");
     Serial.println("Load output has been disabled.");
     Serial.println("Please run Shunt Resistance Calibration ('r') and restart.");
@@ -788,12 +829,14 @@ void setup()
 void loop()
 {
   // LED Heartbeat
-  if (millis() - last_led_blink > led_blink_interval) {
+  if (millis() - last_led_blink > led_blink_interval)
+  {
     digitalWrite(LED_PIN, !digitalRead(LED_PIN));
     last_led_blink = millis();
   }
 
-  if (ina226_adc.isAlertTriggered()) {
+  if (ina226_adc.isAlertTriggered())
+  {
     ina226_adc.processAlert();
   }
 
@@ -822,12 +865,15 @@ void loop()
     else if (s.equalsIgnoreCase("l"))
     {
       // toggle load connection
-      if (ina226_adc.isLoadConnected()) {
-          ina226_adc.setLoadConnected(false, MANUAL);
-          Serial.println("Load manually toggled OFF");
-      } else {
-          ina226_adc.setLoadConnected(true, NONE);
-          Serial.println("Load manually toggled ON");
+      if (ina226_adc.isLoadConnected())
+      {
+        ina226_adc.setLoadConnected(false, MANUAL);
+        Serial.println("Load manually toggled OFF");
+      }
+      else
+      {
+        ina226_adc.setLoadConnected(true, NONE);
+        Serial.println("Load manually toggled ON");
       }
     }
     else if (s.equalsIgnoreCase("e"))
@@ -839,10 +885,13 @@ void loop()
     {
       // toggle hardware alert
       ina226_adc.toggleHardwareAlerts();
-      if (ina226_adc.areHardwareAlertsDisabled()) {
-          Serial.println("Hardware alerts DISABLED.");
-      } else {
-          Serial.println("Hardware alerts ENABLED.");
+      if (ina226_adc.areHardwareAlertsDisabled())
+      {
+        Serial.println("Hardware alerts DISABLED.");
+      }
+      else
+      {
+        Serial.println("Hardware alerts ENABLED.");
       }
     }
     else if (s.equalsIgnoreCase("s"))
@@ -880,7 +929,8 @@ void loop()
   if (millis() - last_loop_millis > loop_interval)
   {
 #ifdef USE_ADC
-    if (ina226_adc.isConfigured()) {
+    if (ina226_adc.isConfigured())
+    {
       ina226_adc.checkAndHandleProtection();
     }
 
@@ -945,9 +995,15 @@ void loop()
 #endif
 
     // Send the data via ESP-NOW if configured
-    if (ina226_adc.isConfigured()) {
+    if (ina226_adc.isConfigured())
+    {
+      Serial.println("Mesh transmission: ready!");
       espNowHandler.setAeSmartShuntStruct(ae_smart_shunt_struct);
       espNowHandler.sendMessageAeSmartShunt();
+    }
+    else
+    {
+      Serial.println("Mesh transmission: ADC not configured, skipping!");
     }
 
 #ifdef USE_ADC
