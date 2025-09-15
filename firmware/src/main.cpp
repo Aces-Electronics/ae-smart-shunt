@@ -503,77 +503,85 @@ void runShuntResistanceCalibration(INA226_ADC &ina)
   Serial.println(F("Load enabled for calibration."));
 
   Serial.println(F("\n--- Shunt Resistance Calibration ---"));
-  Serial.println(F("Ensure a constant current load is applied."));
-  Serial.println(F("This routine will calculate the actual shunt resistance based on measured shunt voltage at various current levels."));
-
-  // Define the sweep of constant current loads in Amps
-  std::vector<float> current_loads = {0.1f, 0.5f, 1.0f, 2.0f, 5.0f, 10.0f}; // A
-  std::vector<float> measured_voltages;                                     // Store measured voltages in mV
-
-  Serial.println(F("\nFollow the prompts to apply each constant current load."));
-  Serial.println(F("Press 'Enter' after applying the load to take a measurement."));
+  Serial.println(F("This routine will calculate the actual shunt resistance based on a few measurements."));
   Serial.println(F("Press 'x' at any time to cancel."));
 
-  for (size_t i = 0; i < current_loads.size(); ++i)
-  {
-    float current_A = current_loads[i];
-    Serial.printf("\nStep %u of %u: Apply a constant current load of %.2f A.\n",
-                  (unsigned)(i + 1), (unsigned)current_loads.size(), current_A);
+  float v_zero_mv = 0.0f, v_1a_mv = 0.0f, v_5a_mv = 0.0f;
 
+  // --- Step 1: No Load ---
+  Serial.println(F("\nStep 1 of 3: No Load"));
+  Serial.println(F("Please disconnect all loads from the shunt, then press Enter."));
+  Serial.print("> ");
+  if (waitForEnterOrXWithDebug(ina, false).equalsIgnoreCase("x")) {
+    Serial.println(F("Canceled."));
+    return;
+  }
+  const int samples = 8;
+  float sum_v_zero = 0;
+  for (int s = 0; s < samples; ++s) {
+    ina.readSensors();
+    sum_v_zero += ina.getShuntVoltage_mV();
+    delay(120);
+  }
+  v_zero_mv = sum_v_zero / samples;
+  Serial.printf("Recorded avg 'no load' shunt voltage: %.6f mV\n", v_zero_mv);
+
+  // --- Step 2: 1A Load ---
+  Serial.println(F("\nStep 2 of 3: 1A Load"));
+  Serial.println(F("Please apply a constant 1A load, then press Enter."));
     Serial.print("> ");
-    String line = waitForEnterOrXWithDebug(ina, false); // Use waitForEnterOrXWithDebug for user input
-    if (line.equalsIgnoreCase("x"))
-    {
-      Serial.println(F("Shunt resistance calibration canceled."));
-      return;
-    }
+  if (waitForEnterOrXWithDebug(ina, false).equalsIgnoreCase("x")) {
+    Serial.println(F("Canceled."));
+    return;
+  }
+  float sum_v_1a = 0;
+  for (int s = 0; s < samples; ++s) {
+    ina.readSensors();
+    sum_v_1a += ina.getShuntVoltage_mV();
+    delay(120);
+  }
+  v_1a_mv = sum_v_1a / samples;
+  Serial.printf("Recorded avg 1A shunt voltage: %.6f mV\n", v_1a_mv);
 
-    // Take a short average of voltage measurements
-    const int samples = 8;
-    float sumShuntVoltage_mV = 0.0f;
-    for (int s = 0; s < samples; ++s)
-    {
-      ina.readSensors();
-      sumShuntVoltage_mV += ina.getShuntVoltage_mV();
-      delay(120);
-    }
-    float avgShuntVoltage_mV = sumShuntVoltage_mV / (float)samples;
+  // --- Step 3: 5A Load ---
+  Serial.println(F("\nStep 3 of 3: 5A Load"));
+  Serial.println(F("Please apply a constant 5A load, then press Enter."));
+    Serial.print("> ");
+  if (waitForEnterOrXWithDebug(ina, false).equalsIgnoreCase("x")) {
+    Serial.println(F("Canceled."));
+    return;
+  }
+  float sum_v_5a = 0;
+  for (int s = 0; s < samples; ++s) {
+    ina.readSensors();
+    sum_v_5a += ina.getShuntVoltage_mV();
+    delay(120);
+  }
+  v_5a_mv = sum_v_5a / samples;
+  Serial.printf("Recorded avg 5A shunt voltage: %.6f mV\n", v_5a_mv);
 
-    Serial.printf("Recorded avg shunt voltage: %.3f mV (at %.2f A)\n", avgShuntVoltage_mV, current_A);
-    measured_voltages.push_back(avgShuntVoltage_mV);
+  // --- Calculations ---
+  Serial.println(F("\n--- Calculating Shunt Resistance ---"));
+
+  // R = (V_load - V_zero) / I_load
+  float r_1a = (v_1a_mv - v_zero_mv) / 1000.0f; // I = 1000mA
+  float r_5a = (v_5a_mv - v_zero_mv) / 5000.0f; // I = 5000mA
+
+  Serial.printf("Resistance from 1A load: %.9f Ohms\n", r_1a);
+  Serial.printf("Resistance from 5A load: %.9f Ohms\n", r_5a);
+
+  if (r_1a <= 0 || r_5a <= 0) {
+    Serial.println(F("\n[ERROR] Calculated resistance is zero or negative. This can happen if the load was not applied correctly or if the 'no load' voltage was higher than the load voltage. Please try again."));
+    return;
   }
 
-  // Calculate the shunt resistance using Ohm's Law (R = V/I) for each data point
-  // Then, average the results for a more stable value.
-  float sumOhms = 0.0f;
-  size_t valid_measurements = 0;
-  for (size_t i = 0; i < current_loads.size(); ++i)
-  {
-    if (current_loads[i] > 0)
-    { // Avoid division by zero
-      // Convert mV to V for resistance calculation
-      float voltage_V = measured_voltages[i] / 1000.0f;
-      float resistance_Ohms = voltage_V / current_loads[i];
-      sumOhms += resistance_Ohms;
-      valid_measurements++;
-      Serial.printf("Calculation %u: %.3f V / %.2f A = %.9f Ohms\n",
-                    (unsigned)(i + 1), voltage_V, current_loads[i], resistance_Ohms);
-    }
-  }
+  float newShuntOhms = (r_1a + r_5a) / 2.0f;
 
-  if (valid_measurements > 0)
-  {
-    float newShuntOhms = sumOhms / valid_measurements;
+  Serial.printf("\nCalculated new average shunt resistance: %.9f Ohms.\n", newShuntOhms);
 
-    // Save the new resistance
-    ina.saveShuntResistance(newShuntOhms);
-    Serial.printf("\nCalculated new average shunt resistance: %.9f Ohms.\n", newShuntOhms);
-    Serial.println("This value has been saved and will be used for all future calculations.");
-  }
-  else
-  {
-    Serial.println("\nNo valid measurements were taken. Shunt resistance calibration failed.");
-  }
+  // Save the new resistance
+  ina.saveShuntResistance(newShuntOhms);
+  Serial.println("This value has been saved and will be used for all future calculations.");
 
   // Prompt to run current calibration
   Serial.println(F("\nShunt resistance calibration is complete. Would you like to run the current calibration now? (y/N)"));
