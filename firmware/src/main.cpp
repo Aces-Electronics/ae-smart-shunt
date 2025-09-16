@@ -9,9 +9,7 @@
 #include "passwords.h"
 #include <esp_now.h>
 #include <esp_err.h>
-#include "soc/rtc_io_reg.h"
-#include "soc/soc.h"
-#include "soc/gpio_reg.h"
+#include "driver/rtc_io.h"
 
 // WiFi and OTA
 #include <WiFi.h>
@@ -1096,7 +1094,6 @@ void loop()
       ae_smart_shunt_struct.starterBatteryVoltage = starter_adc.readVoltage();
 
       ae_smart_shunt_struct.batteryState = 0; // 0 = Normal, 1 = Warning, 2 = Critical
-      ae_smart_shunt_struct.loadOutput = ina226_adc.isLoadConnected();
 
       // Update remaining capacity in the INA226 helper (expects current in A)
       ina226_adc.updateBatteryCapacity(ina226_adc.getCurrent_mA() / 1000.0f);

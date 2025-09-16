@@ -2,9 +2,7 @@
 #include <cfloat>
 #include <algorithm>
 #include <map>
-#include "soc/rtc_io_reg.h"
-#include "soc/soc.h"
-#include "soc/gpio_reg.h"
+#include "driver/rtc_io.h"
 
 namespace {
     // Factory-calibrated table for the 50A shunt, based on user-provided data
