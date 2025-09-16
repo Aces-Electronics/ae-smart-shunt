@@ -9,7 +9,7 @@
 #include "passwords.h"
 #include <esp_now.h>
 #include <esp_err.h>
-#include "driver/rtc_io.h"
+#include "driver/gpio.h"
 
 // WiFi and OTA
 #include <WiFi.h>
@@ -844,7 +844,7 @@ void setup()
   delay(100); // let Serial start
 
   // Disable the RTC GPIO hold on boot
-  rtc_gpio_hold_dis(GPIO_NUM_5);
+  gpio_hold_dis(GPIO_NUM_5);
 
   pinMode(LED_PIN, OUTPUT);
 

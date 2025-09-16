@@ -2,7 +2,7 @@
 #include <cfloat>
 #include <algorithm>
 #include <map>
-#include "driver/rtc_io.h"
+#include "driver/gpio.h"
 
 namespace {
     // Factory-calibrated table for the 50A shunt, based on user-provided data
@@ -874,7 +874,7 @@ void INA226_ADC::clearAlerts() {
 
 void INA226_ADC::enterSleepMode() {
     Serial.println("Entering deep sleep to conserve power.");
-    rtc_gpio_hold_en(GPIO_NUM_5);
+    gpio_hold_en(GPIO_NUM_5);
     esp_sleep_enable_timer_wakeup(10 * 1000000); // Wake up every 10 seconds
     esp_deep_sleep_start();
 }
