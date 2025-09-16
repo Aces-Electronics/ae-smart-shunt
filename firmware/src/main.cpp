@@ -49,6 +49,7 @@ INA226_ADC ina226_adc(I2C_ADDRESS, 0.000789840f, 100.00f);
 GPIO_ADC starter_adc(3);
 
 ESPNowHandler espNowHandler(broadcastAddress); // ESP-NOW handler for sending data
+BLEHandler bleHandler;
 WiFiClientSecure wifi_client;
 
 void IRAM_ATTR alertISR()
@@ -937,10 +938,7 @@ void setup()
     Serial.println("Broadcast peer added");
   }
 
-#ifndef USE_ADC
-  // Code to use victron BLE
-  bleHandler.startScan(scanTime);
-#endif
+  bleHandler.begin();
 
   Serial.println("Setup done");
 }
@@ -1062,7 +1060,6 @@ void loop()
 
   if (millis() - last_loop_millis > loop_interval)
   {
-#ifdef USE_ADC
     // Always read sensors
     ina226_adc.readSensors();
 
@@ -1129,34 +1126,28 @@ void loop()
     }
     ae_smart_shunt_struct.runFlatTime[sizeof(ae_smart_shunt_struct.runFlatTime) - 1] = '\0'; // ensure null termination
 
-#else
-    // Code to use victron BLE
-    bleHandler.startScan(scanTime);
-
-    // Provide safe defaults so struct is still valid
-    ae_smart_shunt_struct.messageID = 0;
-    ae_smart_shunt_struct.dataChanged = false;
-    ae_smart_shunt_struct.batteryVoltage = 0.0f;
-    ae_smart_shunt_struct.batteryCurrent = 0.0f;
-    ae_smart_shunt_struct.batteryPower = 0.0f;
-    ae_smart_shunt_struct.batteryCapacity = 0.0f;
-    ae_smart_shunt_struct.batterySOC = 0.0f;
-    ae_smart_shunt_struct.batteryState = 0;
-    strncpy(ae_smart_shunt_struct.runFlatTime, "N/A", sizeof(ae_smart_shunt_struct.runFlatTime));
-#endif
+    // Update BLE characteristics
+    Telemetry telemetry_data = {
+        .batteryVoltage = ae_smart_shunt_struct.batteryVoltage,
+        .batteryCurrent = ae_smart_shunt_struct.batteryCurrent,
+        .batteryPower = ae_smart_shunt_struct.batteryPower,
+        .batterySOC = ae_smart_shunt_struct.batterySOC,
+        .batteryCapacity = ae_smart_shunt_struct.batteryCapacity,
+        .starterBatteryVoltage = ae_smart_shunt_struct.starterBatteryVoltage,
+        .isCalibrated = ae_smart_shunt_struct.isCalibrated
+    };
+    bleHandler.updateTelemetry(telemetry_data);
 
     // ALWAYS send the data via ESP-NOW
     Serial.println("Mesh transmission: ready!");
     espNowHandler.setAeSmartShuntStruct(ae_smart_shunt_struct);
     espNowHandler.sendMessageAeSmartShunt();
 
-#ifdef USE_ADC
     printShunt(&ae_smart_shunt_struct);
     if (ina226_adc.isOverflow())
     {
       Serial.println("Warning: Overflow condition!");
     }
-#endif
 
     Serial.println();
     last_loop_millis = millis();

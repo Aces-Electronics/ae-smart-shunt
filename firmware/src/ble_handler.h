@@ -2,33 +2,45 @@
 #define BLE_HANDLER_H
 
 #include <NimBLEDevice.h>
-#include <NimBLEAdvertisedDevice.h>
-#include "NimBLEBeacon.h"
-#include "shared_defs.h"
-#include <aes/esp_aes.h>
 
-#include "passwords.h"
+// Define a struct to hold all the telemetry data
+struct Telemetry {
+    float batteryVoltage;
+    float batteryCurrent;
+    float batteryPower;
+    float batterySOC;
+    float batteryCapacity;
+    float starterBatteryVoltage;
+    bool isCalibrated;
+};
 
-#include <Arduino.h>
+class BLEHandler {
+public:
+    BLEHandler();
+    void begin();
+    void updateTelemetry(const Telemetry& telemetry);
 
-struct struct_message_voltage0;
-
-class BLEHandler : public BLEAdvertisedDeviceCallbacks {
-    public:
-        BLEHandler(struct_message_voltage0* voltageStruct);
-        void startScan(int scanTimeSeconds);
-        void stopScan();
-    
-        void onResult(BLEAdvertisedDevice* advertisedDevice) override;
-    
-    private:
-        char convertCharToHex(char ch);
-        void prtnib(int n);
-    
-        char savedDeviceName[32];
-        int keyBits = 128;
-    
-        struct_message_voltage0* voltageStruct;
-    };
+public:
+    // Service and Characteristic UUIDs
+    // Using UUIDs from a random generator
+    static const char* SERVICE_UUID;
+    static const char* VOLTAGE_CHAR_UUID;
+    static const char* CURRENT_CHAR_UUID;
+    static const char* POWER_CHAR_UUID;
+    static const char* SOC_CHAR_UUID;
+    static const char* CAPACITY_CHAR_UUID;
+    static const char* STARTER_VOLTAGE_CHAR_UUID;
+    static const char* CALIBRATION_STATUS_CHAR_UUID;
+private:
+    BLEServer* pServer;
+    BLEService* pService;
+    BLECharacteristic* pVoltageCharacteristic;
+    BLECharacteristic* pCurrentCharacteristic;
+    BLECharacteristic* pPowerCharacteristic;
+    BLECharacteristic* pSocCharacteristic;
+    BLECharacteristic* pCapacityCharacteristic;
+    BLECharacteristic* pStarterVoltageCharacteristic;
+    BLECharacteristic* pCalibrationStatusCharacteristic;
+};
 
 #endif // BLE_HANDLER_H
