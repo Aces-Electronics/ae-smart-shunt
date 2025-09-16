@@ -5,6 +5,15 @@
 #define GPIO_ADC_NVS_NAMESPACE "gpio_adc_cal_v2" // New namespace for new format
 #define GPIO_ADC_KEY_COUNT "count"
 
+namespace {
+    // Default calibration table for the starter battery voltage ADC.
+    // This is loaded if no user-defined calibration is found in NVS.
+    const std::vector<VoltageCalPoint> default_voltage_cal_table = {
+        {2108, 10.0f}, {2322, 11.0f}, {2426, 11.5f}, {2523, 12.0f},
+        {2650, 12.5f}, {2750, 13.0f}, {2959, 14.0f}, {3165, 15.0f}
+    };
+} // end anonymous namespace
+
 GPIO_ADC::GPIO_ADC(int pin) : _pin(pin) {}
 
 void GPIO_ADC::begin() {
@@ -69,35 +78,32 @@ bool GPIO_ADC::isCalibrated() const {
 
 void GPIO_ADC::loadCalibration() {
     Preferences prefs;
-    if (!prefs.begin(GPIO_ADC_NVS_NAMESPACE, true)) { // read-only
-        Serial.println("Could not open GPIO ADC preferences.");
-        return;
-    }
+    prefs.begin(GPIO_ADC_NVS_NAMESPACE, true); // read-only
 
     uint32_t count = prefs.getUInt(GPIO_ADC_KEY_COUNT, 0);
-    if (count == 0) {
-        Serial.println("No GPIO ADC calibration found in NVS.");
-        prefs.end();
-        return;
-    }
 
-    _calibrationTable.clear();
-    _calibrationTable.reserve(count);
+    if (count >= 2) { // A valid table needs at least 2 points
+        _calibrationTable.clear();
+        _calibrationTable.reserve(count);
+        for (uint32_t i = 0; i < count; ++i) {
+            char key_raw[16], key_volt[16];
+            snprintf(key_raw, sizeof(key_raw), "raw_%u", i);
+            snprintf(key_volt, sizeof(key_volt), "volt_%u", i);
 
-    for (uint32_t i = 0; i < count; ++i) {
-        char key_raw[16], key_volt[16];
-        snprintf(key_raw, sizeof(key_raw), "raw_%u", i);
-        snprintf(key_volt, sizeof(key_volt), "volt_%u", i);
+            int raw_adc = prefs.getInt(key_raw, -1);
+            float voltage = prefs.getFloat(key_volt, -1.0f);
 
-        int raw_adc = prefs.getInt(key_raw, -1);
-        float voltage = prefs.getFloat(key_volt, -1.0f);
-
-        if (raw_adc != -1 && voltage != -1.0f) {
-            _calibrationTable.push_back({raw_adc, voltage});
+            if (raw_adc != -1 && voltage != -1.0f) {
+                _calibrationTable.push_back({raw_adc, voltage});
+            }
         }
+        Serial.printf("Loaded %u GPIO ADC calibration points from NVS.\\n", _calibrationTable.size());
+    } else {
+        // No user calibration found in NVS, so load the hard-coded default table.
+        _calibrationTable = default_voltage_cal_table;
+        Serial.println("No user calibration found in NVS. Loaded default starter voltage calibration.");
     }
     prefs.end();
-    Serial.printf("Loaded %u GPIO ADC calibration points.\\n", _calibrationTable.size());
 }
 
 void GPIO_ADC::saveCalibration() {
