@@ -43,13 +43,16 @@ The smart shunt is configured via a simple serial command-line interface. When c
 
 | Key | Command | Description |
 |:---:|---|---|
-| `c` | **Current Calibration** | Runs the guided multi-point current calibration routine. This maps the sensor's raw readings to true current values. |
+| `c` | **Current Calibration Menu** | Enters the menu for current shunt calibration. From here you can run a detailed calibration (`T`) or restore factory defaults (`F`). |
 | `r` | **Shunt Resistance Calibration** | Runs a routine to calculate the precise resistance of your shunt. **This must be run before first use.** |
+| `v` | **Voltage Calibration** | Runs the guided 8-point calibration routine for the starter battery voltage input. |
 | `p` | **Protection Settings** | Allows you to configure the thresholds for Low-Voltage Cutoff, Hysteresis, and Overcurrent Protection. |
 | `l` | **Load Toggle** | Manually toggles the load disconnect MOSFET ON or OFF. Useful for testing the hardware circuit. |
 | `a` | **Alert Toggle** | Toggles the hardware overcurrent alert ON or OFF. Useful for debugging. |
 | `s` | **Status Display** | Displays the current protection settings, including the actual hardware alert threshold read from the INA226. |
 | `d` | **Register Dump** | Prints the raw values of the INA226's key hardware registers for deep debugging. |
+| `e` | **Export Current Calibration** | Prints the current shunt calibration table for a chosen shunt rating in a C++-compatible format. |
+| `y` | **Export Voltage Calibration** | Prints the starter battery voltage calibration table in a C++-compatible format. |
 
 # v0.0.1
 Version 0.0.1 has been prototyped. I will hand assemble some test boards and do some testing. ~ETA for completion is 10/8/25.
