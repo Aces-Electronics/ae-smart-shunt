@@ -226,7 +226,7 @@ void runStarterADC_Calibration(GPIO_ADC &adc) {
 
 // Forward declaration for the calibration function
 void runShuntResistanceCalibration(INA226_ADC &ina);
-void runTableBasedCalibration(INA226_ADC &ina);
+void runTableBasedCalibration(INA226_ADC &ina, int shuntA);
 
 // This is the main calibration entry point, combining shunt selection,
 // resistance calibration, and current table calibration.
@@ -272,7 +272,7 @@ void runCurrentCalibrationMenu(INA226_ADC &ina)
       ina.loadFactoryDefaultResistance(shuntA);
       Serial.println(F("\nFactory default resistance loaded."));
     } else if (choice.equalsIgnoreCase("T")) {
-      runTableBasedCalibration(ina);
+      runTableBasedCalibration(ina, shuntA);
     } else if (choice.equalsIgnoreCase("X")) {
       Serial.println(F("Exiting calibration menu."));
       return;
@@ -284,7 +284,7 @@ void runCurrentCalibrationMenu(INA226_ADC &ina)
 
 // This function is from the user's provided code.
 // It was originally named runCalibrationMenu.
-void runTableBasedCalibration(INA226_ADC &ina)
+void runTableBasedCalibration(INA226_ADC &ina, int shuntA)
 {
   // First, check if the base shunt resistance has been calibrated.
   if (!ina.isConfigured()) {
@@ -298,22 +298,6 @@ void runTableBasedCalibration(INA226_ADC &ina)
   Serial.println(F("Load enabled for calibration."));
 
   Serial.println(F("\n--- Current Calibration Menu ---"));
-  Serial.println(F("Choose installed shunt rating (50-500 A in 50A steps) or 'x' to cancel:"));
-  Serial.print(F("> "));
-
-  String sel = SerialReadLineBlocking();
-  if (sel.equalsIgnoreCase("x"))
-  {
-    Serial.println(F("Calibration canceled."));
-    return;
-  }
-
-  int shuntA = sel.toInt();
-  if (shuntA < 50 || shuntA > 500 || (shuntA % 50) != 0)
-  {
-    Serial.println(F("Invalid shunt rating. Aborting calibration."));
-    return;
-  }
 
   // Save the selected shunt as the active one
   Preferences prefs;
