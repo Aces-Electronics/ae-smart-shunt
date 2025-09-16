@@ -85,6 +85,7 @@ public:
     const std::vector<CalPoint>& getCalibrationTable() const;
     bool hasCalibrationTable() const;                                    // RAM presence
     bool hasStoredCalibrationTable(uint16_t shuntRatedA, size_t &countOut) const;
+    bool loadFactoryCalibrationTable(uint16_t shuntRatedA);
 
 private:
     INA226_WE ina226;

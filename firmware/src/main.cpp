@@ -261,6 +261,7 @@ void runCurrentCalibrationMenu(INA226_ADC &ina)
     Serial.println(F("  (R) - Perform 3-point resistance calibration"));
     Serial.println(F("  (L) - Load factory default resistance"));
     Serial.println(F("  (T) - Perform fine-tuning current calibration (table)"));
+    Serial.println(F("  (F) - Restore factory default calibration table"));
     Serial.println(F("  (X) - Exit to main menu"));
     Serial.print(F("> "));
     String choice = SerialReadLineBlocking();
@@ -273,6 +274,12 @@ void runCurrentCalibrationMenu(INA226_ADC &ina)
       Serial.println(F("\nFactory default resistance loaded."));
     } else if (choice.equalsIgnoreCase("T")) {
       runTableBasedCalibration(ina, shuntA);
+    } else if (choice.equalsIgnoreCase("F")) {
+        if (ina.loadFactoryCalibrationTable(shuntA)) {
+            Serial.println(F("Factory calibration table restored."));
+        } else {
+            Serial.println(F("Could not restore factory calibration table."));
+        }
     } else if (choice.equalsIgnoreCase("X")) {
       Serial.println(F("Exiting calibration menu."));
       return;

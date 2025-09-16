@@ -3,6 +3,21 @@
 #include <algorithm>
 #include <map>
 
+namespace {
+    // Factory-calibrated table for the 50A shunt, based on user-provided data
+    const std::vector<CalPoint> factory_cal_50A = {
+        {688.171f, 0.000f},
+        {2116.966f, 1000.000f},
+        {3544.236f, 2000.000f},
+        {7829.666f, 5000.000f},
+        {15001.298f, 10000.000f},
+        {29259.684f, 20000.000f},
+        {43518.070f, 30000.002f},
+        {57776.453f, 40000.000f},
+        {72034.844f, 50000.000f}
+    };
+} // end anonymous namespace
+
 // Initialize the static map of factory default shunt resistances.
 const std::map<uint16_t, float> INA226_ADC::factory_shunt_resistances = {
     {50, 0.000789840f},
@@ -459,6 +474,31 @@ bool INA226_ADC::clearCalibrationTable(uint16_t shuntRatedA) {
     prefs.end();
     calibrationTable.clear();
     return true;
+}
+
+bool INA226_ADC::loadFactoryCalibrationTable(uint16_t shuntRatedA) {
+    const std::vector<CalPoint>* factory_table = nullptr;
+
+    switch (shuntRatedA) {
+        case 50:
+            factory_table = &factory_cal_50A;
+            break;
+        // Future pre-calibrated tables can be added here
+        default:
+            Serial.printf("No factory calibration table available for %dA shunt.\\n", shuntRatedA);
+            return false;
+    }
+
+    if (factory_table) {
+        // saveCalibrationTable persists to NVS and loads into RAM
+        if (saveCalibrationTable(shuntRatedA, *factory_table)) {
+            Serial.printf("Successfully loaded and saved factory calibration for %dA shunt.\\n", shuntRatedA);
+            return true;
+        }
+    }
+
+    Serial.printf("Failed to load factory calibration for %dA shunt.\\n", shuntRatedA);
+    return false;
 }
 
 // ---------------- Battery/run-flat logic (unchanged) ----------------
