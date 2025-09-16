@@ -226,6 +226,7 @@ void runStarterADC_Calibration(GPIO_ADC &adc) {
 
 // Forward declaration for the calibration function
 void runShuntResistanceCalibration(INA226_ADC &ina);
+void runTableBasedCalibration(INA226_ADC &ina);
 
 // This is the main calibration entry point, combining shunt selection,
 // resistance calibration, and current table calibration.
@@ -271,9 +272,7 @@ void runCurrentCalibrationMenu(INA226_ADC &ina)
       ina.loadFactoryDefaultResistance(shuntA);
       Serial.println(F("\nFactory default resistance loaded."));
     } else if (choice.equalsIgnoreCase("T")) {
-      // This is where the old table-based calibration logic would go.
-      // For now, let's just add a placeholder.
-      Serial.println(F("Table-based calibration is not yet implemented in this menu."));
+      runTableBasedCalibration(ina);
     } else if (choice.equalsIgnoreCase("X")) {
       Serial.println(F("Exiting calibration menu."));
       return;
@@ -281,6 +280,270 @@ void runCurrentCalibrationMenu(INA226_ADC &ina)
       Serial.println(F("Invalid choice."));
     }
   }
+}
+
+// This function is from the user's provided code.
+// It was originally named runCalibrationMenu.
+void runTableBasedCalibration(INA226_ADC &ina)
+{
+  // First, check if the base shunt resistance has been calibrated.
+  if (!ina.isConfigured()) {
+    Serial.println(F("\n[ERROR] Base shunt resistance has not been calibrated."));
+    Serial.println(F("Please run the 'r' (Shunt Resistance Calibration) command first."));
+    return;
+  }
+
+  // Ensure load is enabled for calibration
+  ina.setLoadConnected(true, MANUAL);
+  Serial.println(F("Load enabled for calibration."));
+
+  Serial.println(F("\n--- Current Calibration Menu ---"));
+  Serial.println(F("Choose installed shunt rating (50-500 A in 50A steps) or 'x' to cancel:"));
+  Serial.print(F("> "));
+
+  String sel = SerialReadLineBlocking();
+  if (sel.equalsIgnoreCase("x"))
+  {
+    Serial.println(F("Calibration canceled."));
+    return;
+  }
+
+  int shuntA = sel.toInt();
+  if (shuntA < 50 || shuntA > 500 || (shuntA % 50) != 0)
+  {
+    Serial.println(F("Invalid shunt rating. Aborting calibration."));
+    return;
+  }
+
+  // Save the selected shunt as the active one
+  Preferences prefs;
+  prefs.begin(NVS_CAL_NAMESPACE, false);
+  prefs.putUShort(NVS_KEY_ACTIVE_SHUNT, shuntA);
+  prefs.end();
+  Serial.printf("Set %dA as active shunt.\n", shuntA);
+
+  // Show existing linear + table calibration (if any)
+  float g0, o0;
+  bool hadLinear = ina.loadCalibration(shuntA);
+  ina.getCalibration(g0, o0);
+
+  size_t storedCount = 0;
+  bool hasTableStored = ina.hasStoredCalibrationTable(shuntA, storedCount);
+  bool hasTableRAM = ina.loadCalibrationTable(shuntA);
+
+  if (hadLinear)
+    Serial.printf("Loaded LINEAR calibration for %dA: gain=%.9f offset_mA=%.3f\n", shuntA, g0, o0);
+  else
+    Serial.printf("No stored LINEAR calibration for %dA. Using defaults gain=%.9f offset_mA=%.3f\n", shuntA, g0, o0);
+
+  if (hasTableStored)
+  {
+    Serial.printf("Found TABLE calibration for %dA with %u points. Loaded into RAM.\n", shuntA, (unsigned)storedCount);
+  }
+  else
+  {
+    Serial.printf("No TABLE calibration stored for %dA.\n", shuntA);
+  }
+
+  // Ask if user wants live debug streaming while waiting for each step
+  Serial.println(F("Enable live debug stream (raw vs calibrated) while waiting to record each step? (y/N)"));
+  Serial.print(F("> "));
+  String dbgAns = SerialReadLineBlocking();
+  bool debugMode = dbgAns.equalsIgnoreCase("y") || dbgAns.equalsIgnoreCase("yes");
+
+  // build measurement percentages
+  std::vector<float> perc;
+  perc.push_back(0.0f);    // 0%
+  perc.push_back(0.02f);   // 2%  (1A on 50A shunt)
+  perc.push_back(0.04f);   // 4%  (2A on 50A shunt)
+  perc.push_back(0.1f);    // 10% (5A on 50A shunt)
+  perc.push_back(0.2f);    // 20% (10A on 50A shunt)
+  perc.push_back(0.4f);    // 40% (20A on 50A shunt)
+  perc.push_back(0.6f);    // 60% (30A on 50A shunt)
+  perc.push_back(0.8f);    // 80% (40A on 50A shunt)
+  perc.push_back(1.0f);    // 100%(50A on 50A shunt)
+
+  std::vector<float> measured_mA;
+  std::vector<float> true_mA;
+
+  size_t last_measured_idx = 0;
+
+  for (size_t i = 0; i < perc.size(); ++i)
+  {
+    float p = perc[i];
+    float trueA = shuntA * p;
+    float true_milli = trueA * 1000.0f;
+
+    // --- Measure points up to and including 50% ---
+    if (p <= 0.5f) {
+        if (p == 0.0f) {
+        Serial.printf("\nStep %u of %u: Target = %.3f A (Zero Load).\nDisconnect all loads from the shunt, then press Enter to record. Enter 'x' to cancel.\n",
+                        (unsigned)(i + 1), (unsigned)perc.size(), trueA);
+        } else {
+        Serial.printf("\nStep %u of %u: Target = %.3f A (%.2f%% of %dA).\nSet test jig to the target current, then press Enter to record. Enter 'x' to cancel and accept measured so far.\n",
+                        (unsigned)(i + 1), (unsigned)perc.size(), trueA, p * 100.0f, shuntA);
+        }
+
+        Serial.print("> ");
+        String line = waitForEnterOrXWithDebug(ina, debugMode);
+        if (line.equalsIgnoreCase("x")) {
+            Serial.println("User canceled early; accepting tests recorded so far.");
+            break;
+        }
+
+        const int samples = 8;
+        float sumRaw = 0.0f;
+        for (int s = 0; s < samples; ++s) {
+            ina.readSensors();
+            sumRaw += ina.getRawCurrent_mA();
+            delay(120);
+        }
+        float avgRaw = sumRaw / (float)samples;
+        Serial.printf("Recorded avg raw reading: %.3f mA  (expected true: %.3f mA)\n", avgRaw, true_milli);
+        measured_mA.push_back(avgRaw);
+        true_mA.push_back(true_milli);
+        last_measured_idx = i;
+    }
+  }
+
+  // --- Extrapolate for points > 50% ---
+  if (last_measured_idx > 0 && last_measured_idx < perc.size() - 1) {
+    Serial.println("\nExtrapolating remaining points > 50%...");
+
+    // Get the last two measured points to establish a linear trend
+    float raw1 = measured_mA[last_measured_idx - 1];
+    float true1 = true_mA[last_measured_idx - 1];
+    float raw2 = measured_mA[last_measured_idx];
+    float true2 = true_mA[last_measured_idx];
+
+    // Calculate the slope (gain) of the last segment
+    float slope = (raw2 - raw1) / (true2 - true1);
+
+    for (size_t i = last_measured_idx + 1; i < perc.size(); ++i) {
+        float p = perc[i];
+        float trueA = shuntA * p;
+        float true_milli = trueA * 1000.0f;
+
+        // Extrapolate the raw value
+        float extrapolated_raw = raw2 + slope * (true_milli - true2);
+
+        Serial.printf("Extrapolated Point: raw=%.3f mA -> true=%.3f mA (%.2f%%)\n", extrapolated_raw, true_milli, p * 100.0f);
+        measured_mA.push_back(extrapolated_raw);
+        true_mA.push_back(true_milli);
+    }
+  }
+
+  size_t N = measured_mA.size();
+  if (N == 0)
+  {
+    Serial.println("No measurements taken; leaving calibration unchanged.");
+    return;
+  }
+
+  // -------- Build & save calibration TABLE (piecewise linear) --------
+  std::vector<CalPoint> points;
+  points.reserve(N);
+  for (size_t i = 0; i < N; ++i)
+  {
+    points.push_back({measured_mA[i], true_mA[i]});
+    Serial.printf("Point %u: raw=%.3f mA -> true=%.3f mA\n", (unsigned)i, measured_mA[i], true_mA[i]);
+  }
+
+  // Wipe any existing calibration for this shunt before saving new one
+  ina.clearCalibrationTable(shuntA);
+
+  // Save table (this also sorts/dedups internally and loads into RAM)
+  if (ina.saveCalibrationTable(shuntA, points))
+  {
+    Serial.println("\nCalibration complete (TABLE).");
+    Serial.printf("Saved %u calibration points for %dA shunt.\n", (unsigned)points.size(), shuntA);
+  }
+  else
+  {
+    Serial.println("\nCalibration failed: no points saved.");
+    return; // Can't run tests if calibration failed
+  }
+
+  Serial.println("These values are persisted and will be applied to subsequent current readings.");
+
+  // --- Guided Tests ---
+  Serial.println(F("\n--- Guided Hardware Tests ---"));
+  Serial.println(F("Would you like to run guided tests to verify hardware functionality? (y/N)"));
+  Serial.print(F("> "));
+  String testAns = SerialReadLineBlocking();
+  if (!testAns.equalsIgnoreCase("y")) {
+    Serial.println("Skipping hardware tests.");
+    return;
+  }
+
+  // Test 1: Load Switch Test
+  Serial.println(F("\n--- Test 1: Load Switch ---"));
+  Serial.println(F("This test will verify the load disconnect MOSFET."));
+  Serial.println(F("Please apply a constant 1A load, then press Enter."));
+  Serial.print(F("> "));
+  waitForEnterOrXWithDebug(ina, false);
+
+  delay(500);
+  ina.readSensors();
+  float current_before = ina.getCurrent_mA();
+  Serial.printf("Current before disconnect: %.3f mA\n", current_before);
+
+  Serial.println("Disconnecting load...");
+  ina.setLoadConnected(false, MANUAL);
+  delay(500); // Wait for load to disconnect and reading to settle
+
+  ina.readSensors();
+  float current_after = ina.getCurrent_mA();
+  float no_load_current = measured_mA[0]; // First point was zero-load
+  Serial.printf("Current after disconnect: %.3f mA (expected ~%.3f mA)\n", current_after, no_load_current);
+
+  if (abs(current_after - no_load_current) < 50.0f) { // Allow 50mA tolerance
+    Serial.println(F("SUCCESS: Load switch appears to be working."));
+  } else {
+    Serial.println(F("FAILURE: Current did not drop to no-load value. Check MOSFET wiring."));
+  }
+
+  // Reconnect load for next test
+  Serial.println("Reconnecting load...");
+  ina.setLoadConnected(true, NONE);
+  delay(500);
+
+  // Test 2: Overcurrent Alert Test
+  Serial.println(F("\n--- Test 2: Overcurrent Alert ---"));
+  Serial.println(F("This test will verify the INA226 alert functionality."));
+
+  float test_current = 0.5f; // 500mA
+  Serial.printf("The alert threshold will be temporarily set to %.3f A.\n", test_current);
+  Serial.println(F("Please ensure your load is set to 0A, then press Enter."));
+  Serial.print(F("> "));
+  waitForEnterOrXWithDebug(ina, false);
+
+  ina.setTempOvercurrentAlert(test_current);
+
+  Serial.println(F("Now, slowly increase the load. The load should disconnect when you exceed the test threshold."));
+  Serial.println(F("The test will wait for 15 seconds..."));
+
+  bool alert_fired = false;
+  unsigned long test_start = millis();
+  while(millis() - test_start < 15000) { // 15s timeout
+      if (ina.isAlertTriggered()) {
+          ina.processAlert();
+          alert_fired = true;
+          break;
+      }
+      delay(50);
+  }
+
+  if (alert_fired) {
+    Serial.println(F("SUCCESS: Overcurrent alert triggered and load was disconnected."));
+  } else {
+    Serial.println(F("FAILURE: Alert did not trigger within 15 seconds. Check INA226 wiring."));
+  }
+
+  // Restore original alert configuration
+  ina.restoreOvercurrentAlert();
+  // Ensure load is connected for normal operation
+  ina.setLoadConnected(true, NONE);
 }
 
 void printShunt(const struct_message_ae_smart_shunt_1 *p)
