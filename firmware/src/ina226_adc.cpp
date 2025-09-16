@@ -333,25 +333,18 @@ bool INA226_ADC::loadShuntResistance() {
 bool INA226_ADC::loadFactoryDefaultResistance(uint16_t shuntRatedA) {
     auto it = factory_shunt_resistances.find(shuntRatedA);
     if (it != factory_shunt_resistances.end()) {
-        calibratedOhms = it->second;
+        float factoryOhms = it->second;
 
-        // Remove any custom calibration from NVS to ensure factory default is used on next boot
-        Preferences prefs;
-        prefs.begin("ina_cal", false);
-        if (prefs.isKey("cal_ohms")) {
-            prefs.remove("cal_ohms");
-            Serial.println("Removed custom shunt resistance calibration from NVS.");
-        }
-        prefs.end();
+        // Save the factory default resistance to NVS so it persists.
+        // This is better than just removing the key, which would cause `isConfigured` to be false on next boot.
+        saveShuntResistance(factoryOhms);
+        Serial.printf("Saved factory default resistance for %dA shunt to NVS: %.9f Ohms\n", shuntRatedA, factoryOhms);
 
-        // Also clear any associated table calibration
+        // Also clear any associated table calibration to avoid mismatches.
         clearCalibrationTable(shuntRatedA);
         Serial.printf("Cleared any existing calibration table for %dA shunt.\n", shuntRatedA);
 
-        // Immediately apply the new resistance to the INA226 configuration
-        ina226.setResistorRange(calibratedOhms, (float)shuntRatedA);
-        Serial.printf("Loaded factory default for %dA shunt: %.9f Ohms\n", shuntRatedA, calibratedOhms);
-        m_isConfigured = true; // Mark as configured even with factory defaults
+        // The saveShuntResistance function already updates the live configuration and sets m_isConfigured.
         return true;
     } else {
         Serial.printf("No factory default found for %dA shunt.\n", shuntRatedA);
