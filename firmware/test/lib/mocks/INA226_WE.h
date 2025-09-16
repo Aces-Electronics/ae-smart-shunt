@@ -26,19 +26,35 @@ enum ina226_conversion_times{
     CONV_TIME_8244
 };
 
+enum ina226_alert_type{
+    SHUNT_OVER,
+    SHUNT_UNDER,
+    CURRENT_OVER,
+    CURRENT_UNDER,
+    BUS_OVER,
+    BUS_UNDER,
+    POWER_OVER
+};
 
 class INA226_WE {
 public:
-    INA226_WE(uint8_t addr) {
-        // Mock constructor
-    }
+    // Register addresses
+    static const uint8_t INA226_CONF_REG = 0x00;
+    static const uint8_t INA226_CAL_REG = 0x05;
+    static const uint8_t INA226_MASK_EN_REG = 0x06;
+    static const uint8_t INA226_ALERT_LIMIT_REG = 0x07;
 
-    void init() {}
-    void waitUntilConversionCompleted() {}
-    void setAverage(ina226_averages averages) {}
-    void setConversionTime(ina226_conversion_times convTime) {}
-    void setResistorRange(float resistor, float current) {}
-    void readAndClearFlags() {}
+    INA226_WE(uint8_t addr);
+    void init();
+    void waitUntilConversionCompleted();
+    void setAverage(ina226_averages averages);
+    void setConversionTime(ina226_conversion_times convTime);
+    void setResistorRange(float resistor, float current);
+    void readAndClearFlags();
+    void setAlertType(ina226_alert_type type, float limit);
+    void enableAlertLatch();
+    uint16_t readRegister(uint8_t reg) const;
+    void writeRegister(uint8_t reg, uint16_t val);
 
     // Mock data members - public to allow easy manipulation in tests
     static float mockShuntVoltage_mV;

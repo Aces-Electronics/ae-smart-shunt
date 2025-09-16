@@ -766,6 +766,11 @@ void loop()
       // dump INA226 registers
       ina226_adc.dumpRegisters();
     }
+    else if (s.equalsIgnoreCase("i"))
+    {
+      // toggle current inversion
+      ina226_adc.toggleInvertCurrent();
+    }
     // else ignore — keep running
   }
 

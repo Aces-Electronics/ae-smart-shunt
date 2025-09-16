@@ -314,6 +314,7 @@ void test_overcurrent_disconnect(void) {
     adc.setProtectionSettings(9.0f, 0.5f, 50.0f);
     adc.setLoadConnected(true);
 
+    INA226_WE::mockBusVoltage_V = 12.0; // Set a realistic voltage
     INA226_WE::mockCurrent_mA = 51000.0f; // 51A, above threshold
     adc.readSensors();
     adc.checkAndHandleProtection();
@@ -352,24 +353,21 @@ void test_alert_disconnect(void) {
     TEST_ASSERT_FALSE(adc.isAlertTriggered());
 }
 
-int main(int argc, char **argv) {
-    UNITY_BEGIN();
-    RUN_TEST(test_current_calibration);
-    RUN_TEST(test_battery_capacity);
-    RUN_TEST(test_run_flat_time_formatted);
-    RUN_TEST(test_averaged_run_flat_time);
-    RUN_TEST(test_calibration_persistence);
-    RUN_TEST(test_espnow_handler);
-    RUN_TEST(test_main_loop_logic);
-    RUN_TEST(test_protection_settings_persistence);
-    RUN_TEST(test_low_voltage_disconnect);
-    RUN_TEST(test_overcurrent_disconnect);
-    RUN_TEST(test_voltage_reconnect);
-    RUN_TEST(test_alert_disconnect);
-    RUN_TEST(test_usb_power_no_disconnect);
-    RUN_TEST(test_alert_ignored_when_disconnected);
-    UNITY_END();
-    return 0;
+void test_current_inversion(void) {
+    INA226_ADC adc(0x40, 0.001, 100.0);
+    INA226_WE::mockCurrent_mA = 1234.5;
+
+    // 1. Test with inversion enabled
+    adc.toggleInvertCurrent(); // Enable inversion
+    TEST_ASSERT_TRUE(adc.isInvertCurrentEnabled());
+    adc.readSensors();
+    TEST_ASSERT_EQUAL_FLOAT(-1234.5, adc.getCurrent_mA());
+
+    // 2. Test with inversion disabled
+    adc.toggleInvertCurrent(); // Disable inversion
+    TEST_ASSERT_FALSE(adc.isInvertCurrentEnabled());
+    adc.readSensors();
+    TEST_ASSERT_EQUAL_FLOAT(1234.5, adc.getCurrent_mA());
 }
 
 void test_usb_power_no_disconnect(void) {
@@ -400,4 +398,25 @@ void test_alert_ignored_when_disconnected(void) {
     // Assert that the load is still disconnected and the flag is cleared
     TEST_ASSERT_FALSE(adc.isLoadConnected());
     TEST_ASSERT_FALSE(adc.isAlertTriggered());
+}
+
+int main(int argc, char **argv) {
+    UNITY_BEGIN();
+    RUN_TEST(test_current_calibration);
+    RUN_TEST(test_battery_capacity);
+    RUN_TEST(test_run_flat_time_formatted);
+    RUN_TEST(test_averaged_run_flat_time);
+    RUN_TEST(test_calibration_persistence);
+    RUN_TEST(test_espnow_handler);
+    RUN_TEST(test_main_loop_logic);
+    RUN_TEST(test_protection_settings_persistence);
+    RUN_TEST(test_low_voltage_disconnect);
+    RUN_TEST(test_overcurrent_disconnect);
+    RUN_TEST(test_voltage_reconnect);
+    RUN_TEST(test_alert_disconnect);
+    RUN_TEST(test_usb_power_no_disconnect);
+    RUN_TEST(test_alert_ignored_when_disconnected);
+    RUN_TEST(test_current_inversion);
+    UNITY_END();
+    return 0;
 }
