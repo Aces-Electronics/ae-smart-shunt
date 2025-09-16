@@ -547,7 +547,6 @@ void printShunt(const struct_message_ae_smart_shunt_1 *p)
       "Starter Voltage: %.2f V\n"
       "Error          : %d\n"
       "Run Flat Time  : %s\n"
-      "Load Output    : %s\n"
       "===================\n",
       p->messageID,
       p->dataChanged ? "true" : "false",
@@ -558,8 +557,7 @@ void printShunt(const struct_message_ae_smart_shunt_1 *p)
       p->batteryCapacity,
       p->starterBatteryVoltage,
       p->batteryState,
-      p->runFlatTime,
-      ina226_adc.isLoadConnected() ? "ON" : "OFF");
+      p->runFlatTime);
 }
 
 // New function to handle shunt resistance calibration

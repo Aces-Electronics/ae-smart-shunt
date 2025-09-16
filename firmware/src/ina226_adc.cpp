@@ -138,12 +138,12 @@ float INA226_ADC::getCalibratedCurrent_mA(float raw_mA) const {
 
     // Handle negative currents by assuming symmetric calibration around zero.
     const bool is_negative = raw_mA < 0.0f;
-    const float abs_raw_mA = is_negative ? -raw_mA : raw_mA;
+    const float abs_raw_mA = fabsf(raw_mA);
 
     float calibrated_abs_mA;
 
     // If the absolute value is below or at the first calibration point,
-    // use the first calibration point's true value.
+    // use the first calibration point's true value (which should be 0).
     if (abs_raw_mA <= calibrationTable.front().raw_mA) {
         calibrated_abs_mA = calibrationTable.front().true_mA;
     }
