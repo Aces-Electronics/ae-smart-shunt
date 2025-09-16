@@ -113,8 +113,11 @@ private:
     std::vector<CalPoint> calibrationTable;
     float getCalibratedCurrent_mA(float raw_mA) const;
 
+    void setInitialSOC();
+
     // Factory default resistances
     static const std::map<uint16_t, float> factory_shunt_resistances;
+    static const std::map<float, float> soc_voltage_map;
 
     // run-flat time averaging
     const static int maxSamples = 10;

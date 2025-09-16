@@ -2,6 +2,9 @@
 #include <cfloat>
 #include <algorithm>
 #include <map>
+#include "soc/rtc_io_reg.h"
+#include "soc/soc.h"
+#include "soc/gpio_reg.h"
 
 namespace {
     // Factory-calibrated table for the 50A shunt, based on user-provided data
@@ -30,6 +33,24 @@ const std::map<uint16_t, float> INA226_ADC::factory_shunt_resistances = {
     {400, 0.000789840f},
     {450, 0.000789840f},
     {500, 0.000789840f}
+};
+
+const std::map<float, float> INA226_ADC::soc_voltage_map = {
+    {14.60, 100.0},
+    {14.45, 99.0},
+    {13.87, 95.0},
+    {13.30, 90.0},
+    {13.25, 80.0},
+    {13.20, 70.0},
+    {13.17, 60.0},
+    {13.13, 50.0},
+    {13.10, 40.0},
+    {13.00, 30.0},
+    {12.90, 20.0},
+    {12.80, 17.0},
+    {12.50, 14.0},
+    {12.00, 9.0},
+    {10.00, 0.0}
 };
 
 INA226_ADC::INA226_ADC(uint8_t address, float shuntResistorOhms, float batteryCapacityAh)
@@ -118,6 +139,7 @@ void INA226_ADC::begin(int sdaPin, int sclPin) {
     loadProtectionSettings();
     loadInvertCurrent();
     configureAlert(overcurrentThreshold);
+    setInitialSOC();
 }
 
 void INA226_ADC::readSensors() {
@@ -149,6 +171,54 @@ float INA226_ADC::getCurrent_mA() const {
         return -result_mA;
     }
     return result_mA;
+}
+
+void INA226_ADC::setInitialSOC() {
+    readSensors();
+    float voltage = getBusVoltage_V();
+    float current = getCurrent_mA() / 1000.0f; // Convert to Amps
+
+    // Adjust voltage based on load/charge
+    if (current > 0.1) { // Discharging (under load)
+        voltage += 0.4;
+    } else if (current < -0.1) { // Charging
+        voltage -= 0.4;
+    }
+
+    float soc_percent = 50.0; // Default SOC
+
+    // Handle special cases
+    if (voltage <= 11.6) {
+        soc_percent = 10.0;
+    } else if (voltage >= 14.0) {
+        soc_percent = 100.0;
+    } else {
+        // Lookup SOC from the map
+        auto it = soc_voltage_map.lower_bound(voltage);
+        if (it == soc_voltage_map.end()) {
+            soc_percent = 100.0;
+        } else if (it == soc_voltage_map.begin()) {
+            soc_percent = 0.0;
+        } else {
+            // Linear interpolation
+            float v_high = it->first;
+            float soc_high = it->second;
+            it--;
+            float v_low = it->first;
+            float soc_low = it->second;
+
+            if (v_high > v_low) {
+                soc_percent = soc_low + ((voltage - v_low) * (soc_high - soc_low)) / (v_high - v_low);
+            } else {
+                soc_percent = soc_low;
+            }
+        }
+    }
+
+    // Set the battery capacity based on the calculated SOC
+    batteryCapacity = maxBatteryCapacity * (soc_percent / 100.0f);
+    lastUpdateTime = millis();
+    Serial.printf("Initial SOC set to %.2f%% based on adjusted voltage of %.2fV. Initial capacity: %.2fAh\n", soc_percent, voltage, batteryCapacity);
 }
 
 float INA226_ADC::getCalibratedCurrent_mA(float raw_mA) const {
@@ -806,6 +876,7 @@ void INA226_ADC::clearAlerts() {
 
 void INA226_ADC::enterSleepMode() {
     Serial.println("Entering deep sleep to conserve power.");
+    rtc_gpio_hold_en(GPIO_NUM_5);
     esp_sleep_enable_timer_wakeup(10 * 1000000); // Wake up every 10 seconds
     esp_deep_sleep_start();
 }

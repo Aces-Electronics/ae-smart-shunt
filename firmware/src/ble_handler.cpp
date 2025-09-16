@@ -10,8 +10,28 @@ const char* BLEHandler::SOC_CHAR_UUID = "7c6c3e2e-4171-4228-8e8e-8b6c3a3b341b";
 const char* BLEHandler::CAPACITY_CHAR_UUID = "3c3e8e1a-8b8a-4b0e-8e8e-8b6c3a3b341b";
 const char* BLEHandler::STARTER_VOLTAGE_CHAR_UUID = "5b2e3f40-8b8a-4b0e-8e8e-8b6c3a3b341b";
 const char* BLEHandler::CALIBRATION_STATUS_CHAR_UUID = "9b1e3f40-8b8a-4b0e-8e8e-8b6c3a3b341b";
+const char* BLEHandler::ERROR_STATE_CHAR_UUID = "a3b4c5d6-e7f8-9012-3456-789012345678";
+const char* BLEHandler::LOAD_STATE_CHAR_UUID = "b4c5d6e7-f890-1234-5678-901234567890";
+const char* BLEHandler::LOAD_CONTROL_CHAR_UUID = "c5d6e7f8-9012-3456-7890-123456789012";
+
+class LoadControlCallbacks : public BLECharacteristicCallbacks {
+    std::function<void(bool)> _callback;
+public:
+    LoadControlCallbacks(std::function<void(bool)> callback) : _callback(callback) {}
+
+    void onWrite(BLECharacteristic* pCharacteristic) {
+        std::string value = pCharacteristic->getValue();
+        if (value.length() > 0 && _callback) {
+            _callback(value[0] != 0);
+        }
+    }
+};
 
 BLEHandler::BLEHandler() : pServer(NULL), pService(NULL) {}
+
+void BLEHandler::setLoadSwitchCallback(std::function<void(bool)> callback) {
+    this->loadSwitchCallback = callback;
+}
 
 void BLEHandler::begin() {
     BLEDevice::init("AE Smart Shunt");
@@ -48,6 +68,22 @@ void BLEHandler::begin() {
         NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY
     );
 
+    pErrorStateCharacteristic = pService->createCharacteristic(
+        ERROR_STATE_CHAR_UUID,
+        NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY
+    );
+
+    pLoadStateCharacteristic = pService->createCharacteristic(
+        LOAD_STATE_CHAR_UUID,
+        NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY
+    );
+
+    pLoadControlCharacteristic = pService->createCharacteristic(
+        LOAD_CONTROL_CHAR_UUID,
+        NIMBLE_PROPERTY::WRITE
+    );
+    pLoadControlCharacteristic->setCallbacks(new LoadControlCallbacks(this->loadSwitchCallback));
+
     pService->start();
 
     BLEAdvertising* pAdvertising = BLEDevice::getAdvertising();
@@ -79,4 +115,10 @@ void BLEHandler::updateTelemetry(const Telemetry& telemetry) {
 
     pCalibrationStatusCharacteristic->setValue(telemetry.isCalibrated);
     pCalibrationStatusCharacteristic->notify();
+
+    pErrorStateCharacteristic->setValue(telemetry.errorState);
+    pErrorStateCharacteristic->notify();
+
+    pLoadStateCharacteristic->setValue(telemetry.loadState);
+    pLoadStateCharacteristic->notify();
 }

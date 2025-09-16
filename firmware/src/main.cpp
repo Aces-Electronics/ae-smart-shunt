@@ -9,6 +9,9 @@
 #include "passwords.h"
 #include <esp_now.h>
 #include <esp_err.h>
+#include "soc/rtc_io_reg.h"
+#include "soc/soc.h"
+#include "soc/gpio_reg.h"
 
 // WiFi and OTA
 #include <WiFi.h>
@@ -51,6 +54,16 @@ GPIO_ADC starter_adc(3);
 ESPNowHandler espNowHandler(broadcastAddress); // ESP-NOW handler for sending data
 BLEHandler bleHandler;
 WiFiClientSecure wifi_client;
+
+void loadSwitchCallback(bool enabled) {
+    if (enabled) {
+        ina226_adc.setLoadConnected(true, NONE);
+        Serial.println("Load manually toggled ON via BLE");
+    } else {
+        ina226_adc.setLoadConnected(false, MANUAL);
+        Serial.println("Load manually toggled OFF via BLE");
+    }
+}
 
 void IRAM_ATTR alertISR()
 {
@@ -832,6 +845,9 @@ void setup()
   Serial.begin(115200);
   delay(100); // let Serial start
 
+  // Disable the RTC GPIO hold on boot
+  rtc_gpio_hold_dis(GPIO_NUM_5);
+
   pinMode(LED_PIN, OUTPUT);
 
 #ifdef USE_WIFI
@@ -939,6 +955,7 @@ void setup()
   }
 
   bleHandler.begin();
+  bleHandler.setLoadSwitchCallback(loadSwitchCallback);
 
   Serial.println("Setup done");
 }
@@ -1079,6 +1096,7 @@ void loop()
       ae_smart_shunt_struct.starterBatteryVoltage = starter_adc.readVoltage();
 
       ae_smart_shunt_struct.batteryState = 0; // 0 = Normal, 1 = Warning, 2 = Critical
+      ae_smart_shunt_struct.loadOutput = ina226_adc.isLoadConnected();
 
       // Update remaining capacity in the INA226 helper (expects current in A)
       ina226_adc.updateBatteryCapacity(ina226_adc.getCurrent_mA() / 1000.0f);
@@ -1134,7 +1152,9 @@ void loop()
         .batterySOC = ae_smart_shunt_struct.batterySOC,
         .batteryCapacity = ae_smart_shunt_struct.batteryCapacity,
         .starterBatteryVoltage = ae_smart_shunt_struct.starterBatteryVoltage,
-        .isCalibrated = ae_smart_shunt_struct.isCalibrated
+        .isCalibrated = ae_smart_shunt_struct.isCalibrated,
+        .errorState = ae_smart_shunt_struct.batteryState,
+        .loadState = ina226_adc.isLoadConnected()
     };
     bleHandler.updateTelemetry(telemetry_data);
 
