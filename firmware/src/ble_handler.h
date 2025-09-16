@@ -20,7 +20,7 @@ public:
     void begin();
     void updateTelemetry(const Telemetry& telemetry);
 
-private:
+public:
     // Service and Characteristic UUIDs
     // Using UUIDs from a random generator
     static const char* SERVICE_UUID;
@@ -31,7 +31,7 @@ private:
     static const char* CAPACITY_CHAR_UUID;
     static const char* STARTER_VOLTAGE_CHAR_UUID;
     static const char* CALIBRATION_STATUS_CHAR_UUID;
-
+private:
     BLEServer* pServer;
     BLEService* pService;
     BLECharacteristic* pVoltageCharacteristic;

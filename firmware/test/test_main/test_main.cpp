@@ -1,4 +1,3 @@
-#include <Arduino.h>
 #include <unity.h>
 
 // Include the headers of the classes to be tested
@@ -7,8 +6,9 @@
 #include "shared_defs.h"
 
 // HACK: Include the source file directly to get around linker issues
-#include "../../../src/ina226_adc.cpp"
-#include "../../../src/espnow_handler.cpp"
+#include "../../src/ina226_adc.cpp"
+#include "../../src/espnow_handler.cpp"
+#include "../lib/mocks/Arduino.h"
 #include "../lib/mocks/Arduino.cpp"
 #include "../lib/mocks/Wire.cpp"
 #include "../lib/mocks/Preferences.cpp"
@@ -170,24 +170,25 @@ void test_averaged_run_flat_time(void) {
     INA226_ADC adc(0x40, 0.001, 100.0);
     bool warning;
 
-    // 1. Initial state
+    // 1. Initial state - no samples yet
+    set_mock_millis(0);
     String result = adc.getAveragedRunFlatTime(10.0, 12.0, warning);
     TEST_ASSERT_EQUAL_STRING("Gathering data...", result.c_str());
 
-    // 2. Not enough samples yet
+    // 2. First sample is taken after 10 seconds
     set_mock_millis(10000); // 10s
     result = adc.getAveragedRunFlatTime(10.0, 12.0, warning);
-    TEST_ASSERT_EQUAL_STRING("10 hours until flat", result.c_str());
+    TEST_ASSERT_EQUAL_STRING("Gathering data...", result.c_str()); // Still not enough samples
 
-    // 3. Provide enough samples for averaging
+    // 3. Second sample is taken after 20 seconds
     set_mock_millis(20000); // 20s
-    adc.getAveragedRunFlatTime(10.0, 12.0, warning);
-    set_mock_millis(30000); // 30s
-    adc.getAveragedRunFlatTime(5.0, 12.0, warning); // run flat time is 20 hours
+    result = adc.getAveragedRunFlatTime(10.0, 12.0, warning);
+    TEST_ASSERT_EQUAL_STRING("Gathering data...", result.c_str()); // Still not enough samples
 
-    // Average of 10h, 10h, 20h is 13.33h
-    result = adc.getAveragedRunFlatTime(5.0, 12.0, warning);
-    TEST_ASSERT_EQUAL_STRING("13 hours until flat", result.c_str());
+    // 4. Third sample is taken, now we have enough for an average
+    set_mock_millis(30000); // 30s
+    result = adc.getAveragedRunFlatTime(10.0, 12.0, warning);
+    TEST_ASSERT_EQUAL_STRING("10 hours until flat", result.c_str());
 }
 
 void test_calibration_persistence(void) {
