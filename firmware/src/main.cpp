@@ -565,16 +565,15 @@ void printShunt(const struct_message_ae_smart_shunt_1 *p)
       "=== Local Shunt ===\n"
       "Message ID     : %d\n"
       "Data Changed   : %s\n"
-      "Error          : %d\n"
-      "Load Output    : %s\n"
       "Voltage        : %.2f V\n"
       "Current        : %.2f A\n"
       "Power          : %.2f W\n"
       "SOC            : %.1f %%\n"
       "Capacity       : %.2f Ah\n"
       "Starter Voltage: %.2f V\n"
+      "Error          : %d\n"
       "Run Flat Time  : %s\n"
-      
+      "Load Output    : %s\n"
       "===================\n",
       p->messageID,
       p->dataChanged ? "true" : "false",

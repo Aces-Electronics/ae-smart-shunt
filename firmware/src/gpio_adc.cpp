@@ -5,15 +5,6 @@
 #define GPIO_ADC_NVS_NAMESPACE "gpio_adc_cal_v2" // New namespace for new format
 #define GPIO_ADC_KEY_COUNT "count"
 
-namespace {
-    // Default calibration table for the starter battery voltage ADC.
-    // This is loaded if no user-defined calibration is found in NVS.
-    const std::vector<VoltageCalPoint> default_voltage_cal_table = {
-        {2108, 10.0f}, {2322, 11.0f}, {2426, 11.5f}, {2523, 12.0f},
-        {2650, 12.5f}, {2750, 13.0f}, {2959, 14.0f}, {3165, 15.0f}
-    };
-} // end anonymous namespace
-
 GPIO_ADC::GPIO_ADC(int pin) : _pin(pin) {}
 
 void GPIO_ADC::begin() {
@@ -77,6 +68,13 @@ bool GPIO_ADC::isCalibrated() const {
 }
 
 void GPIO_ADC::loadCalibration() {
+    // Define the default table here as a local static const to ensure it's initialized
+    // before it's ever accessed. This avoids the static initialization order fiasco.
+    static const std::vector<VoltageCalPoint> default_voltage_cal_table = {
+        {2108, 10.0f}, {2322, 11.0f}, {2426, 11.5f}, {2523, 12.0f},
+        {2650, 12.5f}, {2750, 13.0f}, {2959, 14.0f}, {3165, 15.0f}
+    };
+
     Preferences prefs;
     prefs.begin(GPIO_ADC_NVS_NAMESPACE, true); // read-only
 
