@@ -132,24 +132,47 @@ float INA226_ADC::getCurrent_mA() const {
 }
 
 float INA226_ADC::getCalibratedCurrent_mA(float raw_mA) const {
-    if (calibrationTable.empty()) return raw_mA;
+    if (calibrationTable.empty()) {
+        return raw_mA;
+    }
 
-    // Below/above range -> clamp to edge true values
-    if (raw_mA <= calibrationTable.front().raw_mA) return calibrationTable.front().true_mA;
-    if (raw_mA >= calibrationTable.back().raw_mA)  return calibrationTable.back().true_mA;
+    // Handle negative currents by assuming symmetric calibration around zero.
+    const bool is_negative = raw_mA < 0.0f;
+    const float abs_raw_mA = is_negative ? -raw_mA : raw_mA;
 
-    // Find interval [i-1, i] such that raw_mA < points[i].raw_mA
-    for (size_t i = 1; i < calibrationTable.size(); ++i) {
-        if (raw_mA < calibrationTable[i].raw_mA) {
-            const float x0 = calibrationTable[i-1].raw_mA;
-            const float y0 = calibrationTable[i-1].true_mA;
-            const float x1 = calibrationTable[i].raw_mA;
-            const float y1 = calibrationTable[i].true_mA;
-            if (fabsf(x1 - x0) < 1e-9f) return y0; // degenerate
-            return y0 + (raw_mA - x0) * (y1 - y0) / (x1 - x0);
+    float calibrated_abs_mA;
+
+    // If the absolute value is below or at the first calibration point,
+    // use the first calibration point's true value.
+    if (abs_raw_mA <= calibrationTable.front().raw_mA) {
+        calibrated_abs_mA = calibrationTable.front().true_mA;
+    }
+    // If the absolute value is above or at the last calibration point,
+    // clamp to the last point's true value.
+    else if (abs_raw_mA >= calibrationTable.back().raw_mA) {
+        calibrated_abs_mA = calibrationTable.back().true_mA;
+    }
+    // Otherwise, find the interval and linearly interpolate.
+    else {
+        calibrated_abs_mA = abs_raw_mA; // Fallback
+        for (size_t i = 1; i < calibrationTable.size(); ++i) {
+            if (abs_raw_mA < calibrationTable[i].raw_mA) {
+                const float x0 = calibrationTable[i-1].raw_mA;
+                const float y0 = calibrationTable[i-1].true_mA;
+                const float x1 = calibrationTable[i].raw_mA;
+                const float y1 = calibrationTable[i].true_mA;
+
+                if (fabsf(x1 - x0) < 1e-9f) {
+                    calibrated_abs_mA = y0; // Should not happen with sorted, deduped points
+                } else {
+                    calibrated_abs_mA = y0 + (abs_raw_mA - x0) * (y1 - y0) / (x1 - x0);
+                }
+                break; // Interval found
+            }
         }
     }
-    return raw_mA; // should not hit
+
+    return is_negative ? -calibrated_abs_mA : calibrated_abs_mA;
 }
 
 float INA226_ADC::getPower_mW() const { return power_mW; }
