@@ -2,7 +2,7 @@
 #define BLE_HANDLER_H
 
 #include <NimBLEDevice.h>
-#include <NimBLEadvertisedDevice.h>
+#include <NimBLEAdvertisedDevice.h>
 #include "NimBLEBeacon.h"
 #include "shared_defs.h"
 #include <aes/esp_aes.h>

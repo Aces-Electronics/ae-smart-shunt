@@ -224,6 +224,9 @@ void runStarterADC_Calibration(GPIO_ADC &adc) {
   Serial.println(F("\nCalibration complete and saved."));
 }
 
+// Forward declaration for the calibration function
+void runShuntResistanceCalibration(INA226_ADC &ina);
+
 // This is the main calibration entry point, combining shunt selection,
 // resistance calibration, and current table calibration.
 void runCurrentCalibrationMenu(INA226_ADC &ina)
