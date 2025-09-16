@@ -190,38 +190,57 @@ static String waitForEnterOrXWithDebug(INA226_ADC &ina, bool debugMode)
   }
 }
 
-void runStarterADC_Calibration(GPIO_ADC &adc) {
-  Serial.println(F("\n--- Starter Battery ADC Calibration ---"));
-  Serial.println(F("You will need a precise power supply."));
-  Serial.println(F("Press 'x' at any time to cancel."));
+// New multi-point calibration function for the starter battery ADC
+void runStarterADC_MultiPoint_Calibration(GPIO_ADC &adc) {
+    Serial.println(F("\n--- Starter Battery ADC Multi-Point Calibration ---"));
+    Serial.println(F("You will need a precise power supply."));
+    Serial.println(F("Press 'x' at any time to cancel."));
 
-  // --- Step 1: 10V ---
-  Serial.println(F("\nStep 1 of 2: Set power supply to 10.0V"));
-  Serial.println(F("Press Enter when ready."));
-  Serial.print("> ");
-  if (SerialReadLineBlocking().equalsIgnoreCase("x")) {
-    Serial.println(F("Canceled."));
-    return;
-  }
-  // Read raw ADC value
-  int raw_adc1 = analogRead(3); // Reading from GPIO3
-  Serial.printf("  -> Recorded raw ADC value: %d\n", raw_adc1);
+    const float voltages[] = {10.0f, 11.0f, 11.5f, 12.0f, 12.5f, 13.0f, 14.0f, 15.0f};
+    const int num_points = sizeof(voltages) / sizeof(voltages[0]);
+    std::vector<VoltageCalPoint> cal_points;
+    cal_points.reserve(num_points);
 
-  // --- Step 2: 14V ---
-  Serial.println(F("\nStep 2 of 2: Set power supply to 14.0V"));
-  Serial.println(F("Press Enter when ready."));
-  Serial.print("> ");
-  if (SerialReadLineBlocking().equalsIgnoreCase("x")) {
-    Serial.println(F("Canceled."));
-    return;
-  }
-  // Read raw ADC value
-  int raw_adc2 = analogRead(3); // Reading from GPIO3
-  Serial.printf("  -> Recorded raw ADC value: %d\n", raw_adc2);
+    for (int i = 0; i < num_points; ++i) {
+        Serial.printf("\nStep %d of %d: Set power supply to %.2fV\n", i + 1, num_points, voltages[i]);
+        Serial.println(F("Press Enter when ready."));
+        Serial.print("> ");
+        if (SerialReadLineBlocking().equalsIgnoreCase("x")) {
+            Serial.println(F("Canceled."));
+            return;
+        }
+        // Read raw ADC value
+        const int samples = 8;
+        int raw_adc_sum = 0;
+        for (int s = 0; s < samples; ++s) {
+            raw_adc_sum += analogRead(3); // Reading from GPIO3
+            delay(50);
+        }
+        int raw_adc_avg = raw_adc_sum / samples;
+        Serial.printf("  -> Recorded raw ADC value: %d\n", raw_adc_avg);
+        cal_points.push_back({raw_adc_avg, voltages[i]});
+    }
 
-  // --- Calculate and Save ---
-  adc.calibrate(10.0f, raw_adc1, 14.0f, raw_adc2);
-  Serial.println(F("\nCalibration complete and saved."));
+    // --- Save and apply calibration ---
+    adc.calibrate(cal_points);
+    Serial.println(F("\nMulti-point calibration complete and saved."));
+}
+
+// New function to export the starter battery ADC calibration data
+void runExportVoltageCalibration(GPIO_ADC &adc) {
+    const auto& table = adc.getCalibrationTable();
+    if (!adc.isCalibrated()) {
+        Serial.println(F("Starter ADC is not calibrated. Nothing to export."));
+        return;
+    }
+
+    Serial.println(F("\n--- Copy the following C++ code for Starter ADC Calibration ---"));
+    Serial.println("const std::vector<VoltageCalPoint> precalibrated_starter_adc = {");
+    for (const auto &point : table) {
+        Serial.printf("    {%d, %.3f},\\n", point.raw_adc, point.voltage);
+    }
+    Serial.println("};");
+    Serial.println(F("--- End of C++ code ---"));
 }
 
 // Forward declaration for the calibration function
@@ -954,8 +973,13 @@ void loop()
     }
     else if (s.equalsIgnoreCase("v"))
     {
-      // run the starter battery ADC calibration
-      runStarterADC_Calibration(starter_adc);
+      // run the new starter battery ADC multi-point calibration
+      runStarterADC_MultiPoint_Calibration(starter_adc);
+    }
+    else if (s.equalsIgnoreCase("y"))
+    {
+      // export starter battery voltage calibration data
+      runExportVoltageCalibration(starter_adc);
     }
     else if (s.equalsIgnoreCase("p"))
     {
