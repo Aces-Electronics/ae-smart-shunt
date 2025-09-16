@@ -8,8 +8,8 @@ const char* BLEHandler::CURRENT_CHAR_UUID = "a8b31859-676a-486c-94a2-8928b8e3a24
 const char* BLEHandler::POWER_CHAR_UUID = "465048d2-871d-4234-9e48-35d033a875a8";
 const char* BLEHandler::SOC_CHAR_UUID = "7c6c3e2e-4171-4228-8e8e-8b6c3a3b341b";
 const char* BLEHandler::CAPACITY_CHAR_UUID = "3c3e8e1a-8b8a-4b0e-8e8e-8b6c3a3b341b";
-const char* BLEHandler::STARTER_VOLTAGE_CHAR_UUID = "5b2e3f4g-8b8a-4b0e-8e8e-8b6c3a3b341b";
-const char* BLEHandler::CALIBRATION_STATUS_CHAR_UUID = "9b1e3f4g-8b8a-4b0e-8e8e-8b6c3a3b341b";
+const char* BLEHandler::STARTER_VOLTAGE_CHAR_UUID = "5b2e3f40-8b8a-4b0e-8e8e-8b6c3a3b341b";
+const char* BLEHandler::CALIBRATION_STATUS_CHAR_UUID = "9b1e3f40-8b8a-4b0e-8e8e-8b6c3a3b341b";
 
 BLEHandler::BLEHandler() : pServer(NULL), pService(NULL) {}
 
