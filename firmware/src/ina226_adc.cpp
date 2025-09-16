@@ -61,7 +61,7 @@ INA226_ADC::INA226_ADC(uint8_t address, float shuntResistorOhms, float batteryCa
       lastSampleTime(0),
       sampleIntervalSeconds(10)
 {
-    for (int i = 0; i < maxSamples; ++i) runFlatSamples[i] = -1.0f;
+    for (int i = 0; i < maxSamples; ++i) currentSamples[i] = 0.0f;
 }
 
 void INA226_ADC::begin(int sdaPin, int sclPin) {
@@ -105,9 +105,14 @@ void INA226_ADC::begin(int sdaPin, int sclPin) {
 
     // Load the calibration table for the active shunt
     if (loadCalibrationTable(m_activeShuntA)) {
-        Serial.printf("Loaded calibration table for %dA shunt.\n", m_activeShuntA);
+        Serial.printf("Loaded custom calibration table for %dA shunt.\n", m_activeShuntA);
     } else {
-        Serial.printf("No calibration table found for %dA shunt.\n", m_activeShuntA);
+        Serial.printf("No custom calibration table found for %dA shunt. Attempting to load factory default table...\n", m_activeShuntA);
+        if (loadFactoryCalibrationTable(m_activeShuntA)) {
+            Serial.printf("Successfully loaded factory default calibration table for %dA shunt.\n", m_activeShuntA);
+        } else {
+            Serial.printf("No factory default calibration table available for %dA shunt.\n", m_activeShuntA);
+        }
     }
 
     loadProtectionSettings();
@@ -328,21 +333,18 @@ bool INA226_ADC::loadShuntResistance() {
 bool INA226_ADC::loadFactoryDefaultResistance(uint16_t shuntRatedA) {
     auto it = factory_shunt_resistances.find(shuntRatedA);
     if (it != factory_shunt_resistances.end()) {
-        calibratedOhms = it->second;
+        float factoryOhms = it->second;
 
-        // Remove any custom calibration from NVS to ensure factory default is used on next boot
-        Preferences prefs;
-        prefs.begin("ina_cal", false);
-        if (prefs.isKey("cal_ohms")) {
-            prefs.remove("cal_ohms");
-            Serial.println("Removed custom shunt resistance calibration from NVS.");
-        }
-        prefs.end();
+        // Save the factory default resistance to NVS so it persists.
+        // This is better than just removing the key, which would cause `isConfigured` to be false on next boot.
+        saveShuntResistance(factoryOhms);
+        Serial.printf("Saved factory default resistance for %dA shunt to NVS: %.9f Ohms\n", shuntRatedA, factoryOhms);
 
-        // Immediately apply the new resistance to the INA226 configuration
-        ina226.setResistorRange(calibratedOhms, (float)shuntRatedA);
-        Serial.printf("Loaded factory default for %dA shunt: %.9f Ohms\n", shuntRatedA, calibratedOhms);
-        m_isConfigured = true; // Mark as configured even with factory defaults
+        // Also clear any associated table calibration to avoid mismatches.
+        clearCalibrationTable(shuntRatedA);
+        Serial.printf("Cleared any existing calibration table for %dA shunt.\n", shuntRatedA);
+
+        // The saveShuntResistance function already updates the live configuration and sets m_isConfigured.
         return true;
     } else {
         Serial.printf("No factory default found for %dA shunt.\n", shuntRatedA);
@@ -584,54 +586,30 @@ String INA226_ADC::getAveragedRunFlatTime(float currentA, float warningThreshold
     const int minSamplesForAverage = 3;
     unsigned long now = millis();
 
-    if (now - lastSampleTime < (unsigned long)sampleIntervalSeconds * 1000UL) {
-        if (sampleCount == 0) {
-            return String("Gathering data...");
-        } else if (sampleCount < minSamplesForAverage) {
-            int lastSampleIndex = (sampleIndex + maxSamples - 1) % maxSamples;
-            float lastSample = runFlatSamples[lastSampleIndex];
-            if (lastSample <= 0.0f) return String("Gathering data...");
-            warningTriggered = (lastSample <= warningThresholdHours);
-            return calculateRunFlatTimeFormatted((lastSample > 0.0f) ? (batteryCapacity / lastSample) : 0.0f, warningThresholdHours, warningTriggered);
-        } else {
-            float sum = 0.0f;
-            int validSamples = 0;
-            for (int i = 0; i < sampleCount; i++) {
-                if (runFlatSamples[i] > 0.0f) {
-                    sum += runFlatSamples[i];
-                    validSamples++;
-                }
-            }
-            float avgRunFlatHours = (validSamples > 0) ? (sum / validSamples) : -1.0f;
-            warningTriggered = (avgRunFlatHours >= 0.0f) && (avgRunFlatHours <= warningThresholdHours);
-            float approxCurrentA = (avgRunFlatHours > 0.0f) ? (batteryCapacity / avgRunFlatHours) : 0.0f;
-            return calculateRunFlatTimeFormatted(approxCurrentA, warningThresholdHours, warningTriggered);
-        }
-    }
-
-    lastSampleTime = now;
-
-    float currentRunFlatHours = (currentA > 0.001f) ? (batteryCapacity / currentA) : -1.0f;
-
-    if (currentRunFlatHours >= 0.0f) {
-        runFlatSamples[sampleIndex] = currentRunFlatHours;
+    // Store the new current sample every `sampleIntervalSeconds`
+    if (now - lastSampleTime >= (unsigned long)sampleIntervalSeconds * 1000UL) {
+        lastSampleTime = now;
+        currentSamples[sampleIndex] = currentA;
         sampleIndex = (sampleIndex + 1) % maxSamples;
-        if (sampleCount < maxSamples) sampleCount++;
-    }
-
-    float sum = 0.0f;
-    int validSamples = 0;
-    for (int i = 0; i < sampleCount; i++) {
-        if (runFlatSamples[i] > 0.0f) {
-            sum += runFlatSamples[i];
-            validSamples++;
+        if (sampleCount < maxSamples) {
+            sampleCount++;
         }
     }
-    float avgRunFlatHours = (validSamples > 0) ? (sum / validSamples) : -1.0f;
 
-    warningTriggered = (avgRunFlatHours >= 0.0f) && (avgRunFlatHours <= warningThresholdHours);
-    float approxCurrentA = (avgRunFlatHours > 0.0f) ? (batteryCapacity / avgRunFlatHours) : 0.0f;
-    return calculateRunFlatTimeFormatted(approxCurrentA, warningThresholdHours, warningTriggered);
+    // If we don't have enough samples yet, return a status message
+    if (sampleCount < minSamplesForAverage) {
+        return String("Gathering data...");
+    }
+
+    // Calculate the average current from the collected samples
+    float sum = 0.0f;
+    for (int i = 0; i < sampleCount; i++) {
+        sum += currentSamples[i];
+    }
+    float avgCurrentA = sum / (float)sampleCount;
+
+    // Now, use the averaged current to format the time string
+    return calculateRunFlatTimeFormatted(avgCurrentA, warningThresholdHours, warningTriggered);
 }
 
 // ---------------- Protection Features ----------------

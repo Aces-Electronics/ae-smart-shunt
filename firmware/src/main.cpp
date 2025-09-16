@@ -314,9 +314,12 @@ void runTableBasedCalibration(INA226_ADC &ina, int shuntA)
 {
   // First, check if the base shunt resistance has been calibrated.
   if (!ina.isConfigured()) {
-    Serial.println(F("\n[ERROR] Base shunt resistance has not been calibrated."));
-    Serial.println(F("Please run the 'r' (Shunt Resistance Calibration) command first."));
-    return;
+    Serial.println(F("\n[WARNING] Base shunt resistance not calibrated."));
+    Serial.println(F("Loading factory default resistance for selected shunt."));
+    if (!ina.loadFactoryDefaultResistance(shuntA)) {
+        Serial.println(F("[ERROR] Could not load factory default. Aborting."));
+        return;
+    }
   }
 
   // Ensure load is enabled for calibration
@@ -1060,54 +1063,70 @@ void loop()
   if (millis() - last_loop_millis > loop_interval)
   {
 #ifdef USE_ADC
-    if (ina226_adc.isConfigured())
-    {
-      ina226_adc.checkAndHandleProtection();
-    }
-
+    // Always read sensors
     ina226_adc.readSensors();
 
-    // Populate struct fields
+    // Populate struct fields based on configuration status
     ae_smart_shunt_struct.messageID = 11;
     ae_smart_shunt_struct.dataChanged = true;
 
-    ae_smart_shunt_struct.batteryVoltage = ina226_adc.getBusVoltage_V();
-    ae_smart_shunt_struct.batteryCurrent = ina226_adc.getCurrent_mA() / 1000.0f;
-    ae_smart_shunt_struct.batteryPower = ina226_adc.getPower_mW() / 1000.0f;
-    ae_smart_shunt_struct.starterBatteryVoltage = starter_adc.readVoltage();
-
-    ae_smart_shunt_struct.batteryState = 0; // 0 = Normal, 1 = Warning, 2 = Critical
-
-    // Update remaining capacity in the INA226 helper (expects current in A)
-    ina226_adc.updateBatteryCapacity(ina226_adc.getCurrent_mA() / 1000.0f);
-
-    // Get remaining Ah from INA helper
-    float remainingAh = ina226_adc.getBatteryCapacity();
-    ae_smart_shunt_struct.batteryCapacity = remainingAh; // remaining capacity in Ah
-    // batteryCapacity global holds the rated capacity in Ah for SOC calculation
-    if (batteryCapacity > 0.0f)
+    if (ina226_adc.isConfigured())
     {
-      ae_smart_shunt_struct.batterySOC = remainingAh / batteryCapacity; // fraction 0..1
+      // --- CONFIGURED ---
+      ae_smart_shunt_struct.isCalibrated = true;
+      ina226_adc.checkAndHandleProtection();
+
+      ae_smart_shunt_struct.batteryVoltage = ina226_adc.getBusVoltage_V();
+      ae_smart_shunt_struct.batteryCurrent = ina226_adc.getCurrent_mA() / 1000.0f;
+      ae_smart_shunt_struct.batteryPower = ina226_adc.getPower_mW() / 1000.0f;
+      ae_smart_shunt_struct.starterBatteryVoltage = starter_adc.readVoltage();
+
+      ae_smart_shunt_struct.batteryState = 0; // 0 = Normal, 1 = Warning, 2 = Critical
+
+      // Update remaining capacity in the INA226 helper (expects current in A)
+      ina226_adc.updateBatteryCapacity(ina226_adc.getCurrent_mA() / 1000.0f);
+
+      // Get remaining Ah from INA helper
+      float remainingAh = ina226_adc.getBatteryCapacity();
+      ae_smart_shunt_struct.batteryCapacity = remainingAh; // remaining capacity in Ah
+      // batteryCapacity global holds the rated capacity in Ah for SOC calculation
+      if (batteryCapacity > 0.0f)
+      {
+        ae_smart_shunt_struct.batterySOC = remainingAh / batteryCapacity; // fraction 0..1
+      }
+      else
+      {
+        ae_smart_shunt_struct.batterySOC = 0.0f;
+      }
+
+      if (ina226_adc.isOverflow())
+      {
+        Serial.println("Overflow! Choose higher current range");
+        ae_smart_shunt_struct.batteryState = 3; // overflow indicator
+      }
+
+      // Calculate and print run-flat time with warning threshold
+      bool warning = false;
+      float currentA = ina226_adc.getCurrent_mA() / 1000.0f; // convert mA to A
+      float warningThresholdHours = 10.0f;
+      String avgRunFlatTimeStr = ina226_adc.getAveragedRunFlatTime(currentA, warningThresholdHours, warning);
+      strncpy(ae_smart_shunt_struct.runFlatTime, avgRunFlatTimeStr.c_str(), sizeof(ae_smart_shunt_struct.runFlatTime));
     }
     else
     {
+      // --- NOT CONFIGURED ---
+      ae_smart_shunt_struct.isCalibrated = false;
+      ae_smart_shunt_struct.batteryVoltage = ina226_adc.getBusVoltage_V();
+      ae_smart_shunt_struct.starterBatteryVoltage = starter_adc.readVoltage();
+
+      // Set other fields to default/error values
+      ae_smart_shunt_struct.batteryCurrent = 0.0f;
+      ae_smart_shunt_struct.batteryPower = 0.0f;
       ae_smart_shunt_struct.batterySOC = 0.0f;
+      ae_smart_shunt_struct.batteryCapacity = 0.0f;
+      ae_smart_shunt_struct.batteryState = 4; // Use 4 for "Not Calibrated"
+      strncpy(ae_smart_shunt_struct.runFlatTime, "NOT CALIBRATED", sizeof(ae_smart_shunt_struct.runFlatTime));
     }
-
-    if (ina226_adc.isOverflow())
-    {
-      Serial.println("Overflow! Choose higher current range");
-      ae_smart_shunt_struct.batteryState = 3; // overflow indicator
-    }
-
-    // Calculate and print run-flat time with warning threshold
-    bool warning = false;
-    float currentA = ina226_adc.getCurrent_mA() / 1000.0f; // convert mA to A
-    float warningThresholdHours = 10.0f;
-
-    String avgRunFlatTimeStr = ina226_adc.getAveragedRunFlatTime(currentA, warningThresholdHours, warning);
-
-    strncpy(ae_smart_shunt_struct.runFlatTime, avgRunFlatTimeStr.c_str(), sizeof(ae_smart_shunt_struct.runFlatTime));
     ae_smart_shunt_struct.runFlatTime[sizeof(ae_smart_shunt_struct.runFlatTime) - 1] = '\0'; // ensure null termination
 
 #else
@@ -1126,17 +1145,10 @@ void loop()
     strncpy(ae_smart_shunt_struct.runFlatTime, "N/A", sizeof(ae_smart_shunt_struct.runFlatTime));
 #endif
 
-    // Send the data via ESP-NOW if configured
-    if (ina226_adc.isConfigured())
-    {
-      Serial.println("Mesh transmission: ready!");
-      espNowHandler.setAeSmartShuntStruct(ae_smart_shunt_struct);
-      espNowHandler.sendMessageAeSmartShunt();
-    }
-    else
-    {
-      Serial.println("Mesh transmission: ADC not configured, skipping!");
-    }
+    // ALWAYS send the data via ESP-NOW
+    Serial.println("Mesh transmission: ready!");
+    espNowHandler.setAeSmartShuntStruct(ae_smart_shunt_struct);
+    espNowHandler.sendMessageAeSmartShunt();
 
 #ifdef USE_ADC
     printShunt(&ae_smart_shunt_struct);

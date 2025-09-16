@@ -118,7 +118,7 @@ private:
 
     // run-flat time averaging
     const static int maxSamples = 10;
-    float runFlatSamples[maxSamples];
+    float currentSamples[maxSamples];
     int sampleIndex;
     int sampleCount;
     unsigned long lastSampleTime;
