@@ -5,6 +5,7 @@
 #include <INA226_WE.h>
 #include <Wire.h>
 #include <Arduino.h>
+#include <map>
 #include <Preferences.h>
 #include <vector>
 #include "shared_defs.h"
