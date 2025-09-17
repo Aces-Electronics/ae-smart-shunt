@@ -65,8 +65,8 @@ INA226_ADC::INA226_ADC(uint8_t address, float shuntResistorOhms, float batteryCa
       power_mW(-1),
       calibrationGain(1.0f),
       calibrationOffset_mA(0.0f),
-      lowVoltageCutoff(9.0f), // Default for 3S LiFePO4
-      hysteresis(0.6f),       // Default hysteresis
+      lowVoltageCutoff(11.6f),
+      hysteresis(0.2f),
       overcurrentThreshold(50.0f), // Default 50A
       loadConnected(true),
       alertTriggered(false),
@@ -696,16 +696,20 @@ void INA226_ADC::loadProtectionSettings() {
     Preferences prefs;
     prefs.begin(NVS_PROTECTION_NAMESPACE, true); // read-only
 
-    float loaded_cutoff = prefs.getFloat(NVS_KEY_LOW_VOLTAGE_CUTOFF, 9.0f);
+    float loaded_cutoff = prefs.getFloat(NVS_KEY_LOW_VOLTAGE_CUTOFF, 11.6f);
+    Serial.printf("NVS loaded cutoff: %.2fV\n", loaded_cutoff);
     if (loaded_cutoff < 6.0f || loaded_cutoff > 14.0f) {
-        lowVoltageCutoff = 9.0f;
+        lowVoltageCutoff = 11.6f;
+        Serial.println("Loaded cutoff is invalid, using default.");
     } else {
         lowVoltageCutoff = loaded_cutoff;
     }
 
-    float loaded_hysteresis = prefs.getFloat(NVS_KEY_HYSTERESIS, 0.6f);
+    float loaded_hysteresis = prefs.getFloat(NVS_KEY_HYSTERESIS, 0.2f);
+    Serial.printf("NVS loaded hysteresis: %.2fV\n", loaded_hysteresis);
     if (loaded_hysteresis < 0.1f || loaded_hysteresis > 3.0f) {
-        hysteresis = 0.6f;
+        hysteresis = 0.2f;
+        Serial.println("Loaded hysteresis is invalid, using default.");
     } else {
         hysteresis = loaded_hysteresis;
     }

@@ -49,6 +49,13 @@ public:
         if (value.length() == sizeof(float) && _callback) {
             float float_val;
             memcpy(&float_val, value.data(), sizeof(float));
+
+            Serial.printf("BLE float write received. Bytes: ");
+            for(int i=0; i<value.length(); i++) {
+                Serial.printf("%02X ", (uint8_t)value[i]);
+            }
+            Serial.printf(" | Converted to float: %f\n", float_val);
+
             _callback(float_val);
         }
     }
