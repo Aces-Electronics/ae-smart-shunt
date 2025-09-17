@@ -88,7 +88,7 @@ void BLEHandler::setVoltageProtectionCallback(std::function<void(String)> callba
     this->voltageProtectionCallback = callback;
 }
 
-void BLEHandler::begin() {
+void BLEHandler::begin(const Telemetry& initial_telemetry) {
     BLEDevice::init("AE Smart Shunt");
     pServer = BLEDevice::createServer();
     pServer->setCallbacks(new ServerCallbacks());
@@ -154,12 +154,7 @@ void BLEHandler::begin() {
 
     pService->start();
 
-    BLEAdvertising* pAdvertising = BLEDevice::getAdvertising();
-    pAdvertising->addServiceUUID(SERVICE_UUID);
-    pAdvertising->setScanResponse(true);
-    pAdvertising->setMinPreferred(0x06);
-    pAdvertising->setMinPreferred(0x12);
-    BLEDevice::startAdvertising();
+    startAdvertising(initial_telemetry);
 }
 
 void BLEHandler::updateTelemetry(const Telemetry& telemetry) {
@@ -194,4 +189,44 @@ void BLEHandler::updateTelemetry(const Telemetry& telemetry) {
     snprintf(voltage_buf, sizeof(voltage_buf), "%.2f,%.2f", telemetry.cutoffVoltage, telemetry.reconnectVoltage);
     pSetVoltageProtectionCharacteristic->setValue(voltage_buf);
     pSetVoltageProtectionCharacteristic->notify();
+
+    // Update advertising data
+    startAdvertising(telemetry);
+}
+
+void BLEHandler::startAdvertising(const Telemetry& telemetry) {
+    BLEAdvertising* pAdvertising = BLEDevice::getAdvertising();
+
+    // Stop advertising to update the data
+    pAdvertising->stop();
+
+    BLEAdvertisementData oAdvertisementData = BLEAdvertisementData();
+    oAdvertisementData.setFlags(0x06); // BR_EDR_NOT_SUPPORTED | GENERAL_DISC_MODE
+
+    std::string manuf_data;
+    // Add a company ID (e.g., 0x02E5 for Espressif)
+    uint16_t company_id = 0x02E5;
+    manuf_data += (char)(company_id & 0xFF);
+    manuf_data += (char)((company_id >> 8) & 0xFF);
+
+    // Add telemetry data
+    // Pack voltage as a 16-bit integer (e.g., in mV) to save space
+    uint16_t voltage_mv = (uint16_t)(telemetry.batteryVoltage * 1000);
+    manuf_data.append((char*)&voltage_mv, sizeof(voltage_mv));
+
+    uint8_t error_state = (uint8_t)telemetry.errorState;
+    manuf_data.append((char*)&error_state, sizeof(error_state));
+
+    oAdvertisementData.setManufacturerData(manuf_data);
+    pAdvertising->setAdvertisementData(oAdvertisementData);
+
+    // Also set the scan response data
+    BLEAdvertisementData oScanResponseData = BLEAdvertisementData();
+    oScanResponseData.setName("AE Smart Shunt");
+    pAdvertising->setScanResponseData(oScanResponseData);
+
+    pAdvertising->addServiceUUID(SERVICE_UUID);
+    pAdvertising->setScanResponse(true);
+
+    pAdvertising->start();
 }

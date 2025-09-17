@@ -1,8 +1,13 @@
 #include "ina226_adc.h"
+#include "esp_sleep.h"
 #include <cfloat>
 #include <algorithm>
 #include <map>
 #include "driver/gpio.h"
+
+// This flag is stored in RTC memory to persist across deep sleep cycles.
+RTC_DATA_ATTR uint32_t g_low_power_sleep_flag = 0;
+#define LOW_POWER_SLEEP_MAGIC 0x12345678 // A magic number to indicate low power sleep
 
 namespace {
     // Factory-calibrated table for the 50A shunt, based on user-provided data
@@ -84,10 +89,22 @@ INA226_ADC::INA226_ADC(uint8_t address, float shuntResistorOhms, float batteryCa
 }
 
 void INA226_ADC::begin(int sdaPin, int sclPin) {
+    esp_reset_reason_t reason = esp_reset_reason();
+    bool from_low_power_sleep = (reason == ESP_RST_DEEPSLEEP && g_low_power_sleep_flag == LOW_POWER_SLEEP_MAGIC);
+
+    if (from_low_power_sleep) {
+        g_low_power_sleep_flag = 0; // Clear the flag
+        Serial.println("Woke from low-power deep sleep. Keeping load OFF.");
+    }
+
     Wire.begin(sdaPin, sclPin);
 
     pinMode(LOAD_SWITCH_PIN, OUTPUT);
-    setLoadConnected(true, NONE);
+    if(from_low_power_sleep) {
+        setLoadConnected(false, LOW_VOLTAGE);
+    } else {
+        setLoadConnected(true, NONE);
+    }
 
     pinMode(INA_ALERT_PIN, INPUT_PULLUP);
 
@@ -911,8 +928,9 @@ void INA226_ADC::clearAlerts() {
 
 void INA226_ADC::enterSleepMode() {
     Serial.println("Entering deep sleep to conserve power.");
+    g_low_power_sleep_flag = LOW_POWER_SLEEP_MAGIC;
     gpio_hold_en(GPIO_NUM_5);
-    esp_sleep_enable_timer_wakeup(10 * 1000000); // Wake up every 10 seconds
+    esp_sleep_enable_timer_wakeup(30 * 1000000); // Wake up every 30 seconds
     esp_deep_sleep_start();
 }
 

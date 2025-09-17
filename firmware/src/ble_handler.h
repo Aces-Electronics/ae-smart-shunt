@@ -23,8 +23,9 @@ struct Telemetry {
 class BLEHandler {
 public:
     BLEHandler();
-    void begin();
+    void begin(const Telemetry& initial_telemetry);
     void updateTelemetry(const Telemetry& telemetry);
+    void startAdvertising(const Telemetry& telemetry);
     void setLoadSwitchCallback(std::function<void(bool)> callback);
     void setSOCCallback(std::function<void(float)> callback);
     void setVoltageProtectionCallback(std::function<void(String)> callback);
