@@ -64,10 +64,12 @@ void loadSwitchCallback(bool enabled) {
 }
 
 void socCallback(float percent) {
+    Serial.printf("BLE received new SOC: %.2f%%\n", percent);
     ina226_adc.setSOC_percent(percent);
 }
 
 void voltageProtectionCallback(String value) {
+    Serial.printf("BLE received new voltage protection settings: %s\n", value.c_str());
     int commaIndex = value.indexOf(',');
     if (commaIndex > 0) {
         String cutoff_str = value.substring(0, commaIndex);
@@ -1172,7 +1174,7 @@ void loop()
         .errorState = ae_smart_shunt_struct.batteryState,
         .loadState = ina226_adc.isLoadConnected(),
         .cutoffVoltage = ina226_adc.getLowVoltageCutoff(),
-        .reconnectVoltage = ina226_adc.getLowVoltageCutoff() + ina226_adc.getHysteresis()
+        .reconnectVoltage = (ina226_adc.getLowVoltageCutoff() + ina226_adc.getHysteresis())
     };
     bleHandler.updateTelemetry(telemetry_data);
 

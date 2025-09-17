@@ -697,14 +697,14 @@ void INA226_ADC::loadProtectionSettings() {
     prefs.begin(NVS_PROTECTION_NAMESPACE, true); // read-only
 
     float loaded_cutoff = prefs.getFloat(NVS_KEY_LOW_VOLTAGE_CUTOFF, 9.0f);
-    if (loaded_cutoff < 7.0f || loaded_cutoff > 12.0f) {
+    if (loaded_cutoff < 6.0f || loaded_cutoff > 14.0f) {
         lowVoltageCutoff = 9.0f;
     } else {
         lowVoltageCutoff = loaded_cutoff;
     }
 
     float loaded_hysteresis = prefs.getFloat(NVS_KEY_HYSTERESIS, 0.6f);
-    if (loaded_hysteresis < 0.1f || loaded_hysteresis > 2.0f) {
+    if (loaded_hysteresis < 0.1f || loaded_hysteresis > 3.0f) {
         hysteresis = 0.6f;
     } else {
         hysteresis = loaded_hysteresis;
