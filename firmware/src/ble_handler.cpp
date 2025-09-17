@@ -130,7 +130,7 @@ void BLEHandler::begin() {
 
     pSetVoltageProtectionCharacteristic = pService->createCharacteristic(
         SET_VOLTAGE_PROTECTION_CHAR_UUID,
-        NIMBLE_PROPERTY::WRITE
+        NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY
     );
     pSetVoltageProtectionCharacteristic->setCallbacks(new StringCharacteristicCallbacks(this->voltageProtectionCallback));
 
@@ -171,4 +171,9 @@ void BLEHandler::updateTelemetry(const Telemetry& telemetry) {
 
     pLoadStateCharacteristic->setValue(telemetry.loadState);
     pLoadStateCharacteristic->notify();
+
+    char voltage_buf[20];
+    snprintf(voltage_buf, sizeof(voltage_buf), "%.2f,%.2f", telemetry.cutoffVoltage, telemetry.reconnectVoltage);
+    pSetVoltageProtectionCharacteristic->setValue(voltage_buf);
+    pSetVoltageProtectionCharacteristic->notify();
 }

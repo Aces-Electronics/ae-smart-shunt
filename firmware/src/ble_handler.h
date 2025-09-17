@@ -16,6 +16,8 @@ struct Telemetry {
     bool isCalibrated;
     int errorState;
     bool loadState;
+    float cutoffVoltage;
+    float reconnectVoltage;
 };
 
 class BLEHandler {

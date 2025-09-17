@@ -1170,7 +1170,9 @@ void loop()
         .starterBatteryVoltage = ae_smart_shunt_struct.starterBatteryVoltage,
         .isCalibrated = ae_smart_shunt_struct.isCalibrated,
         .errorState = ae_smart_shunt_struct.batteryState,
-        .loadState = ina226_adc.isLoadConnected()
+        .loadState = ina226_adc.isLoadConnected(),
+        .cutoffVoltage = ina226_adc.getLowVoltageCutoff(),
+        .reconnectVoltage = ina226_adc.getLowVoltageCutoff() + ina226_adc.getHysteresis()
     };
     bleHandler.updateTelemetry(telemetry_data);
 
