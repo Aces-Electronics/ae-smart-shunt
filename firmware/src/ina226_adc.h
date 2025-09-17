@@ -36,6 +36,9 @@ public:
     String getAveragedRunFlatTime(float currentA, float warningThresholdHours, bool &warningTriggered);
     String calculateRunFlatTimeFormatted(float currentA, float warningThresholdHours, bool &warningTriggered);
 
+    void setSOC_percent(float percent);
+    void setVoltageProtection(float cutoff, float reconnect_voltage);
+
     // New shunt resistance calibration methods
     bool saveShuntResistance(float resistance);
     bool loadShuntResistance();
@@ -113,8 +116,11 @@ private:
     std::vector<CalPoint> calibrationTable;
     float getCalibratedCurrent_mA(float raw_mA) const;
 
+    void setInitialSOC();
+
     // Factory default resistances
     static const std::map<uint16_t, float> factory_shunt_resistances;
+    static const std::map<float, float> soc_voltage_map;
 
     // run-flat time averaging
     const static int maxSamples = 10;

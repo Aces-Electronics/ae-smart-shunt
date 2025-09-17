@@ -10,12 +10,88 @@ const char* BLEHandler::SOC_CHAR_UUID = "7c6c3e2e-4171-4228-8e8e-8b6c3a3b341b";
 const char* BLEHandler::CAPACITY_CHAR_UUID = "3c3e8e1a-8b8a-4b0e-8e8e-8b6c3a3b341b";
 const char* BLEHandler::STARTER_VOLTAGE_CHAR_UUID = "5b2e3f40-8b8a-4b0e-8e8e-8b6c3a3b341b";
 const char* BLEHandler::CALIBRATION_STATUS_CHAR_UUID = "9b1e3f40-8b8a-4b0e-8e8e-8b6c3a3b341b";
+const char* BLEHandler::ERROR_STATE_CHAR_UUID = "a3b4c5d6-e7f8-9012-3456-789012345678";
+const char* BLEHandler::LOAD_STATE_CHAR_UUID = "b4c5d6e7-f890-1234-5678-901234567890";
+const char* BLEHandler::LOAD_CONTROL_CHAR_UUID = "c5d6e7f8-9012-3456-7890-123456789012";
+const char* BLEHandler::SET_SOC_CHAR_UUID = "d6e7f890-1234-5678-9012-345678901234";
+const char* BLEHandler::SET_VOLTAGE_PROTECTION_CHAR_UUID = "e7f89012-3456-7890-1234-567890123456";
+
+class LoadControlCallbacks : public BLECharacteristicCallbacks {
+    std::function<void(bool)> _callback;
+public:
+    LoadControlCallbacks(std::function<void(bool)> callback) : _callback(callback) {}
+
+    void onWrite(BLECharacteristic* pCharacteristic) {
+        std::string value = pCharacteristic->getValue();
+        if (value.length() > 0 && _callback) {
+            _callback(value[0] != 0);
+        }
+    }
+};
+
+class ServerCallbacks: public BLEServerCallbacks {
+    void onConnect(BLEServer* pServer) {
+      Serial.println("BLE client connected");
+    }
+
+    void onDisconnect(BLEServer* pServer) {
+      Serial.println("BLE client disconnected");
+    }
+};
+
+class FloatCharacteristicCallbacks : public BLECharacteristicCallbacks {
+    std::function<void(float)> _callback;
+public:
+    FloatCharacteristicCallbacks(std::function<void(float)> callback) : _callback(callback) {}
+
+    void onWrite(BLECharacteristic* pCharacteristic) {
+        std::string value = pCharacteristic->getValue();
+        if (value.length() == sizeof(float) && _callback) {
+            float float_val;
+            memcpy(&float_val, value.data(), sizeof(float));
+
+            Serial.printf("BLE float write received. Bytes: ");
+            for(int i=0; i<value.length(); i++) {
+                Serial.printf("%02X ", (uint8_t)value[i]);
+            }
+            Serial.printf(" | Converted to float: %f\n", float_val);
+
+            _callback(float_val);
+        }
+    }
+};
+
+class StringCharacteristicCallbacks : public BLECharacteristicCallbacks {
+    std::function<void(String)> _callback;
+public:
+    StringCharacteristicCallbacks(std::function<void(String)> callback) : _callback(callback) {}
+
+    void onWrite(BLECharacteristic* pCharacteristic) {
+        std::string value = pCharacteristic->getValue();
+        if (value.length() > 0 && _callback) {
+            _callback(String(value.c_str()));
+        }
+    }
+};
 
 BLEHandler::BLEHandler() : pServer(NULL), pService(NULL) {}
+
+void BLEHandler::setLoadSwitchCallback(std::function<void(bool)> callback) {
+    this->loadSwitchCallback = callback;
+}
+
+void BLEHandler::setSOCCallback(std::function<void(float)> callback) {
+    this->socCallback = callback;
+}
+
+void BLEHandler::setVoltageProtectionCallback(std::function<void(String)> callback) {
+    this->voltageProtectionCallback = callback;
+}
 
 void BLEHandler::begin() {
     BLEDevice::init("AE Smart Shunt");
     pServer = BLEDevice::createServer();
+    pServer->setCallbacks(new ServerCallbacks());
     pService = pServer->createService(SERVICE_UUID);
 
     // Create characteristics
@@ -48,6 +124,34 @@ void BLEHandler::begin() {
         NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY
     );
 
+    pErrorStateCharacteristic = pService->createCharacteristic(
+        ERROR_STATE_CHAR_UUID,
+        NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY
+    );
+
+    pLoadStateCharacteristic = pService->createCharacteristic(
+        LOAD_STATE_CHAR_UUID,
+        NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY
+    );
+
+    pLoadControlCharacteristic = pService->createCharacteristic(
+        LOAD_CONTROL_CHAR_UUID,
+        NIMBLE_PROPERTY::WRITE
+    );
+    pLoadControlCharacteristic->setCallbacks(new LoadControlCallbacks(this->loadSwitchCallback));
+
+    pSetSocCharacteristic = pService->createCharacteristic(
+        SET_SOC_CHAR_UUID,
+        NIMBLE_PROPERTY::WRITE
+    );
+    pSetSocCharacteristic->setCallbacks(new FloatCharacteristicCallbacks(this->socCallback));
+
+    pSetVoltageProtectionCharacteristic = pService->createCharacteristic(
+        SET_VOLTAGE_PROTECTION_CHAR_UUID,
+        NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY
+    );
+    pSetVoltageProtectionCharacteristic->setCallbacks(new StringCharacteristicCallbacks(this->voltageProtectionCallback));
+
     pService->start();
 
     BLEAdvertising* pAdvertising = BLEDevice::getAdvertising();
@@ -79,4 +183,15 @@ void BLEHandler::updateTelemetry(const Telemetry& telemetry) {
 
     pCalibrationStatusCharacteristic->setValue(telemetry.isCalibrated);
     pCalibrationStatusCharacteristic->notify();
+
+    pErrorStateCharacteristic->setValue(telemetry.errorState);
+    pErrorStateCharacteristic->notify();
+
+    pLoadStateCharacteristic->setValue(telemetry.loadState);
+    pLoadStateCharacteristic->notify();
+
+    char voltage_buf[20];
+    snprintf(voltage_buf, sizeof(voltage_buf), "%.2f,%.2f", telemetry.cutoffVoltage, telemetry.reconnectVoltage);
+    pSetVoltageProtectionCharacteristic->setValue(voltage_buf);
+    pSetVoltageProtectionCharacteristic->notify();
 }

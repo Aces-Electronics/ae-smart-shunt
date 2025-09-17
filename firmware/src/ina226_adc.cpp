@@ -2,6 +2,7 @@
 #include <cfloat>
 #include <algorithm>
 #include <map>
+#include "driver/gpio.h"
 
 namespace {
     // Factory-calibrated table for the 50A shunt, based on user-provided data
@@ -32,6 +33,24 @@ const std::map<uint16_t, float> INA226_ADC::factory_shunt_resistances = {
     {500, 0.000789840f}
 };
 
+const std::map<float, float> INA226_ADC::soc_voltage_map = {
+    {14.60, 100.0},
+    {14.45, 99.0},
+    {13.87, 95.0},
+    {13.30, 90.0},
+    {13.25, 80.0},
+    {13.20, 70.0},
+    {13.17, 60.0},
+    {13.13, 50.0},
+    {13.10, 40.0},
+    {13.00, 30.0},
+    {12.90, 20.0},
+    {12.80, 17.0},
+    {12.50, 14.0},
+    {12.00, 9.0},
+    {10.00, 0.0}
+};
+
 INA226_ADC::INA226_ADC(uint8_t address, float shuntResistorOhms, float batteryCapacityAh)
     : ina226(address),
       defaultOhms(0.000789840f), // Store the default value
@@ -46,8 +65,8 @@ INA226_ADC::INA226_ADC(uint8_t address, float shuntResistorOhms, float batteryCa
       power_mW(-1),
       calibrationGain(1.0f),
       calibrationOffset_mA(0.0f),
-      lowVoltageCutoff(9.0f), // Default for 3S LiFePO4
-      hysteresis(0.6f),       // Default hysteresis
+      lowVoltageCutoff(11.6f),
+      hysteresis(0.2f),
       overcurrentThreshold(50.0f), // Default 50A
       loadConnected(true),
       alertTriggered(false),
@@ -118,6 +137,7 @@ void INA226_ADC::begin(int sdaPin, int sclPin) {
     loadProtectionSettings();
     loadInvertCurrent();
     configureAlert(overcurrentThreshold);
+    setInitialSOC();
 }
 
 void INA226_ADC::readSensors() {
@@ -149,6 +169,54 @@ float INA226_ADC::getCurrent_mA() const {
         return -result_mA;
     }
     return result_mA;
+}
+
+void INA226_ADC::setInitialSOC() {
+    readSensors();
+    float voltage = getBusVoltage_V();
+    float current = getCurrent_mA() / 1000.0f; // Convert to Amps
+
+    // Adjust voltage based on load/charge
+    if (current > 0.1) { // Discharging (under load)
+        voltage += 0.4;
+    } else if (current < -0.1) { // Charging
+        voltage -= 0.4;
+    }
+
+    float soc_percent = 50.0; // Default SOC
+
+    // Handle special cases
+    if (voltage <= 11.6) {
+        soc_percent = 10.0;
+    } else if (voltage >= 14.0) {
+        soc_percent = 100.0;
+    } else {
+        // Lookup SOC from the map
+        auto it = soc_voltage_map.lower_bound(voltage);
+        if (it == soc_voltage_map.end()) {
+            soc_percent = 100.0;
+        } else if (it == soc_voltage_map.begin()) {
+            soc_percent = 0.0;
+        } else {
+            // Linear interpolation
+            float v_high = it->first;
+            float soc_high = it->second;
+            it--;
+            float v_low = it->first;
+            float soc_low = it->second;
+
+            if (v_high > v_low) {
+                soc_percent = soc_low + ((voltage - v_low) * (soc_high - soc_low)) / (v_high - v_low);
+            } else {
+                soc_percent = soc_low;
+            }
+        }
+    }
+
+    // Set the battery capacity based on the calculated SOC
+    batteryCapacity = maxBatteryCapacity * (soc_percent / 100.0f);
+    lastUpdateTime = millis();
+    Serial.printf("Initial SOC set to %.2f%% based on adjusted voltage of %.2fV. Initial capacity: %.2fAh\n", soc_percent, voltage, batteryCapacity);
 }
 
 float INA226_ADC::getCalibratedCurrent_mA(float raw_mA) const {
@@ -199,6 +267,16 @@ float INA226_ADC::getPower_mW() const { return power_mW; }
 float INA226_ADC::getLoadVoltage_V() const { return loadVoltage_V; }
 float INA226_ADC::getBatteryCapacity() const { return batteryCapacity; }
 void INA226_ADC::setBatteryCapacity(float capacity) { batteryCapacity = capacity; }
+
+void INA226_ADC::setSOC_percent(float percent) {
+    if (percent < 0.0f) {
+        percent = 0.0f;
+    } else if (percent > 100.0f) {
+        percent = 100.0f;
+    }
+    batteryCapacity = maxBatteryCapacity * (percent / 100.0f);
+    Serial.printf("SOC set to %.2f%%. New capacity: %.2fAh\n", percent, batteryCapacity);
+}
 
 void INA226_ADC::setCalibration(float gain, float offset_mA) {
     calibrationGain = gain;
@@ -617,8 +695,25 @@ String INA226_ADC::getAveragedRunFlatTime(float currentA, float warningThreshold
 void INA226_ADC::loadProtectionSettings() {
     Preferences prefs;
     prefs.begin(NVS_PROTECTION_NAMESPACE, true); // read-only
-    lowVoltageCutoff = prefs.getFloat(NVS_KEY_LOW_VOLTAGE_CUTOFF, 9.0f);
-    hysteresis = prefs.getFloat(NVS_KEY_HYSTERESIS, 0.6f);
+
+    float loaded_cutoff = prefs.getFloat(NVS_KEY_LOW_VOLTAGE_CUTOFF, 11.6f);
+    Serial.printf("NVS loaded cutoff: %.2fV\n", loaded_cutoff);
+    if (loaded_cutoff < 6.0f || loaded_cutoff > 14.0f) {
+        lowVoltageCutoff = 11.6f;
+        Serial.println("Loaded cutoff is invalid, using default.");
+    } else {
+        lowVoltageCutoff = loaded_cutoff;
+    }
+
+    float loaded_hysteresis = prefs.getFloat(NVS_KEY_HYSTERESIS, 0.2f);
+    Serial.printf("NVS loaded hysteresis: %.2fV\n", loaded_hysteresis);
+    if (loaded_hysteresis < 0.1f || loaded_hysteresis > 3.0f) {
+        hysteresis = 0.2f;
+        Serial.println("Loaded hysteresis is invalid, using default.");
+    } else {
+        hysteresis = loaded_hysteresis;
+    }
+
     overcurrentThreshold = prefs.getFloat(NVS_KEY_OVERCURRENT, 50.0f);
     prefs.end();
     Serial.println("Loaded protection settings:");
@@ -643,6 +738,16 @@ void INA226_ADC::setProtectionSettings(float lv_cutoff, float hyst, float oc_thr
     overcurrentThreshold = oc_thresh;
     saveProtectionSettings();
     configureAlert(overcurrentThreshold); // Re-configure alert with new threshold
+}
+
+void INA226_ADC::setVoltageProtection(float cutoff, float reconnect_voltage) {
+    if (cutoff >= reconnect_voltage) {
+        Serial.println("Error: Cutoff voltage must be less than reconnect voltage.");
+        return;
+    }
+    float new_hysteresis = reconnect_voltage - cutoff;
+    setProtectionSettings(cutoff, new_hysteresis, this->overcurrentThreshold);
+    Serial.printf("Voltage protection updated. Cutoff: %.2fV, Reconnect: %.2fV (Hysteresis: %.2fV)\n", cutoff, reconnect_voltage, new_hysteresis);
 }
 
 uint16_t INA226_ADC::getActiveShunt() const {
@@ -806,6 +911,7 @@ void INA226_ADC::clearAlerts() {
 
 void INA226_ADC::enterSleepMode() {
     Serial.println("Entering deep sleep to conserve power.");
+    gpio_hold_en(GPIO_NUM_5);
     esp_sleep_enable_timer_wakeup(10 * 1000000); // Wake up every 10 seconds
     esp_deep_sleep_start();
 }

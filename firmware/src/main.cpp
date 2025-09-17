@@ -9,6 +9,7 @@
 #include "passwords.h"
 #include <esp_now.h>
 #include <esp_err.h>
+#include "driver/gpio.h"
 
 // WiFi and OTA
 #include <WiFi.h>
@@ -51,6 +52,35 @@ GPIO_ADC starter_adc(3);
 ESPNowHandler espNowHandler(broadcastAddress); // ESP-NOW handler for sending data
 BLEHandler bleHandler;
 WiFiClientSecure wifi_client;
+
+void loadSwitchCallback(bool enabled) {
+    if (enabled) {
+        ina226_adc.setLoadConnected(true, NONE);
+        Serial.println("Load manually toggled ON via BLE");
+    } else {
+        ina226_adc.setLoadConnected(false, MANUAL);
+        Serial.println("Load manually toggled OFF via BLE");
+    }
+}
+
+void socCallback(float percent) {
+    Serial.printf("BLE received new SOC: %.2f%%\n", percent);
+    ina226_adc.setSOC_percent(percent);
+}
+
+void voltageProtectionCallback(String value) {
+    Serial.printf("BLE received new voltage protection settings: %s\n", value.c_str());
+    int commaIndex = value.indexOf(',');
+    if (commaIndex > 0) {
+        String cutoff_str = value.substring(0, commaIndex);
+        String reconnect_str = value.substring(commaIndex + 1);
+        float cutoff = cutoff_str.toFloat();
+        float reconnect = reconnect_str.toFloat();
+        ina226_adc.setVoltageProtection(cutoff, reconnect);
+    } else {
+        Serial.println("Invalid format for voltage protection setting.");
+    }
+}
 
 void IRAM_ATTR alertISR()
 {
@@ -832,6 +862,9 @@ void setup()
   Serial.begin(115200);
   delay(100); // let Serial start
 
+  // Disable the RTC GPIO hold on boot
+  gpio_hold_dis(GPIO_NUM_5);
+
   pinMode(LED_PIN, OUTPUT);
 
 #ifdef USE_WIFI
@@ -938,6 +971,9 @@ void setup()
     Serial.println("Broadcast peer added");
   }
 
+  bleHandler.setLoadSwitchCallback(loadSwitchCallback);
+  bleHandler.setSOCCallback(socCallback);
+  bleHandler.setVoltageProtectionCallback(voltageProtectionCallback);
   bleHandler.begin();
 
   Serial.println("Setup done");
@@ -1134,7 +1170,11 @@ void loop()
         .batterySOC = ae_smart_shunt_struct.batterySOC,
         .batteryCapacity = ae_smart_shunt_struct.batteryCapacity,
         .starterBatteryVoltage = ae_smart_shunt_struct.starterBatteryVoltage,
-        .isCalibrated = ae_smart_shunt_struct.isCalibrated
+        .isCalibrated = ae_smart_shunt_struct.isCalibrated,
+        .errorState = ae_smart_shunt_struct.batteryState,
+        .loadState = ina226_adc.isLoadConnected(),
+        .cutoffVoltage = ina226_adc.getLowVoltageCutoff(),
+        .reconnectVoltage = (ina226_adc.getLowVoltageCutoff() + ina226_adc.getHysteresis())
     };
     bleHandler.updateTelemetry(telemetry_data);
 
