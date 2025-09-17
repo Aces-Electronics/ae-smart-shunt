@@ -29,6 +29,16 @@ public:
     }
 };
 
+class ServerCallbacks: public BLEServerCallbacks {
+    void onConnect(BLEServer* pServer) {
+      Serial.println("BLE client connected");
+    }
+
+    void onDisconnect(BLEServer* pServer) {
+      Serial.println("BLE client disconnected");
+    }
+};
+
 class FloatCharacteristicCallbacks : public BLECharacteristicCallbacks {
     std::function<void(float)> _callback;
 public:
@@ -74,6 +84,7 @@ void BLEHandler::setVoltageProtectionCallback(std::function<void(String)> callba
 void BLEHandler::begin() {
     BLEDevice::init("AE Smart Shunt");
     pServer = BLEDevice::createServer();
+    pServer->setCallbacks(new ServerCallbacks());
     pService = pServer->createService(SERVICE_UUID);
 
     // Create characteristics

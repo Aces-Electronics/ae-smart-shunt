@@ -971,10 +971,10 @@ void setup()
     Serial.println("Broadcast peer added");
   }
 
-  bleHandler.begin();
   bleHandler.setLoadSwitchCallback(loadSwitchCallback);
   bleHandler.setSOCCallback(socCallback);
   bleHandler.setVoltageProtectionCallback(voltageProtectionCallback);
+  bleHandler.begin();
 
   Serial.println("Setup done");
 }
