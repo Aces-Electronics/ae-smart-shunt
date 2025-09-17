@@ -37,6 +37,10 @@ class ServerCallbacks: public BLEServerCallbacks {
     void onDisconnect(BLEServer* pServer) {
       Serial.println("BLE client disconnected");
     }
+
+    void onMtuChanged(uint16_t MTU, ble_gap_conn_desc* desc) {
+        Serial.printf("MTU changed to: %d\n", MTU);
+    }
 };
 
 class FloatCharacteristicCallbacks : public BLECharacteristicCallbacks {
@@ -90,6 +94,7 @@ void BLEHandler::setVoltageProtectionCallback(std::function<void(String)> callba
 
 void BLEHandler::begin(const Telemetry& initial_telemetry) {
     BLEDevice::init("AE Smart Shunt");
+    BLEDevice::setMTU(517);
     pServer = BLEDevice::createServer();
     pServer->setCallbacks(new ServerCallbacks());
     pService = pServer->createService(SERVICE_UUID);
@@ -227,6 +232,10 @@ void BLEHandler::startAdvertising(const Telemetry& telemetry) {
 
     pAdvertising->addServiceUUID(SERVICE_UUID);
     pAdvertising->setScanResponse(true);
+
+    // Restore connection interval hints
+    pAdvertising->setMinPreferred(0x06);
+    pAdvertising->setMinPreferred(0x12);
 
     pAdvertising->start();
 }
