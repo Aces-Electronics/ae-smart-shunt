@@ -695,8 +695,21 @@ String INA226_ADC::getAveragedRunFlatTime(float currentA, float warningThreshold
 void INA226_ADC::loadProtectionSettings() {
     Preferences prefs;
     prefs.begin(NVS_PROTECTION_NAMESPACE, true); // read-only
-    lowVoltageCutoff = prefs.getFloat(NVS_KEY_LOW_VOLTAGE_CUTOFF, 9.0f);
-    hysteresis = prefs.getFloat(NVS_KEY_HYSTERESIS, 0.6f);
+
+    float loaded_cutoff = prefs.getFloat(NVS_KEY_LOW_VOLTAGE_CUTOFF, 9.0f);
+    if (loaded_cutoff < 7.0f || loaded_cutoff > 12.0f) {
+        lowVoltageCutoff = 9.0f;
+    } else {
+        lowVoltageCutoff = loaded_cutoff;
+    }
+
+    float loaded_hysteresis = prefs.getFloat(NVS_KEY_HYSTERESIS, 0.6f);
+    if (loaded_hysteresis < 0.1f || loaded_hysteresis > 2.0f) {
+        hysteresis = 0.6f;
+    } else {
+        hysteresis = loaded_hysteresis;
+    }
+
     overcurrentThreshold = prefs.getFloat(NVS_KEY_OVERCURRENT, 50.0f);
     prefs.end();
     Serial.println("Loaded protection settings:");
