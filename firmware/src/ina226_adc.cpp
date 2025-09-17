@@ -268,6 +268,16 @@ float INA226_ADC::getLoadVoltage_V() const { return loadVoltage_V; }
 float INA226_ADC::getBatteryCapacity() const { return batteryCapacity; }
 void INA226_ADC::setBatteryCapacity(float capacity) { batteryCapacity = capacity; }
 
+void INA226_ADC::setSOC_percent(float percent) {
+    if (percent < 0.0f) {
+        percent = 0.0f;
+    } else if (percent > 100.0f) {
+        percent = 100.0f;
+    }
+    batteryCapacity = maxBatteryCapacity * (percent / 100.0f);
+    Serial.printf("SOC set to %.2f%%. New capacity: %.2fAh\n", percent, batteryCapacity);
+}
+
 void INA226_ADC::setCalibration(float gain, float offset_mA) {
     calibrationGain = gain;
     calibrationOffset_mA = offset_mA;
@@ -711,6 +721,16 @@ void INA226_ADC::setProtectionSettings(float lv_cutoff, float hyst, float oc_thr
     overcurrentThreshold = oc_thresh;
     saveProtectionSettings();
     configureAlert(overcurrentThreshold); // Re-configure alert with new threshold
+}
+
+void INA226_ADC::setVoltageProtection(float cutoff, float reconnect_voltage) {
+    if (cutoff >= reconnect_voltage) {
+        Serial.println("Error: Cutoff voltage must be less than reconnect voltage.");
+        return;
+    }
+    float new_hysteresis = reconnect_voltage - cutoff;
+    setProtectionSettings(cutoff, new_hysteresis, this->overcurrentThreshold);
+    Serial.printf("Voltage protection updated. Cutoff: %.2fV, Reconnect: %.2fV (Hysteresis: %.2fV)\n", cutoff, reconnect_voltage, new_hysteresis);
 }
 
 uint16_t INA226_ADC::getActiveShunt() const {

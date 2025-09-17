@@ -63,6 +63,23 @@ void loadSwitchCallback(bool enabled) {
     }
 }
 
+void socCallback(float percent) {
+    ina226_adc.setSOC_percent(percent);
+}
+
+void voltageProtectionCallback(String value) {
+    int commaIndex = value.indexOf(',');
+    if (commaIndex > 0) {
+        String cutoff_str = value.substring(0, commaIndex);
+        String reconnect_str = value.substring(commaIndex + 1);
+        float cutoff = cutoff_str.toFloat();
+        float reconnect = reconnect_str.toFloat();
+        ina226_adc.setVoltageProtection(cutoff, reconnect);
+    } else {
+        Serial.println("Invalid format for voltage protection setting.");
+    }
+}
+
 void IRAM_ATTR alertISR()
 {
   ina226_adc.handleAlert();
@@ -954,6 +971,8 @@ void setup()
 
   bleHandler.begin();
   bleHandler.setLoadSwitchCallback(loadSwitchCallback);
+  bleHandler.setSOCCallback(socCallback);
+  bleHandler.setVoltageProtectionCallback(voltageProtectionCallback);
 
   Serial.println("Setup done");
 }

@@ -13,6 +13,8 @@ const char* BLEHandler::CALIBRATION_STATUS_CHAR_UUID = "9b1e3f40-8b8a-4b0e-8e8e-
 const char* BLEHandler::ERROR_STATE_CHAR_UUID = "a3b4c5d6-e7f8-9012-3456-789012345678";
 const char* BLEHandler::LOAD_STATE_CHAR_UUID = "b4c5d6e7-f890-1234-5678-901234567890";
 const char* BLEHandler::LOAD_CONTROL_CHAR_UUID = "c5d6e7f8-9012-3456-7890-123456789012";
+const char* BLEHandler::SET_SOC_CHAR_UUID = "d6e7f890-1234-5678-9012-345678901234";
+const char* BLEHandler::SET_VOLTAGE_PROTECTION_CHAR_UUID = "e7f89012-3456-7890-1234-567890123456";
 
 class LoadControlCallbacks : public BLECharacteristicCallbacks {
     std::function<void(bool)> _callback;
@@ -27,10 +29,46 @@ public:
     }
 };
 
+class FloatCharacteristicCallbacks : public BLECharacteristicCallbacks {
+    std::function<void(float)> _callback;
+public:
+    FloatCharacteristicCallbacks(std::function<void(float)> callback) : _callback(callback) {}
+
+    void onWrite(BLECharacteristic* pCharacteristic) {
+        std::string value = pCharacteristic->getValue();
+        if (value.length() == sizeof(float) && _callback) {
+            float float_val;
+            memcpy(&float_val, value.data(), sizeof(float));
+            _callback(float_val);
+        }
+    }
+};
+
+class StringCharacteristicCallbacks : public BLECharacteristicCallbacks {
+    std::function<void(String)> _callback;
+public:
+    StringCharacteristicCallbacks(std::function<void(String)> callback) : _callback(callback) {}
+
+    void onWrite(BLECharacteristic* pCharacteristic) {
+        std::string value = pCharacteristic->getValue();
+        if (value.length() > 0 && _callback) {
+            _callback(String(value.c_str()));
+        }
+    }
+};
+
 BLEHandler::BLEHandler() : pServer(NULL), pService(NULL) {}
 
 void BLEHandler::setLoadSwitchCallback(std::function<void(bool)> callback) {
     this->loadSwitchCallback = callback;
+}
+
+void BLEHandler::setSOCCallback(std::function<void(float)> callback) {
+    this->socCallback = callback;
+}
+
+void BLEHandler::setVoltageProtectionCallback(std::function<void(String)> callback) {
+    this->voltageProtectionCallback = callback;
 }
 
 void BLEHandler::begin() {
@@ -83,6 +121,18 @@ void BLEHandler::begin() {
         NIMBLE_PROPERTY::WRITE
     );
     pLoadControlCharacteristic->setCallbacks(new LoadControlCallbacks(this->loadSwitchCallback));
+
+    pSetSocCharacteristic = pService->createCharacteristic(
+        SET_SOC_CHAR_UUID,
+        NIMBLE_PROPERTY::WRITE
+    );
+    pSetSocCharacteristic->setCallbacks(new FloatCharacteristicCallbacks(this->socCallback));
+
+    pSetVoltageProtectionCharacteristic = pService->createCharacteristic(
+        SET_VOLTAGE_PROTECTION_CHAR_UUID,
+        NIMBLE_PROPERTY::WRITE
+    );
+    pSetVoltageProtectionCharacteristic->setCallbacks(new StringCharacteristicCallbacks(this->voltageProtectionCallback));
 
     pService->start();
 

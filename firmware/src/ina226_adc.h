@@ -36,6 +36,9 @@ public:
     String getAveragedRunFlatTime(float currentA, float warningThresholdHours, bool &warningTriggered);
     String calculateRunFlatTimeFormatted(float currentA, float warningThresholdHours, bool &warningTriggered);
 
+    void setSOC_percent(float percent);
+    void setVoltageProtection(float cutoff, float reconnect_voltage);
+
     // New shunt resistance calibration methods
     bool saveShuntResistance(float resistance);
     bool loadShuntResistance();

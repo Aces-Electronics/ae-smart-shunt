@@ -24,6 +24,8 @@ public:
     void begin();
     void updateTelemetry(const Telemetry& telemetry);
     void setLoadSwitchCallback(std::function<void(bool)> callback);
+    void setSOCCallback(std::function<void(float)> callback);
+    void setVoltageProtectionCallback(std::function<void(String)> callback);
 
 public:
     // Service and Characteristic UUIDs
@@ -39,6 +41,8 @@ public:
     static const char* ERROR_STATE_CHAR_UUID;
     static const char* LOAD_STATE_CHAR_UUID;
     static const char* LOAD_CONTROL_CHAR_UUID;
+    static const char* SET_SOC_CHAR_UUID;
+    static const char* SET_VOLTAGE_PROTECTION_CHAR_UUID;
 private:
     BLEServer* pServer;
     BLEService* pService;
@@ -52,8 +56,12 @@ private:
     BLECharacteristic* pErrorStateCharacteristic;
     BLECharacteristic* pLoadStateCharacteristic;
     BLECharacteristic* pLoadControlCharacteristic;
+    BLECharacteristic* pSetSocCharacteristic;
+    BLECharacteristic* pSetVoltageProtectionCharacteristic;
 
     std::function<void(bool)> loadSwitchCallback;
+    std::function<void(float)> socCallback;
+    std::function<void(String)> voltageProtectionCallback;
 };
 
 #endif // BLE_HANDLER_H
