@@ -4,7 +4,7 @@
 
 // 🔒 Compile-time check: catch padding/alignment mismatches.
 // Update "EXPECTED_AE_SMART_SHUNT_STRUCT_SIZE" if your struct changes.
-#define EXPECTED_AE_SMART_SHUNT_STRUCT_SIZE 74   // <-- adjust to your intended size
+#define EXPECTED_AE_SMART_SHUNT_STRUCT_SIZE 86   // <-- adjust to your intended size
 static_assert(sizeof(struct_message_ae_smart_shunt_1) == EXPECTED_AE_SMART_SHUNT_STRUCT_SIZE,
               "struct_message_ae_smart_shunt_1 has unexpected size! Possible padding/alignment issue.");
 
