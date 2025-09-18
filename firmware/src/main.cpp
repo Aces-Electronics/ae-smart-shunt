@@ -988,7 +988,10 @@ void setup()
       .errorState = 0,
       .loadState = ina226_adc.isLoadConnected(),
       .cutoffVoltage = ina226_adc.getLowVoltageCutoff(),
-      .reconnectVoltage = (ina226_adc.getLowVoltageCutoff() + ina226_adc.getHysteresis())
+        .reconnectVoltage = (ina226_adc.getLowVoltageCutoff() + ina226_adc.getHysteresis()),
+        .lastHourWh = 0.0f,
+        .lastDayWh = 0.0f,
+        .lastWeekWh = 0.0f
   };
   bleHandler.begin(initial_telemetry);
 
@@ -1129,6 +1132,9 @@ void loop()
       ae_smart_shunt_struct.batteryCurrent = ina226_adc.getCurrent_mA() / 1000.0f;
       ae_smart_shunt_struct.batteryPower = ina226_adc.getPower_mW() / 1000.0f;
       ae_smart_shunt_struct.starterBatteryVoltage = starter_adc.readVoltage();
+      ae_smart_shunt_struct.lastHourWh = ina226_adc.getLastHourEnergy_Wh();
+      ae_smart_shunt_struct.lastDayWh = ina226_adc.getLastDayEnergy_Wh();
+      ae_smart_shunt_struct.lastWeekWh = ina226_adc.getLastWeekEnergy_Wh();
 
       ae_smart_shunt_struct.batteryState = 0; // 0 = Normal, 1 = Warning, 2 = Critical
 
@@ -1175,6 +1181,9 @@ void loop()
       ae_smart_shunt_struct.batteryCapacity = 0.0f;
       ae_smart_shunt_struct.batteryState = 4; // Use 4 for "Not Calibrated"
       strncpy(ae_smart_shunt_struct.runFlatTime, "NOT CALIBRATED", sizeof(ae_smart_shunt_struct.runFlatTime));
+      ae_smart_shunt_struct.lastHourWh = 0.0f;
+      ae_smart_shunt_struct.lastDayWh = 0.0f;
+      ae_smart_shunt_struct.lastWeekWh = 0.0f;
     }
     ae_smart_shunt_struct.runFlatTime[sizeof(ae_smart_shunt_struct.runFlatTime) - 1] = '\0'; // ensure null termination
 
