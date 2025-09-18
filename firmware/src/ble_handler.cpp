@@ -18,6 +18,8 @@ const char* BLEHandler::SET_VOLTAGE_PROTECTION_CHAR_UUID = "e7f89012-3456-7890-1
 const char* BLEHandler::LAST_HOUR_WH_CHAR_UUID = "0A1B2C3D-4E5F-6A7B-8C9D-0E1F2A3B4C5D";
 const char* BLEHandler::LAST_DAY_WH_CHAR_UUID = "1A1B2C3D-4E5F-6A7B-8C9D-0E1F2A3B4C5E";
 const char* BLEHandler::LAST_WEEK_WH_CHAR_UUID = "2A1B2C3D-4E5F-6A7B-8C9D-0E1F2A3B4C5F";
+const char* BLEHandler::LOW_VOLTAGE_DELAY_CHAR_UUID = "3A1B2C3D-4E5F-6A7B-8C9D-0E1F2A3B4C60";
+const char* BLEHandler::DEVICE_NAME_SUFFIX_CHAR_UUID = "4A1B2C3D-4E5F-6A7B-8C9D-0E1F2A3B4C61";
 
 class LoadControlCallbacks : public BLECharacteristicCallbacks {
     std::function<void(bool)> _callback;
@@ -28,6 +30,21 @@ public:
         std::string value = pCharacteristic->getValue();
         if (value.length() > 0 && _callback) {
             _callback(value[0] != 0);
+        }
+    }
+};
+
+class Uint32CharacteristicCallbacks : public BLECharacteristicCallbacks {
+    std::function<void(uint32_t)> _callback;
+public:
+    Uint32CharacteristicCallbacks(std::function<void(uint32_t)> callback) : _callback(callback) {}
+
+    void onWrite(BLECharacteristic* pCharacteristic) {
+        std::string value = pCharacteristic->getValue();
+        if (value.length() == sizeof(uint32_t) && _callback) {
+            uint32_t val;
+            memcpy(&val, value.data(), sizeof(val));
+            _callback(val);
         }
     }
 };
@@ -93,6 +110,14 @@ void BLEHandler::setSOCCallback(std::function<void(float)> callback) {
 
 void BLEHandler::setVoltageProtectionCallback(std::function<void(String)> callback) {
     this->voltageProtectionCallback = callback;
+}
+
+void BLEHandler::setLowVoltageDelayCallback(std::function<void(uint32_t)> callback) {
+    this->lowVoltageDelayCallback = callback;
+}
+
+void BLEHandler::setDeviceNameSuffixCallback(std::function<void(String)> callback) {
+    this->deviceNameSuffixCallback = callback;
 }
 
 void BLEHandler::begin(const Telemetry& initial_telemetry) {
@@ -173,6 +198,18 @@ void BLEHandler::begin(const Telemetry& initial_telemetry) {
         NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY
     );
 
+    pLowVoltageDelayCharacteristic = pService->createCharacteristic(
+        LOW_VOLTAGE_DELAY_CHAR_UUID,
+        NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::NOTIFY
+    );
+    pLowVoltageDelayCharacteristic->setCallbacks(new Uint32CharacteristicCallbacks(this->lowVoltageDelayCallback));
+
+    pDeviceNameSuffixCharacteristic = pService->createCharacteristic(
+        DEVICE_NAME_SUFFIX_CHAR_UUID,
+        NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::NOTIFY
+    );
+    pDeviceNameSuffixCharacteristic->setCallbacks(new StringCharacteristicCallbacks(this->deviceNameSuffixCallback));
+
     pService->start();
 
     startAdvertising(initial_telemetry);
@@ -218,6 +255,12 @@ void BLEHandler::updateTelemetry(const Telemetry& telemetry) {
     pLastWeekWhCharacteristic->setValue(telemetry.lastWeekWh);
     pLastWeekWhCharacteristic->notify();
 
+    pLowVoltageDelayCharacteristic->setValue(telemetry.lowVoltageDelayS);
+    pLowVoltageDelayCharacteristic->notify();
+
+    pDeviceNameSuffixCharacteristic->setValue(telemetry.deviceNameSuffix);
+    pDeviceNameSuffixCharacteristic->notify();
+
     // Update advertising data
     startAdvertising(telemetry);
 }
@@ -245,12 +288,19 @@ void BLEHandler::startAdvertising(const Telemetry& telemetry) {
     uint8_t error_state = (uint8_t)telemetry.errorState;
     manuf_data.append((char*)&error_state, sizeof(error_state));
 
+    uint8_t load_state = (uint8_t)telemetry.loadState;
+    manuf_data.append((char*)&load_state, sizeof(load_state));
+
     oAdvertisementData.setManufacturerData(manuf_data);
     pAdvertising->setAdvertisementData(oAdvertisementData);
 
     // Also set the scan response data
     BLEAdvertisementData oScanResponseData = BLEAdvertisementData();
-    oScanResponseData.setName("AE Smart Shunt");
+    String deviceName = "AE Smart Shunt";
+    if (telemetry.deviceNameSuffix.length() > 0) {
+        deviceName += " - " + telemetry.deviceNameSuffix;
+    }
+    oScanResponseData.setName(deviceName.c_str());
     pAdvertising->setScanResponseData(oScanResponseData);
 
     pAdvertising->addServiceUUID(SERVICE_UUID);

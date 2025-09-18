@@ -73,6 +73,9 @@ INA226_ADC::INA226_ADC(uint8_t address, float shuntResistorOhms, float batteryCa
       lowVoltageCutoff(11.6f),
       hysteresis(0.2f),
       overcurrentThreshold(50.0f), // Default 50A
+      lowVoltageDelayMs(10000), // Default to 10 seconds
+      lowVoltageStartTime(0),
+      deviceNameSuffix(""),
       loadConnected(true),
       alertTriggered(false),
       m_isConfigured(false),
@@ -742,6 +745,8 @@ void INA226_ADC::loadProtectionSettings() {
     }
 
     overcurrentThreshold = prefs.getFloat(NVS_KEY_OVERCURRENT, 50.0f);
+    lowVoltageDelayMs = prefs.getUInt(NVS_KEY_LOW_VOLTAGE_DELAY, 10000); // Default 10s
+    deviceNameSuffix = prefs.getString(NVS_KEY_DEVICE_NAME_SUFFIX, "");
     prefs.end();
     Serial.println("Loaded protection settings:");
     Serial.printf("  LV Cutoff: %.2fV\n", lowVoltageCutoff);
@@ -755,6 +760,8 @@ void INA226_ADC::saveProtectionSettings() {
     prefs.putFloat(NVS_KEY_LOW_VOLTAGE_CUTOFF, lowVoltageCutoff);
     prefs.putFloat(NVS_KEY_HYSTERESIS, hysteresis);
     prefs.putFloat(NVS_KEY_OVERCURRENT, overcurrentThreshold);
+    prefs.putUInt(NVS_KEY_LOW_VOLTAGE_DELAY, lowVoltageDelayMs);
+    prefs.putString(NVS_KEY_DEVICE_NAME_SUFFIX, deviceNameSuffix);
     prefs.end();
     Serial.println("Saved protection settings.");
 }
@@ -858,11 +865,30 @@ void INA226_ADC::checkAndHandleProtection() {
     }
 
     if (isLoadConnected()) {
+        // Low voltage protection
         if (voltage < lowVoltageCutoff) {
-            Serial.printf("Low voltage detected (%.2fV < %.2fV). Disconnecting load.\n", voltage, lowVoltageCutoff);
-            setLoadConnected(false, LOW_VOLTAGE);
-            enterSleepMode();
-        } else if (current > overcurrentThreshold) {
+            if (lowVoltageStartTime == 0) {
+                // Low voltage detected for the first time, start the timer
+                lowVoltageStartTime = millis();
+                Serial.printf("Low voltage detected (%.2fV < %.2fV). Starting %lus timer.\n", voltage, lowVoltageCutoff, lowVoltageDelayMs / 1000);
+            } else {
+                // Timer is already running, check if it has expired
+                if (millis() - lowVoltageStartTime >= lowVoltageDelayMs) {
+                    Serial.printf("Low voltage persistent for %lus. Disconnecting load.\n", lowVoltageDelayMs / 1000);
+                    setLoadConnected(false, LOW_VOLTAGE);
+                    enterSleepMode();
+                }
+            }
+        } else {
+            // Voltage has recovered, reset the timer
+            if (lowVoltageStartTime > 0) {
+                Serial.println("Voltage recovered. Cancelling disconnect timer.");
+                lowVoltageStartTime = 0;
+            }
+        }
+
+        // Overcurrent protection (immediate)
+        if (current > overcurrentThreshold) {
             Serial.printf("Overcurrent detected (%.2fA > %.2fA). Disconnecting load.\n", current, overcurrentThreshold);
             setLoadConnected(false, OVERCURRENT);
         }
@@ -1069,4 +1095,26 @@ float INA226_ADC::getLastDayEnergy_Wh() const {
 
 float INA226_ADC::getLastWeekEnergy_Wh() const {
     return lastWeekEnergy_Wh;
+}
+
+void INA226_ADC::setLowVoltageDelay(uint32_t delay_s) {
+    lowVoltageDelayMs = delay_s * 1000;
+    saveProtectionSettings();
+}
+
+uint32_t INA226_ADC::getLowVoltageDelay() const {
+    return lowVoltageDelayMs / 1000;
+}
+
+void INA226_ADC::setDeviceNameSuffix(String suffix) {
+    if (suffix.length() > 15) {
+        deviceNameSuffix = suffix.substring(0, 15);
+    } else {
+        deviceNameSuffix = suffix;
+    }
+    saveProtectionSettings();
+}
+
+String INA226_ADC::getDeviceNameSuffix() const {
+    return deviceNameSuffix;
 }

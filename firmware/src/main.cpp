@@ -82,6 +82,16 @@ void voltageProtectionCallback(String value) {
     }
 }
 
+void lowVoltageDelayCallback(uint32_t seconds) {
+    Serial.printf("BLE received new low voltage delay: %u seconds\n", seconds);
+    ina226_adc.setLowVoltageDelay(seconds);
+}
+
+void deviceNameSuffixCallback(String suffix) {
+    Serial.printf("BLE received new device name suffix: %s\n", suffix.c_str());
+    ina226_adc.setDeviceNameSuffix(suffix);
+}
+
 void IRAM_ATTR alertISR()
 {
   ina226_adc.handleAlert();
@@ -974,6 +984,8 @@ void setup()
   bleHandler.setLoadSwitchCallback(loadSwitchCallback);
   bleHandler.setSOCCallback(socCallback);
   bleHandler.setVoltageProtectionCallback(voltageProtectionCallback);
+  bleHandler.setLowVoltageDelayCallback(lowVoltageDelayCallback);
+  bleHandler.setDeviceNameSuffixCallback(deviceNameSuffixCallback);
 
   // Create initial telemetry data for the first advertisement
   ina226_adc.readSensors(); // Read sensors to get initial values
@@ -991,7 +1003,9 @@ void setup()
         .reconnectVoltage = (ina226_adc.getLowVoltageCutoff() + ina226_adc.getHysteresis()),
         .lastHourWh = 0.0f,
         .lastDayWh = 0.0f,
-        .lastWeekWh = 0.0f
+        .lastWeekWh = 0.0f,
+        .lowVoltageDelayS = ina226_adc.getLowVoltageDelay(),
+        .deviceNameSuffix = ina226_adc.getDeviceNameSuffix()
   };
   bleHandler.begin(initial_telemetry);
 
@@ -1205,7 +1219,9 @@ void loop()
         .reconnectVoltage = (ina226_adc.getLowVoltageCutoff() + ina226_adc.getHysteresis()),
         .lastHourWh = ina226_adc.getLastHourEnergy_Wh(),
         .lastDayWh = ina226_adc.getLastDayEnergy_Wh(),
-        .lastWeekWh = ina226_adc.getLastWeekEnergy_Wh()
+        .lastWeekWh = ina226_adc.getLastWeekEnergy_Wh(),
+        .lowVoltageDelayS = ina226_adc.getLowVoltageDelay(),
+        .deviceNameSuffix = ina226_adc.getDeviceNameSuffix()
     };
     bleHandler.updateTelemetry(telemetry_data);
 
