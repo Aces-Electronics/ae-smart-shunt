@@ -974,7 +974,26 @@ void setup()
   bleHandler.setLoadSwitchCallback(loadSwitchCallback);
   bleHandler.setSOCCallback(socCallback);
   bleHandler.setVoltageProtectionCallback(voltageProtectionCallback);
-  bleHandler.begin();
+
+  // Create initial telemetry data for the first advertisement
+  ina226_adc.readSensors(); // Read sensors to get initial values
+  Telemetry initial_telemetry = {
+      .batteryVoltage = ina226_adc.getBusVoltage_V(),
+      .batteryCurrent = ina226_adc.getCurrent_mA() / 1000.0f,
+      .batteryPower = ina226_adc.getPower_mW() / 1000.0f,
+      .batterySOC = 0.0f, // Will be calculated in the loop
+      .batteryCapacity = 0.0f, // Will be calculated in the loop
+      .starterBatteryVoltage = starter_adc.readVoltage(),
+      .isCalibrated = ina226_adc.isConfigured(),
+      .errorState = 0,
+      .loadState = ina226_adc.isLoadConnected(),
+      .cutoffVoltage = ina226_adc.getLowVoltageCutoff(),
+        .reconnectVoltage = (ina226_adc.getLowVoltageCutoff() + ina226_adc.getHysteresis()),
+        .lastHourWh = 0.0f,
+        .lastDayWh = 0.0f,
+        .lastWeekWh = 0.0f
+  };
+  bleHandler.begin(initial_telemetry);
 
   Serial.println("Setup done");
 }
@@ -1113,6 +1132,9 @@ void loop()
       ae_smart_shunt_struct.batteryCurrent = ina226_adc.getCurrent_mA() / 1000.0f;
       ae_smart_shunt_struct.batteryPower = ina226_adc.getPower_mW() / 1000.0f;
       ae_smart_shunt_struct.starterBatteryVoltage = starter_adc.readVoltage();
+      ae_smart_shunt_struct.lastHourWh = ina226_adc.getLastHourEnergy_Wh();
+      ae_smart_shunt_struct.lastDayWh = ina226_adc.getLastDayEnergy_Wh();
+      ae_smart_shunt_struct.lastWeekWh = ina226_adc.getLastWeekEnergy_Wh();
 
       ae_smart_shunt_struct.batteryState = 0; // 0 = Normal, 1 = Warning, 2 = Critical
 
@@ -1159,8 +1181,14 @@ void loop()
       ae_smart_shunt_struct.batteryCapacity = 0.0f;
       ae_smart_shunt_struct.batteryState = 4; // Use 4 for "Not Calibrated"
       strncpy(ae_smart_shunt_struct.runFlatTime, "NOT CALIBRATED", sizeof(ae_smart_shunt_struct.runFlatTime));
+      ae_smart_shunt_struct.lastHourWh = 0.0f;
+      ae_smart_shunt_struct.lastDayWh = 0.0f;
+      ae_smart_shunt_struct.lastWeekWh = 0.0f;
     }
     ae_smart_shunt_struct.runFlatTime[sizeof(ae_smart_shunt_struct.runFlatTime) - 1] = '\0'; // ensure null termination
+
+    // Update energy usage stats
+    ina226_adc.updateEnergyUsage(ina226_adc.getPower_mW());
 
     // Update BLE characteristics
     Telemetry telemetry_data = {
@@ -1174,7 +1202,10 @@ void loop()
         .errorState = ae_smart_shunt_struct.batteryState,
         .loadState = ina226_adc.isLoadConnected(),
         .cutoffVoltage = ina226_adc.getLowVoltageCutoff(),
-        .reconnectVoltage = (ina226_adc.getLowVoltageCutoff() + ina226_adc.getHysteresis())
+        .reconnectVoltage = (ina226_adc.getLowVoltageCutoff() + ina226_adc.getHysteresis()),
+        .lastHourWh = ina226_adc.getLastHourEnergy_Wh(),
+        .lastDayWh = ina226_adc.getLastDayEnergy_Wh(),
+        .lastWeekWh = ina226_adc.getLastWeekEnergy_Wh()
     };
     bleHandler.updateTelemetry(telemetry_data);
 

@@ -15,6 +15,9 @@ const char* BLEHandler::LOAD_STATE_CHAR_UUID = "b4c5d6e7-f890-1234-5678-90123456
 const char* BLEHandler::LOAD_CONTROL_CHAR_UUID = "c5d6e7f8-9012-3456-7890-123456789012";
 const char* BLEHandler::SET_SOC_CHAR_UUID = "d6e7f890-1234-5678-9012-345678901234";
 const char* BLEHandler::SET_VOLTAGE_PROTECTION_CHAR_UUID = "e7f89012-3456-7890-1234-567890123456";
+const char* BLEHandler::LAST_HOUR_WH_CHAR_UUID = "0A1B2C3D-4E5F-6A7B-8C9D-0E1F2A3B4C5D";
+const char* BLEHandler::LAST_DAY_WH_CHAR_UUID = "1A1B2C3D-4E5F-6A7B-8C9D-0E1F2A3B4C5E";
+const char* BLEHandler::LAST_WEEK_WH_CHAR_UUID = "2A1B2C3D-4E5F-6A7B-8C9D-0E1F2A3B4C5F";
 
 class LoadControlCallbacks : public BLECharacteristicCallbacks {
     std::function<void(bool)> _callback;
@@ -36,6 +39,10 @@ class ServerCallbacks: public BLEServerCallbacks {
 
     void onDisconnect(BLEServer* pServer) {
       Serial.println("BLE client disconnected");
+    }
+
+    void onMtuChanged(uint16_t MTU, ble_gap_conn_desc* desc) {
+        Serial.printf("MTU changed to: %d\n", MTU);
     }
 };
 
@@ -88,8 +95,9 @@ void BLEHandler::setVoltageProtectionCallback(std::function<void(String)> callba
     this->voltageProtectionCallback = callback;
 }
 
-void BLEHandler::begin() {
+void BLEHandler::begin(const Telemetry& initial_telemetry) {
     BLEDevice::init("AE Smart Shunt");
+    BLEDevice::setMTU(517);
     pServer = BLEDevice::createServer();
     pServer->setCallbacks(new ServerCallbacks());
     pService = pServer->createService(SERVICE_UUID);
@@ -152,14 +160,22 @@ void BLEHandler::begin() {
     );
     pSetVoltageProtectionCharacteristic->setCallbacks(new StringCharacteristicCallbacks(this->voltageProtectionCallback));
 
+    pLastHourWhCharacteristic = pService->createCharacteristic(
+        LAST_HOUR_WH_CHAR_UUID,
+        NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY
+    );
+    pLastDayWhCharacteristic = pService->createCharacteristic(
+        LAST_DAY_WH_CHAR_UUID,
+        NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY
+    );
+    pLastWeekWhCharacteristic = pService->createCharacteristic(
+        LAST_WEEK_WH_CHAR_UUID,
+        NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY
+    );
+
     pService->start();
 
-    BLEAdvertising* pAdvertising = BLEDevice::getAdvertising();
-    pAdvertising->addServiceUUID(SERVICE_UUID);
-    pAdvertising->setScanResponse(true);
-    pAdvertising->setMinPreferred(0x06);
-    pAdvertising->setMinPreferred(0x12);
-    BLEDevice::startAdvertising();
+    startAdvertising(initial_telemetry);
 }
 
 void BLEHandler::updateTelemetry(const Telemetry& telemetry) {
@@ -194,4 +210,55 @@ void BLEHandler::updateTelemetry(const Telemetry& telemetry) {
     snprintf(voltage_buf, sizeof(voltage_buf), "%.2f,%.2f", telemetry.cutoffVoltage, telemetry.reconnectVoltage);
     pSetVoltageProtectionCharacteristic->setValue(voltage_buf);
     pSetVoltageProtectionCharacteristic->notify();
+
+    pLastHourWhCharacteristic->setValue(telemetry.lastHourWh);
+    pLastHourWhCharacteristic->notify();
+    pLastDayWhCharacteristic->setValue(telemetry.lastDayWh);
+    pLastDayWhCharacteristic->notify();
+    pLastWeekWhCharacteristic->setValue(telemetry.lastWeekWh);
+    pLastWeekWhCharacteristic->notify();
+
+    // Update advertising data
+    startAdvertising(telemetry);
+}
+
+void BLEHandler::startAdvertising(const Telemetry& telemetry) {
+    BLEAdvertising* pAdvertising = BLEDevice::getAdvertising();
+
+    // Stop advertising to update the data
+    pAdvertising->stop();
+
+    BLEAdvertisementData oAdvertisementData = BLEAdvertisementData();
+    oAdvertisementData.setFlags(0x06); // BR_EDR_NOT_SUPPORTED | GENERAL_DISC_MODE
+
+    std::string manuf_data;
+    // Add a company ID (e.g., 0x02E5 for Espressif)
+    uint16_t company_id = 0x02E5;
+    manuf_data += (char)(company_id & 0xFF);
+    manuf_data += (char)((company_id >> 8) & 0xFF);
+
+    // Add telemetry data
+    // Pack voltage as a 16-bit integer (e.g., in mV) to save space
+    uint16_t voltage_mv = (uint16_t)(telemetry.batteryVoltage * 1000);
+    manuf_data.append((char*)&voltage_mv, sizeof(voltage_mv));
+
+    uint8_t error_state = (uint8_t)telemetry.errorState;
+    manuf_data.append((char*)&error_state, sizeof(error_state));
+
+    oAdvertisementData.setManufacturerData(manuf_data);
+    pAdvertising->setAdvertisementData(oAdvertisementData);
+
+    // Also set the scan response data
+    BLEAdvertisementData oScanResponseData = BLEAdvertisementData();
+    oScanResponseData.setName("AE Smart Shunt");
+    pAdvertising->setScanResponseData(oScanResponseData);
+
+    pAdvertising->addServiceUUID(SERVICE_UUID);
+    pAdvertising->setScanResponse(true);
+
+    // Restore connection interval hints
+    pAdvertising->setMinPreferred(0x06);
+    pAdvertising->setMinPreferred(0x12);
+
+    pAdvertising->start();
 }

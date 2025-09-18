@@ -18,13 +18,17 @@ struct Telemetry {
     bool loadState;
     float cutoffVoltage;
     float reconnectVoltage;
+    float lastHourWh;
+    float lastDayWh;
+    float lastWeekWh;
 };
 
 class BLEHandler {
 public:
     BLEHandler();
-    void begin();
+    void begin(const Telemetry& initial_telemetry);
     void updateTelemetry(const Telemetry& telemetry);
+    void startAdvertising(const Telemetry& telemetry);
     void setLoadSwitchCallback(std::function<void(bool)> callback);
     void setSOCCallback(std::function<void(float)> callback);
     void setVoltageProtectionCallback(std::function<void(String)> callback);
@@ -45,6 +49,9 @@ public:
     static const char* LOAD_CONTROL_CHAR_UUID;
     static const char* SET_SOC_CHAR_UUID;
     static const char* SET_VOLTAGE_PROTECTION_CHAR_UUID;
+    static const char* LAST_HOUR_WH_CHAR_UUID;
+    static const char* LAST_DAY_WH_CHAR_UUID;
+    static const char* LAST_WEEK_WH_CHAR_UUID;
 private:
     BLEServer* pServer;
     BLEService* pService;
@@ -60,6 +67,9 @@ private:
     BLECharacteristic* pLoadControlCharacteristic;
     BLECharacteristic* pSetSocCharacteristic;
     BLECharacteristic* pSetVoltageProtectionCharacteristic;
+    BLECharacteristic* pLastHourWhCharacteristic;
+    BLECharacteristic* pLastDayWhCharacteristic;
+    BLECharacteristic* pLastWeekWhCharacteristic;
 
     std::function<void(bool)> loadSwitchCallback;
     std::function<void(float)> socCallback;
