@@ -1,8 +1,13 @@
 #include "ina226_adc.h"
+#include "esp_sleep.h"
 #include <cfloat>
 #include <algorithm>
 #include <map>
 #include "driver/gpio.h"
+
+// This flag is stored in RTC memory to persist across deep sleep cycles.
+RTC_DATA_ATTR uint32_t g_low_power_sleep_flag = 0;
+#define LOW_POWER_SLEEP_MAGIC 0x12345678 // A magic number to indicate low power sleep
 
 namespace {
     // Factory-calibrated table for the 50A shunt, based on user-provided data
@@ -78,16 +83,38 @@ INA226_ADC::INA226_ADC(uint8_t address, float shuntResistorOhms, float batteryCa
       sampleIndex(0),
       sampleCount(0),
       lastSampleTime(0),
-      sampleIntervalSeconds(10)
+      sampleIntervalSeconds(10),
+      lastEnergyUpdateTime(0),
+      currentHourEnergy_Ws(0.0f),
+      currentDayEnergy_Ws(0.0f),
+      currentWeekEnergy_Ws(0.0f),
+      lastHourEnergy_Wh(0.0f),
+      lastDayEnergy_Wh(0.0f),
+      lastWeekEnergy_Wh(0.0f),
+      currentHourStartMillis(0),
+      currentDayStartMillis(0),
+      currentWeekStartMillis(0)
 {
     for (int i = 0; i < maxSamples; ++i) currentSamples[i] = 0.0f;
 }
 
 void INA226_ADC::begin(int sdaPin, int sclPin) {
+    esp_reset_reason_t reason = esp_reset_reason();
+    bool from_low_power_sleep = (reason == ESP_RST_DEEPSLEEP && g_low_power_sleep_flag == LOW_POWER_SLEEP_MAGIC);
+
+    if (from_low_power_sleep) {
+        g_low_power_sleep_flag = 0; // Clear the flag
+        Serial.println("Woke from low-power deep sleep. Keeping load OFF.");
+    }
+
     Wire.begin(sdaPin, sclPin);
 
     pinMode(LOAD_SWITCH_PIN, OUTPUT);
-    setLoadConnected(true, NONE);
+    if(from_low_power_sleep) {
+        setLoadConnected(false, LOW_VOLTAGE);
+    } else {
+        setLoadConnected(true, NONE);
+    }
 
     pinMode(INA_ALERT_PIN, INPUT_PULLUP);
 
@@ -911,8 +938,9 @@ void INA226_ADC::clearAlerts() {
 
 void INA226_ADC::enterSleepMode() {
     Serial.println("Entering deep sleep to conserve power.");
+    g_low_power_sleep_flag = LOW_POWER_SLEEP_MAGIC;
     gpio_hold_en(GPIO_NUM_5);
-    esp_sleep_enable_timer_wakeup(10 * 1000000); // Wake up every 10 seconds
+    esp_sleep_enable_timer_wakeup(30 * 1000000); // Wake up every 30 seconds
     esp_deep_sleep_start();
 }
 
@@ -985,4 +1013,60 @@ void INA226_ADC::dumpRegisters() const {
     Serial.println(alertLimitReg, HEX);
 
     Serial.println(F("----------------------------"));
+}
+
+// ---------------- Energy Usage Tracking ----------------
+
+void INA226_ADC::updateEnergyUsage(float power_mW) {
+    unsigned long now = millis();
+    if (lastEnergyUpdateTime == 0) {
+        lastEnergyUpdateTime = now;
+        currentHourStartMillis = now;
+        currentDayStartMillis = now;
+        currentWeekStartMillis = now;
+        return;
+    }
+
+    float power_W = power_mW / 1000.0f;
+    float time_delta_s = (now - lastEnergyUpdateTime) / 1000.0f;
+    float energy_delta_Ws = power_W * time_delta_s;
+
+    currentHourEnergy_Ws += energy_delta_Ws;
+    currentDayEnergy_Ws += energy_delta_Ws;
+    currentWeekEnergy_Ws += energy_delta_Ws;
+
+    lastEnergyUpdateTime = now;
+
+    // Rollover logic
+    const unsigned long hour_ms = 3600000;
+    const unsigned long day_ms = 24 * hour_ms;
+    const unsigned long week_ms = 7 * day_ms;
+
+    if (now - currentHourStartMillis >= hour_ms) {
+        lastHourEnergy_Wh = currentHourEnergy_Ws / 3600.0f;
+        currentHourEnergy_Ws = 0.0f;
+        currentHourStartMillis = now;
+    }
+    if (now - currentDayStartMillis >= day_ms) {
+        lastDayEnergy_Wh = currentDayEnergy_Ws / 3600.0f;
+        currentDayEnergy_Ws = 0.0f;
+        currentDayStartMillis = now;
+    }
+    if (now - currentWeekStartMillis >= week_ms) {
+        lastWeekEnergy_Wh = currentWeekEnergy_Ws / 3600.0f;
+        currentWeekEnergy_Ws = 0.0f;
+        currentWeekStartMillis = now;
+    }
+}
+
+float INA226_ADC::getLastHourEnergy_Wh() const {
+    return lastHourEnergy_Wh;
+}
+
+float INA226_ADC::getLastDayEnergy_Wh() const {
+    return lastDayEnergy_Wh;
+}
+
+float INA226_ADC::getLastWeekEnergy_Wh() const {
+    return lastWeekEnergy_Wh;
 }

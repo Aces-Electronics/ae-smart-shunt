@@ -90,6 +90,12 @@ public:
     bool hasStoredCalibrationTable(uint16_t shuntRatedA, size_t &countOut) const;
     bool loadFactoryCalibrationTable(uint16_t shuntRatedA);
 
+    // Energy usage tracking
+    void updateEnergyUsage(float power_mW);
+    float getLastHourEnergy_Wh() const;
+    float getLastDayEnergy_Wh() const;
+    float getLastWeekEnergy_Wh() const;
+
 private:
     INA226_WE ina226;
     float defaultOhms;      // Original default shunt resistance
@@ -132,5 +138,17 @@ private:
 
     void loadInvertCurrent();
     void saveInvertCurrent();
+
+    // Energy usage tracking
+    unsigned long lastEnergyUpdateTime;
+    float currentHourEnergy_Ws;
+    float currentDayEnergy_Ws;
+    float currentWeekEnergy_Ws;
+    float lastHourEnergy_Wh;
+    float lastDayEnergy_Wh;
+    float lastWeekEnergy_Wh;
+    unsigned long currentHourStartMillis;
+    unsigned long currentDayStartMillis;
+    unsigned long currentWeekStartMillis;
 };
 #endif
