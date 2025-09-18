@@ -18,6 +18,7 @@ const char* BLEHandler::SET_VOLTAGE_PROTECTION_CHAR_UUID = "e7f89012-3456-7890-1
 const char* BLEHandler::LAST_HOUR_WH_CHAR_UUID = "0A1B2C3D-4E5F-6A7B-8C9D-0E1F2A3B4C5D";
 const char* BLEHandler::LAST_DAY_WH_CHAR_UUID = "1A1B2C3D-4E5F-6A7B-8C9D-0E1F2A3B4C5E";
 const char* BLEHandler::LAST_WEEK_WH_CHAR_UUID = "2A1B2C3D-4E5F-6A7B-8C9D-0E1F2A3B4C5F";
+const char* BLEHandler::LOW_VOLTAGE_DELAY_CHAR_UUID = "3A1B2C3D-4E5F-6A7B-8C9D-0E1F2A3B4C60";
 
 class LoadControlCallbacks : public BLECharacteristicCallbacks {
     std::function<void(bool)> _callback;
@@ -28,6 +29,21 @@ public:
         std::string value = pCharacteristic->getValue();
         if (value.length() > 0 && _callback) {
             _callback(value[0] != 0);
+        }
+    }
+};
+
+class Uint32CharacteristicCallbacks : public BLECharacteristicCallbacks {
+    std::function<void(uint32_t)> _callback;
+public:
+    Uint32CharacteristicCallbacks(std::function<void(uint32_t)> callback) : _callback(callback) {}
+
+    void onWrite(BLECharacteristic* pCharacteristic) {
+        std::string value = pCharacteristic->getValue();
+        if (value.length() == sizeof(uint32_t) && _callback) {
+            uint32_t val;
+            memcpy(&val, value.data(), sizeof(val));
+            _callback(val);
         }
     }
 };
@@ -93,6 +109,10 @@ void BLEHandler::setSOCCallback(std::function<void(float)> callback) {
 
 void BLEHandler::setVoltageProtectionCallback(std::function<void(String)> callback) {
     this->voltageProtectionCallback = callback;
+}
+
+void BLEHandler::setLowVoltageDelayCallback(std::function<void(uint32_t)> callback) {
+    this->lowVoltageDelayCallback = callback;
 }
 
 void BLEHandler::begin(const Telemetry& initial_telemetry) {
@@ -172,6 +192,12 @@ void BLEHandler::begin(const Telemetry& initial_telemetry) {
         NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY
     );
 
+    pLowVoltageDelayCharacteristic = pService->createCharacteristic(
+        LOW_VOLTAGE_DELAY_CHAR_UUID,
+        NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::NOTIFY
+    );
+    pLowVoltageDelayCharacteristic->setCallbacks(new Uint32CharacteristicCallbacks(this->lowVoltageDelayCallback));
+
     pService->start();
 
     startAdvertising(initial_telemetry);
@@ -216,6 +242,9 @@ void BLEHandler::updateTelemetry(const Telemetry& telemetry) {
     pLastDayWhCharacteristic->notify();
     pLastWeekWhCharacteristic->setValue(telemetry.lastWeekWh);
     pLastWeekWhCharacteristic->notify();
+
+    pLowVoltageDelayCharacteristic->setValue(telemetry.lowVoltageDelayS);
+    pLowVoltageDelayCharacteristic->notify();
 
     // Update advertising data
     startAdvertising(telemetry);

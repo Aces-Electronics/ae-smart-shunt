@@ -53,6 +53,8 @@ public:
     float getLowVoltageCutoff() const;
     float getHysteresis() const;
     float getOvercurrentThreshold() const;
+    void setLowVoltageDelay(uint32_t delay_s);
+    uint32_t getLowVoltageDelay() const;
     void checkAndHandleProtection();
     void setLoadConnected(bool connected, DisconnectReason reason = MANUAL);
     bool isLoadConnected() const;
@@ -110,6 +112,8 @@ private:
     float lowVoltageCutoff;
     float hysteresis;
     float overcurrentThreshold;
+    uint32_t lowVoltageDelayMs;
+    unsigned long lowVoltageStartTime;
     bool loadConnected;
     volatile bool alertTriggered;
     bool m_isConfigured;
