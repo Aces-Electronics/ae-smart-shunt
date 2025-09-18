@@ -19,6 +19,7 @@ const char* BLEHandler::LAST_HOUR_WH_CHAR_UUID = "0A1B2C3D-4E5F-6A7B-8C9D-0E1F2A
 const char* BLEHandler::LAST_DAY_WH_CHAR_UUID = "1A1B2C3D-4E5F-6A7B-8C9D-0E1F2A3B4C5E";
 const char* BLEHandler::LAST_WEEK_WH_CHAR_UUID = "2A1B2C3D-4E5F-6A7B-8C9D-0E1F2A3B4C5F";
 const char* BLEHandler::LOW_VOLTAGE_DELAY_CHAR_UUID = "3A1B2C3D-4E5F-6A7B-8C9D-0E1F2A3B4C60";
+const char* BLEHandler::DEVICE_NAME_SUFFIX_CHAR_UUID = "4A1B2C3D-4E5F-6A7B-8C9D-0E1F2A3B4C61";
 
 class LoadControlCallbacks : public BLECharacteristicCallbacks {
     std::function<void(bool)> _callback;
@@ -115,6 +116,10 @@ void BLEHandler::setLowVoltageDelayCallback(std::function<void(uint32_t)> callba
     this->lowVoltageDelayCallback = callback;
 }
 
+void BLEHandler::setDeviceNameSuffixCallback(std::function<void(String)> callback) {
+    this->deviceNameSuffixCallback = callback;
+}
+
 void BLEHandler::begin(const Telemetry& initial_telemetry) {
     BLEDevice::init("AE Smart Shunt");
     pServer = BLEDevice::createServer();
@@ -198,6 +203,12 @@ void BLEHandler::begin(const Telemetry& initial_telemetry) {
     );
     pLowVoltageDelayCharacteristic->setCallbacks(new Uint32CharacteristicCallbacks(this->lowVoltageDelayCallback));
 
+    pDeviceNameSuffixCharacteristic = pService->createCharacteristic(
+        DEVICE_NAME_SUFFIX_CHAR_UUID,
+        NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::NOTIFY
+    );
+    pDeviceNameSuffixCharacteristic->setCallbacks(new StringCharacteristicCallbacks(this->deviceNameSuffixCallback));
+
     pService->start();
 
     startAdvertising(initial_telemetry);
@@ -246,6 +257,9 @@ void BLEHandler::updateTelemetry(const Telemetry& telemetry) {
     pLowVoltageDelayCharacteristic->setValue(telemetry.lowVoltageDelayS);
     pLowVoltageDelayCharacteristic->notify();
 
+    pDeviceNameSuffixCharacteristic->setValue(telemetry.deviceNameSuffix);
+    pDeviceNameSuffixCharacteristic->notify();
+
     // Update advertising data
     startAdvertising(telemetry);
 }
@@ -273,12 +287,19 @@ void BLEHandler::startAdvertising(const Telemetry& telemetry) {
     uint8_t error_state = (uint8_t)telemetry.errorState;
     manuf_data.append((char*)&error_state, sizeof(error_state));
 
+    uint8_t load_state = (uint8_t)telemetry.loadState;
+    manuf_data.append((char*)&load_state, sizeof(load_state));
+
     oAdvertisementData.setManufacturerData(manuf_data);
     pAdvertising->setAdvertisementData(oAdvertisementData);
 
     // Also set the scan response data
     BLEAdvertisementData oScanResponseData = BLEAdvertisementData();
-    oScanResponseData.setName("AE Smart Shunt");
+    String deviceName = "AE Smart Shunt";
+    if (telemetry.deviceNameSuffix.length() > 0) {
+        deviceName += " - " + telemetry.deviceNameSuffix;
+    }
+    oScanResponseData.setName(deviceName.c_str());
     pAdvertising->setScanResponseData(oScanResponseData);
 
     pAdvertising->addServiceUUID(SERVICE_UUID);

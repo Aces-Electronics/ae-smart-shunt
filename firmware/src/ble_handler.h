@@ -22,6 +22,7 @@ struct Telemetry {
     float lastDayWh;
     float lastWeekWh;
     uint32_t lowVoltageDelayS;
+    String deviceNameSuffix;
 };
 
 class BLEHandler {
@@ -34,6 +35,7 @@ public:
     void setSOCCallback(std::function<void(float)> callback);
     void setVoltageProtectionCallback(std::function<void(String)> callback);
     void setLowVoltageDelayCallback(std::function<void(uint32_t)> callback);
+    void setDeviceNameSuffixCallback(std::function<void(String)> callback);
 
 public:
     // Service and Characteristic UUIDs
@@ -55,6 +57,7 @@ public:
     static const char* LAST_DAY_WH_CHAR_UUID;
     static const char* LAST_WEEK_WH_CHAR_UUID;
     static const char* LOW_VOLTAGE_DELAY_CHAR_UUID;
+    static const char* DEVICE_NAME_SUFFIX_CHAR_UUID;
 private:
     BLEServer* pServer;
     BLEService* pService;
@@ -74,11 +77,13 @@ private:
     BLECharacteristic* pLastDayWhCharacteristic;
     BLECharacteristic* pLastWeekWhCharacteristic;
     BLECharacteristic* pLowVoltageDelayCharacteristic;
+    BLECharacteristic* pDeviceNameSuffixCharacteristic;
 
     std::function<void(bool)> loadSwitchCallback;
     std::function<void(float)> socCallback;
     std::function<void(String)> voltageProtectionCallback;
     std::function<void(uint32_t)> lowVoltageDelayCallback;
+    std::function<void(String)> deviceNameSuffixCallback;
 };
 
 #endif // BLE_HANDLER_H

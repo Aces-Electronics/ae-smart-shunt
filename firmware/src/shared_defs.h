@@ -16,6 +16,7 @@
 #define NVS_KEY_HYSTERESIS "hysteresis"
 #define NVS_KEY_OVERCURRENT "oc_thresh"
 #define NVS_KEY_LOW_VOLTAGE_DELAY "lv_delay"
+#define NVS_KEY_DEVICE_NAME_SUFFIX "name_suffix"
 
 #define I2C_ADDRESS 0x40
 const int scanTime = 5;
