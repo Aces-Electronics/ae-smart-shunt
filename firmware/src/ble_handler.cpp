@@ -97,7 +97,6 @@ void BLEHandler::setVoltageProtectionCallback(std::function<void(String)> callba
 
 void BLEHandler::begin(const Telemetry& initial_telemetry) {
     BLEDevice::init("AE Smart Shunt");
-    BLEDevice::setMTU(517);
     pServer = BLEDevice::createServer();
     pServer->setCallbacks(new ServerCallbacks());
     pService = pServer->createService(SERVICE_UUID);
