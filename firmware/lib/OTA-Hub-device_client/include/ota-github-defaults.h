@@ -15,7 +15,7 @@
 //   -DOTAGH_BEARER=your_token
 
 // Construct GitHub API paths
-#define OTA_CHECK_PATH "/repos/" STR(OTAGH_OWNER_NAME) "/" STR(OTAGH_REPO_NAME) "/releases/latest"
+#define OTA_CHECK_PATH "/repos/" STR(OTAGH_OWNER_NAME) "/" STR(OTAGH_REPO_NAME) "/releases"
 #define OTA_BIN_PATH   "/repos/" STR(OTAGH_OWNER_NAME) "/" STR(OTAGH_REPO_NAME) "/releases/assets/"
 
 #ifdef OTAGH_BEARER

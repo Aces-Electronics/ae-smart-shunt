@@ -889,8 +889,7 @@ void setup()
   Serial.println("\nConnected to WiFi");
 
   // Initialise OTA
-  //wifi_client.setCACert(OTAGH_CA_CERT); // Set the api.github.com SSL cert on the WiFi Client
-  wifi_client.setInsecure();
+  wifi_client.setCACert(OTAGH_CA_CERT); // Set the api.github.com SSL cert on the WiFi Client
   OTA::init(wifi_client);
   handleOTA();
 #endif
