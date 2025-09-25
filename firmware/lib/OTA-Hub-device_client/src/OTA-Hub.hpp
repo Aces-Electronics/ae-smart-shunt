@@ -250,6 +250,15 @@ namespace OTA
         }
 
         Serial.println("Failed to connect to GitHub. Check your OTA_... #defines.");
+        // Get the WiFiClientSecure object and print the last SSL error
+        if (underlying_client != nullptr) {
+            WiFiClientSecure *wifi_client_secure = static_cast<WiFiClientSecure *>(underlying_client);
+            if (wifi_client_secure != nullptr) {
+                char last_error[200];
+                wifi_client_secure->lastError(last_error, 200);
+                Serial.printf("Last SSL Error: %s\n", last_error);
+            }
+        }
         return return_object;
     }
 
