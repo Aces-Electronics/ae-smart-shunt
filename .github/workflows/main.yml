@@ -9,40 +9,45 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.9'
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
 
-    - name: Install PlatformIO
-      run: |
-        python -m pip install --upgrade pip
-        pip install -U platformio
+      - name: Install PlatformIO
+        run: |
+          python -m pip install --upgrade pip
+          pip install -U platformio
 
-    - name: Build firmware
-      run: |
-        pio run -e ae-smart-shunt --build-flags="-DOTA_VERSION=\"${{ github.ref_name }}\"" 
+      - name: Build firmware
+        env:
+          OTA_VERSION: ${{ github.ref_name }}
+        run: |
+          echo "Building with OTA_VERSION=${OTA_VERSION}"
+          PLATFORMIO_BUILD_FLAGS="-DOTA_VERSION=\"${OTA_VERSION}\"" \
+          pio run -e ae-smart-shunt
 
-    - name: Create Release
-      id: create_release
-      uses: actions/create-release@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        tag_name: ${{ github.ref_name }}
-        release_name: Release ${{ github.ref_name }}
-        draft: false
-        prerelease: false
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref_name }}
+          release_name: Release ${{ github.ref_name }}
+          draft: false
+          prerelease: false
 
-    - name: Upload Release Asset
-      id: upload-release-asset
-      uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: ./firmware/.pio/build/ae-smart-shunt/firmware.bin
-        asset_name: firmware.bin
-        asset_content_type: application/octet-stream
+      - name: Upload Release Asset
+        id: upload-release-asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          # Adjust this path if your repo layout differs
+          asset_path: ./.pio/build/ae-smart-shunt/firmware.bin
+          asset_name: firmware.bin
+          asset_content_type: application/octet-stream
