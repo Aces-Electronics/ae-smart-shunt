@@ -222,11 +222,11 @@ namespace OTA
             return_object.tag_name = release_response["tag_name"].as<String>();
             return_object.published_at = http_ota->formatTimeFromISO8601(release_response["published_at"].as<String>());
 
-            // ✅ Compare OTA_VERSION against tag_name, not name
+            // Compare OTA_VERSION against tag_name, not name
             bool update_is_different = return_object.tag_name.compareTo(OTA_VERSION) != 0;
             bool update_is_newer = release_response["published_at"].as<time_t>() > cvtDate();
 
-            // ✅ Print both local firmware version and GitHub tag for debugging
+            // Print both local firmware version and GitHub tag for debugging
             printFirmwareDetails(&Serial, return_object.tag_name.c_str());
 
             JsonArray asset_array = release_response["assets"].as<JsonArray>();
