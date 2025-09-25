@@ -27,26 +27,14 @@ jobs:
         run: |
           echo "Building with OTA_VERSION=${OTA_VERSION}"
           pio run -e ae-smart-shunt
-
           
-
       - name: Release (create or update)
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
           name: Release ${{ github.ref_name }}
-          files: firmware/.pio/build/ae-smart-shunt/firmware.bin
+          files: ./firmware/.pio/build/ae-smart-shunt/firmware.bin
           generate_release_notes: true
-          overwrite_files: true
-
-      - name: Upload Release Asset
-        id: upload-release-asset
-        uses: actions/upload-release-asset@v1
+          overwrite: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          # Adjust this path if your repo layout differs
-          asset_path: ./.pio/build/ae-smart-shunt/firmware.bin
-          asset_name: firmware.bin
-          asset_content_type: application/octet-stream
