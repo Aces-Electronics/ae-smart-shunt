@@ -197,20 +197,30 @@ namespace OTA
         {
             // Compile into a JSON doc
 #if ARDUINOJSON_VERSION_MAJOR >= 7
-            JsonDocument release_response;
+            JsonDocument doc;
 #else
-            DynamicJsonDocument release_response(8129);
+            DynamicJsonDocument doc(8129);
 #endif
-            deserializeJson(release_response, response.body);
+            deserializeJson(doc, response.body);
+            JsonArray releases = doc.as<JsonArray>();
+            if (releases.isNull() || releases.size() == 0)
+            {
+                Serial.println("No releases found. We can't continue...");
+                return return_object;
+            }
+
+            // The first element in the array is the latest release
+            JsonObject latest_release = releases[0];
+
             if (
 #if ARDUINOJSON_VERSION_MAJOR >= 7
-                release_response["name"].isNull() ||
-                release_response["published_at"].isNull() ||
-                release_response["assets"].isNull()
+                latest_release["name"].isNull() ||
+                latest_release["published_at"].isNull() ||
+                latest_release["assets"].isNull()
 #else
-                !release_response.containsKey("name") ||
-                !release_response.containsKey("published_at") ||
-                !release_response.containsKey("assets")
+                !latest_release.containsKey("name") ||
+                !latest_release.containsKey("published_at") ||
+                !latest_release.containsKey("assets")
 #endif
             )
             {
@@ -218,18 +228,18 @@ namespace OTA
                 return return_object;
             }
 
-            return_object.name = release_response["name"].as<String>();
-            return_object.tag_name = release_response["tag_name"].as<String>();
-            return_object.published_at = http_ota->formatTimeFromISO8601(release_response["published_at"].as<String>());
+            return_object.name = latest_release["name"].as<String>();
+            return_object.tag_name = latest_release["tag_name"].as<String>();
+            return_object.published_at = http_ota->formatTimeFromISO8601(latest_release["published_at"].as<String>());
 
             // Compare OTA_VERSION against tag_name, not name
             bool update_is_different = return_object.tag_name.compareTo(OTA_VERSION) != 0;
-            bool update_is_newer = release_response["published_at"].as<time_t>() > cvtDate();
+            bool update_is_newer = latest_release["published_at"].as<time_t>() > cvtDate();
 
             // Print both local firmware version and GitHub tag for debugging
             printFirmwareDetails(&Serial, return_object.tag_name.c_str());
 
-            JsonArray asset_array = release_response["assets"].as<JsonArray>();
+            JsonArray asset_array = latest_release["assets"].as<JsonArray>();
             for (JsonVariant v : asset_array)
             {
                 if (v["name"].as<String>().compareTo(FIRMWARE_BIN_MATCH) == 0)
@@ -244,13 +254,12 @@ namespace OTA
             }
             Serial.println("The latest release contains no firmware asset. We can't continue...");
 #if ARDUINOJSON_VERSION_MAJOR < 7
-            release_response.clear();
+            doc.clear();
 #endif
             return return_object;
         }
 
         Serial.println("Failed to connect to GitHub. Check your OTA_... #defines.");
-        response.print();
         return return_object;
     }
 
