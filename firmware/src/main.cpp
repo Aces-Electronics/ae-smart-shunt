@@ -21,7 +21,7 @@
 #include <OTA-Hub.hpp>
 
 #define USE_ADC // if defined, use ADC, else, victron BLE
-//#define USE_WIFI // if defined, conect to WIFI, else, don't
+#define USE_WIFI // if defined, conect to WIFI, else, don't
 
 float batteryCapacity = 100.0f; // Default rated battery capacity in Ah (used for SOC calc)
 
