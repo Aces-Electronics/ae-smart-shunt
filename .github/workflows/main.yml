@@ -23,7 +23,7 @@ jobs:
 
     - name: Build firmware
       run: |
-        pio run -e ae-smart-shunt --project-option="build_flags=-DOTA_VERSION=\\\"${{ github.ref_name }}\\\""
+        pio run -e ae-smart-shunt --build-flags="-DOTA_VERSION=\"${{ github.ref_name }}\"" 
 
     - name: Create Release
       id: create_release
