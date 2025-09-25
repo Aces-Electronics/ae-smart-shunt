@@ -27,7 +27,7 @@ jobs:
         run: |
           echo "Building with OTA_VERSION=${OTA_VERSION}"
           # Note the backslashes are outside the variable expansion to avoid stripping
-          PLATFORMIO_BUILD_FLAGS='-DOTA_VERSION=\\\"${{ github.ref_name }}\\\""' \
+          PLATFORMIO_BUILD_FLAGS='-DOTA_VERSION=\\\"${{ github.ref_name }}\\\"' \
           pio run -e ae-smart-shunt
 
           
