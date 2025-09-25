@@ -30,16 +30,14 @@ jobs:
 
           
 
-      - name: Create Release
-        id: create_release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Release (create or update)
+        uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
-          release_name: Release ${{ github.ref_name }}
-          draft: false
-          prerelease: false
+          name: Release ${{ github.ref_name }}
+          files: firmware/.pio/build/ae-smart-shunt/firmware.bin
+          generate_release_notes: true
+          overwrite_files: true
 
       - name: Upload Release Asset
         id: upload-release-asset
