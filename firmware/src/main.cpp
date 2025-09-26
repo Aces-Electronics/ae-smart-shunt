@@ -6,7 +6,6 @@
 #include "ble_handler.h"
 #include "espnow_handler.h"
 #include "gpio_adc.h"
-#include "passwords.h"
 #include <esp_now.h>
 #include <esp_err.h>
 #include "driver/gpio.h"
@@ -19,15 +18,10 @@
 #include <OTA-Hub.hpp>
 
 #define USE_ADC // if defined, use ADC, else, victron BLE
-#define USE_WIFI // if defined, conect to WIFI, else, don't
 
 float batteryCapacity = 100.0f; // Default rated battery capacity in Ah (used for SOC calc)
 
 uint8_t broadcastAddress[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
-
-// OTA update check interval (24 hours)
-const unsigned long ota_check_interval = 24 * 60 * 60 * 1000;
-unsigned long last_ota_check = 0;
 
 // Main loop interval
 const unsigned long loop_interval = 10000;
@@ -90,6 +84,86 @@ void deviceNameSuffixCallback(String suffix) {
     ina226_adc.setDeviceNameSuffix(suffix);
 }
 
+String wifiSsid;
+String wifiPass;
+
+void wifiSsidCallback(String ssid) {
+    wifiSsid = ssid;
+    Serial.printf("Received WiFi SSID: %s\n", wifiSsid.c_str());
+}
+
+void wifiPassCallback(String pass) {
+    wifiPass = pass;
+    Serial.println("Received WiFi Password");
+}
+
+void triggerOTAUpdate() {
+    if (wifiSsid.length() == 0 || wifiPass.length() == 0) {
+        Serial.println("WiFi credentials not set. Aborting OTA check.");
+        bleHandler.updateOtaStatus("Error: credentials missing");
+        return;
+    }
+
+    Serial.println("Starting OTA update check...");
+    bleHandler.updateOtaStatus("Connecting to WiFi...");
+
+    // Stop ESP-NOW to allow WiFi to connect
+    esp_now_deinit();
+
+    // WiFi connection
+    WiFi.begin(wifiSsid.c_str(), wifiPass.c_str());
+    Serial.print("Connecting to WiFi for OTA check");
+    int retries = 0;
+    while (WiFi.status() != WL_CONNECTED && retries < 20) {
+        Serial.print(".");
+        delay(500);
+        retries++;
+    }
+
+    if (WiFi.status() != WL_CONNECTED) {
+        Serial.println("\nFailed to connect to WiFi.");
+        bleHandler.updateOtaStatus("Error: WiFi connect failed");
+        WiFi.disconnect(true);
+        WiFi.mode(WIFI_OFF);
+        // Re-initialize ESP-NOW
+        if (!espNowHandler.begin()) {
+            Serial.println("ESP-NOW init failed after OTA check");
+        }
+        return;
+    }
+
+    Serial.println("\nConnected to WiFi");
+    bleHandler.updateOtaStatus("Checking for updates...");
+
+    // Initialise OTA
+    wifi_client.setCACert(OTAGH_CA_CERT); // Set the api.github.com SSL cert on the WiFi Client
+    OTA::init(wifi_client);
+
+    bool updated = handleOTA();
+
+    if (updated) {
+        bleHandler.updateOtaStatus("Update successful! Rebooting...");
+    } else {
+        bleHandler.updateOtaStatus("No new update available.");
+    }
+
+
+    WiFi.disconnect(true);
+    WiFi.mode(WIFI_OFF);
+    Serial.println("WiFi disconnected");
+
+    // Clear credentials
+    wifiSsid = "";
+    wifiPass = "";
+
+    if (!updated) {
+        // Re-initialize ESP-NOW
+        if (!espNowHandler.begin()) {
+            Serial.println("ESP-NOW init failed after OTA check");
+        }
+    }
+}
+
 void IRAM_ATTR alertISR()
 {
   ina226_adc.handleAlert();
@@ -123,47 +197,6 @@ bool handleOTA()
     }
   }
   return false;
-}
-
-void daily_ota_check()
-{
-  if (millis() - last_ota_check > ota_check_interval)
-  {
-    // Notify the user that we are checking for updates
-    strncpy(ae_smart_shunt_struct.runFlatTime, "Checking for updates...", sizeof(ae_smart_shunt_struct.runFlatTime));
-    espNowHandler.setAeSmartShuntStruct(ae_smart_shunt_struct);
-    espNowHandler.sendMessageAeSmartShunt();
-    delay(100); // Give a moment for the message to be sent
-
-    // Stop ESP-NOW to allow WiFi to connect
-    esp_now_deinit();
-
-    // WiFi connection
-    WiFi.begin(WIFI_SSID, WIFI_PASS);
-    Serial.print("Connecting to WiFi for OTA check");
-    while (WiFi.status() != WL_CONNECTED)
-    {
-      Serial.print(".");
-      delay(500);
-    }
-    Serial.println("\nConnected to WiFi");
-
-    bool updated = handleOTA();
-    last_ota_check = millis();
-
-    WiFi.disconnect(true);
-    WiFi.mode(WIFI_OFF);
-    Serial.println("WiFi disconnected");
-
-    if (!updated)
-    {
-      // Re-initialize ESP-NOW
-      if (!espNowHandler.begin())
-      {
-        Serial.println("ESP-NOW init failed after OTA check");
-      }
-    }
-  }
 }
 
 // helper: read a trimmed line from Serial (blocks until newline)
@@ -875,23 +908,6 @@ void setup()
 
   pinMode(LED_PIN, OUTPUT);
 
-#ifdef USE_WIFI
-  // WiFi connection
-  WiFi.begin(WIFI_SSID, WIFI_PASS);
-  Serial.print("Connecting to WiFi");
-  while (WiFi.status() != WL_CONNECTED)
-  {
-    Serial.print(".");
-    delay(500);
-  }
-  Serial.println("\nConnected to WiFi");
-
-  // Initialise OTA
-  wifi_client.setCACert(OTAGH_CA_CERT); // Set the api.github.com SSL cert on the WiFi Client
-  OTA::init(wifi_client);
-  handleOTA();
-#endif
-
   // The begin method now handles loading the calibrated resistance
   ina226_adc.begin(6, 10);
   starter_adc.begin();
@@ -984,6 +1000,9 @@ void setup()
   bleHandler.setVoltageProtectionCallback(voltageProtectionCallback);
   bleHandler.setLowVoltageDelayCallback(lowVoltageDelayCallback);
   bleHandler.setDeviceNameSuffixCallback(deviceNameSuffixCallback);
+  bleHandler.setWifiSsidCallback(wifiSsidCallback);
+  bleHandler.setWifiPassCallback(wifiPassCallback);
+  bleHandler.setOtaTriggerCallback(triggerOTAUpdate);
 
   // Create initial telemetry data for the first advertisement
   ina226_adc.readSensors(); // Read sensors to get initial values
@@ -1023,8 +1042,6 @@ void loop()
   {
     ina226_adc.processAlert();
   }
-
-  daily_ota_check();
 
   // Check serial for calibration command
   if (Serial.available())
