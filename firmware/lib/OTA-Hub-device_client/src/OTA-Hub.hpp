@@ -195,13 +195,38 @@ namespace OTA
 
         if (response.success())
         {
-            // Compile into a JSON doc
+            // The releases endpoint returns an array, so we need to process it as such.
 #if ARDUINOJSON_VERSION_MAJOR >= 7
-            JsonDocument release_response;
+            JsonDocument doc;
 #else
-            DynamicJsonDocument release_response(8129);
+            DynamicJsonDocument doc(16384); // Increased size for potential larger array
 #endif
-            deserializeJson(release_response, response.body);
+            deserializeJson(doc, response.body);
+
+            JsonObject release_response;
+            if (doc.is<JsonArray>())
+            {
+                JsonArray release_array = doc.as<JsonArray>();
+                if (release_array.size() == 0)
+                {
+                    Serial.println("No releases found in the repository.");
+                    return return_object;
+                }
+                // The first element in the array is the latest release.
+                release_response = release_array[0].as<JsonObject>();
+            }
+            else
+            {
+                // Fallback for if the API ever goes back to a single object for /latest
+                release_response = doc.as<JsonObject>();
+            }
+
+            if (release_response.isNull())
+            {
+                Serial.println("Failed to parse release information.");
+                return return_object;
+            }
+
             if (
 #if ARDUINOJSON_VERSION_MAJOR >= 7
                 release_response["name"].isNull() ||

@@ -16,8 +16,6 @@
 #include <WiFiClientSecure.h>
 #include <ota-github-cacerts.h>
 #include <ota-github-defaults.h>
-#define OTAGH_OWNER_NAME "Aces-Electronics"
-#define OTAGH_REPO_NAME "ae-smart-shunt"
 #include <OTA-Hub.hpp>
 
 #define USE_ADC // if defined, use ADC, else, victron BLE
