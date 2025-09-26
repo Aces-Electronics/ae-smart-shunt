@@ -91,18 +91,21 @@ void deviceNameSuffixCallback(String suffix) {
 }
 
 void wifiSsidCallback(String ssid) {
+    Serial.println("[BLE] wifiSsidCallback received.");
     wifi_ssid = ssid;
-    Serial.printf("BLE received new WiFi SSID: %s\n", wifi_ssid.c_str());
+    Serial.printf("[BLE] WiFi SSID set to: %s\n", wifi_ssid.c_str());
 }
 
 void wifiPassCallback(String pass) {
+    Serial.println("[BLE] wifiPassCallback received.");
     wifi_pass = pass;
-    Serial.println("BLE received new WiFi password.");
+    Serial.println("[BLE] WiFi password has been set.");
 }
 
 void otaTriggerCallback(bool triggered) {
+    Serial.printf("[BLE] otaTriggerCallback received with value: %s\n", triggered ? "true" : "false");
     if (triggered) {
-        Serial.println("BLE received OTA trigger.");
+        Serial.println("[BLE] OTA trigger has been set to true.");
         ota_triggered = true;
     }
 }
@@ -144,27 +147,28 @@ bool handleOTA()
 
 void runBleOtaUpdate()
 {
+    Serial.println("[OTA] runBleOtaUpdate function started.");
     if (wifi_ssid.length() == 0)
     {
-        Serial.println("OTA Error: WiFi SSID not set.");
+        Serial.println("[OTA_ERROR] WiFi SSID is empty. Aborting update.");
         return;
     }
 
-    Serial.println("Starting OTA update process via BLE trigger...");
+    Serial.printf("[OTA] Attempting update with SSID: %s\n", wifi_ssid.c_str());
 
     // Notify the user that we are checking for updates
     strncpy(ae_smart_shunt_struct.runFlatTime, "Checking for updates...", sizeof(ae_smart_shunt_struct.runFlatTime));
     espNowHandler.setAeSmartShuntStruct(ae_smart_shunt_struct);
     espNowHandler.sendMessageAeSmartShunt();
-    delay(100); // Give a moment for the message to be sent
+    delay(100);
 
     // Stop ESP-NOW to allow WiFi to connect
     esp_now_deinit();
-    Serial.println("ESP-NOW de-initialized.");
+    Serial.println("[OTA] ESP-NOW de-initialized to enable WiFi.");
 
     // WiFi connection
     WiFi.begin(wifi_ssid.c_str(), wifi_pass.c_str());
-    Serial.print("Connecting to WiFi for OTA check");
+    Serial.print("[OTA] Connecting to WiFi");
 
     int connect_tries = 0;
     while (WiFi.status() != WL_CONNECTED)
@@ -174,10 +178,11 @@ void runBleOtaUpdate()
         connect_tries++;
         if (connect_tries > 20)
         { // 10 second timeout
-            Serial.println("\nFailed to connect to WiFi.");
+            Serial.println("\n[OTA_ERROR] Failed to connect to WiFi after 10 seconds.");
             WiFi.disconnect(true);
             WiFi.mode(WIFI_OFF);
             // Re-initialize ESP-NOW
+            Serial.println("[OTA] Re-initializing ESP-NOW after failed WiFi connection.");
             if (!espNowHandler.begin())
             {
                 Serial.println("ESP-NOW init failed after OTA attempt.");
@@ -185,16 +190,20 @@ void runBleOtaUpdate()
             return;
         }
     }
-    Serial.println("\nConnected to WiFi");
+    Serial.println("\n[OTA] Connected to WiFi successfully.");
 
+    Serial.println("[OTA] Calling handleOTA() to check for updates.");
     bool updated = handleOTA();
+    Serial.printf("[OTA] handleOTA() returned. Update status: %s\n", updated ? "SUCCESS (restarting)" : "NO_UPDATE_OR_FAILURE");
+
 
     WiFi.disconnect(true);
     WiFi.mode(WIFI_OFF);
-    Serial.println("WiFi disconnected");
+    Serial.println("[OTA] WiFi disconnected.");
 
     if (!updated)
     {
+        Serial.println("[OTA] No update performed. Re-initializing ESP-NOW.");
         // Re-initialize ESP-NOW
         if (!espNowHandler.begin())
         {
@@ -1054,6 +1063,7 @@ void loop()
 
   if (ota_triggered)
   {
+    Serial.println("[LOOP] OTA trigger detected. Initiating update process.");
     ota_triggered = false; // Reset trigger
     runBleOtaUpdate();
   }
