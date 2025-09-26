@@ -3,6 +3,9 @@
 
 // UUIDs generated from https://www.uuidgenerator.net/
 const char* BLEHandler::SERVICE_UUID = "4fafc201-1fb5-459e-8fcc-c5c9c331914b";
+const char* BLEHandler::WIFI_SSID_CHAR_UUID = "5A1B2C3D-4E5F-6A7B-8C9D-0E1F2A3B4C62";
+const char* BLEHandler::WIFI_PASS_CHAR_UUID = "6A1B2C3D-4E5F-6A7B-8C9D-0E1F2A3B4C63";
+const char* BLEHandler::OTA_TRIGGER_CHAR_UUID = "7A1B2C3D-4E5F-6A7B-8C9D-0E1F2A3B4C64";
 const char* BLEHandler::VOLTAGE_CHAR_UUID = "beb5483e-36e1-4688-b7f5-ea07361b26a8";
 const char* BLEHandler::CURRENT_CHAR_UUID = "a8b31859-676a-486c-94a2-8928b8e3a249";
 const char* BLEHandler::POWER_CHAR_UUID = "465048d2-871d-4234-9e48-35d033a875a8";
@@ -21,10 +24,10 @@ const char* BLEHandler::LAST_WEEK_WH_CHAR_UUID = "2A1B2C3D-4E5F-6A7B-8C9D-0E1F2A
 const char* BLEHandler::LOW_VOLTAGE_DELAY_CHAR_UUID = "3A1B2C3D-4E5F-6A7B-8C9D-0E1F2A3B4C60";
 const char* BLEHandler::DEVICE_NAME_SUFFIX_CHAR_UUID = "4A1B2C3D-4E5F-6A7B-8C9D-0E1F2A3B4C61";
 
-class LoadControlCallbacks : public BLECharacteristicCallbacks {
+class BoolCharacteristicCallbacks : public BLECharacteristicCallbacks {
     std::function<void(bool)> _callback;
 public:
-    LoadControlCallbacks(std::function<void(bool)> callback) : _callback(callback) {}
+    BoolCharacteristicCallbacks(std::function<void(bool)> callback) : _callback(callback) {}
 
     void onWrite(BLECharacteristic* pCharacteristic) {
         std::string value = pCharacteristic->getValue();
@@ -120,6 +123,18 @@ void BLEHandler::setDeviceNameSuffixCallback(std::function<void(String)> callbac
     this->deviceNameSuffixCallback = callback;
 }
 
+void BLEHandler::setWifiSsidCallback(std::function<void(String)> callback) {
+    this->wifiSsidCallback = callback;
+}
+
+void BLEHandler::setWifiPassCallback(std::function<void(String)> callback) {
+    this->wifiPassCallback = callback;
+}
+
+void BLEHandler::setOtaTriggerCallback(std::function<void(bool)> callback) {
+    this->otaTriggerCallback = callback;
+}
+
 void BLEHandler::begin(const Telemetry& initial_telemetry) {
     BLEDevice::init("AE Smart Shunt");
     BLEDevice::setMTU(517);
@@ -171,7 +186,7 @@ void BLEHandler::begin(const Telemetry& initial_telemetry) {
         LOAD_CONTROL_CHAR_UUID,
         NIMBLE_PROPERTY::WRITE
     );
-    pLoadControlCharacteristic->setCallbacks(new LoadControlCallbacks(this->loadSwitchCallback));
+    pLoadControlCharacteristic->setCallbacks(new BoolCharacteristicCallbacks(this->loadSwitchCallback));
 
     pSetSocCharacteristic = pService->createCharacteristic(
         SET_SOC_CHAR_UUID,
@@ -209,6 +224,24 @@ void BLEHandler::begin(const Telemetry& initial_telemetry) {
         NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::NOTIFY
     );
     pDeviceNameSuffixCharacteristic->setCallbacks(new StringCharacteristicCallbacks(this->deviceNameSuffixCallback));
+
+    pWifiSsidCharacteristic = pService->createCharacteristic(
+        WIFI_SSID_CHAR_UUID,
+        NIMBLE_PROPERTY::WRITE
+    );
+    pWifiSsidCharacteristic->setCallbacks(new StringCharacteristicCallbacks(this->wifiSsidCallback));
+
+    pWifiPassCharacteristic = pService->createCharacteristic(
+        WIFI_PASS_CHAR_UUID,
+        NIMBLE_PROPERTY::WRITE
+    );
+    pWifiPassCharacteristic->setCallbacks(new StringCharacteristicCallbacks(this->wifiPassCallback));
+
+    pOtaTriggerCharacteristic = pService->createCharacteristic(
+        OTA_TRIGGER_CHAR_UUID,
+        NIMBLE_PROPERTY::WRITE
+    );
+    pOtaTriggerCharacteristic->setCallbacks(new BoolCharacteristicCallbacks(this->otaTriggerCallback));
 
     pService->start();
 

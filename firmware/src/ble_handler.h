@@ -36,11 +36,17 @@ public:
     void setVoltageProtectionCallback(std::function<void(String)> callback);
     void setLowVoltageDelayCallback(std::function<void(uint32_t)> callback);
     void setDeviceNameSuffixCallback(std::function<void(String)> callback);
+    void setWifiSsidCallback(std::function<void(String)> callback);
+    void setWifiPassCallback(std::function<void(String)> callback);
+    void setOtaTriggerCallback(std::function<void(bool)> callback);
 
 public:
     // Service and Characteristic UUIDs
     // Using UUIDs from a random generator
     static const char* SERVICE_UUID;
+    static const char* WIFI_SSID_CHAR_UUID;
+    static const char* WIFI_PASS_CHAR_UUID;
+    static const char* OTA_TRIGGER_CHAR_UUID;
     static const char* VOLTAGE_CHAR_UUID;
     static const char* CURRENT_CHAR_UUID;
     static const char* POWER_CHAR_UUID;
@@ -78,12 +84,18 @@ private:
     BLECharacteristic* pLastWeekWhCharacteristic;
     BLECharacteristic* pLowVoltageDelayCharacteristic;
     BLECharacteristic* pDeviceNameSuffixCharacteristic;
+    BLECharacteristic* pWifiSsidCharacteristic;
+    BLECharacteristic* pWifiPassCharacteristic;
+    BLECharacteristic* pOtaTriggerCharacteristic;
 
     std::function<void(bool)> loadSwitchCallback;
     std::function<void(float)> socCallback;
     std::function<void(String)> voltageProtectionCallback;
     std::function<void(uint32_t)> lowVoltageDelayCallback;
     std::function<void(String)> deviceNameSuffixCallback;
+    std::function<void(String)> wifiSsidCallback;
+    std::function<void(String)> wifiPassCallback;
+    std::function<void(bool)> otaTriggerCallback;
 };
 
 #endif // BLE_HANDLER_H

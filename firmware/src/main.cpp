@@ -18,16 +18,16 @@
 #include <ota-github-defaults.h>
 #include <OTA-Hub.hpp>
 
+// Globals for BLE-based OTA
+String wifi_ssid;
+String wifi_pass;
+bool ota_triggered = false;
+
 #define USE_ADC // if defined, use ADC, else, victron BLE
-#define USE_WIFI // if defined, conect to WIFI, else, don't
 
 float batteryCapacity = 100.0f; // Default rated battery capacity in Ah (used for SOC calc)
 
 uint8_t broadcastAddress[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
-
-// OTA update check interval (24 hours)
-const unsigned long ota_check_interval = 24 * 60 * 60 * 1000;
-unsigned long last_ota_check = 0;
 
 // Main loop interval
 const unsigned long loop_interval = 10000;
@@ -90,6 +90,23 @@ void deviceNameSuffixCallback(String suffix) {
     ina226_adc.setDeviceNameSuffix(suffix);
 }
 
+void wifiSsidCallback(String ssid) {
+    wifi_ssid = ssid;
+    Serial.printf("BLE received new WiFi SSID: %s\n", wifi_ssid.c_str());
+}
+
+void wifiPassCallback(String pass) {
+    wifi_pass = pass;
+    Serial.println("BLE received new WiFi password.");
+}
+
+void otaTriggerCallback(bool triggered) {
+    if (triggered) {
+        Serial.println("BLE received OTA trigger.");
+        ota_triggered = true;
+    }
+}
+
 void IRAM_ATTR alertISR()
 {
   ina226_adc.handleAlert();
@@ -125,10 +142,16 @@ bool handleOTA()
   return false;
 }
 
-void daily_ota_check()
+void runBleOtaUpdate()
 {
-  if (millis() - last_ota_check > ota_check_interval)
-  {
+    if (wifi_ssid.length() == 0)
+    {
+        Serial.println("OTA Error: WiFi SSID not set.");
+        return;
+    }
+
+    Serial.println("Starting OTA update process via BLE trigger...");
+
     // Notify the user that we are checking for updates
     strncpy(ae_smart_shunt_struct.runFlatTime, "Checking for updates...", sizeof(ae_smart_shunt_struct.runFlatTime));
     espNowHandler.setAeSmartShuntStruct(ae_smart_shunt_struct);
@@ -137,19 +160,34 @@ void daily_ota_check()
 
     // Stop ESP-NOW to allow WiFi to connect
     esp_now_deinit();
+    Serial.println("ESP-NOW de-initialized.");
 
     // WiFi connection
-    WiFi.begin(WIFI_SSID, WIFI_PASS);
+    WiFi.begin(wifi_ssid.c_str(), wifi_pass.c_str());
     Serial.print("Connecting to WiFi for OTA check");
+
+    int connect_tries = 0;
     while (WiFi.status() != WL_CONNECTED)
     {
-      Serial.print(".");
-      delay(500);
+        Serial.print(".");
+        delay(500);
+        connect_tries++;
+        if (connect_tries > 20)
+        { // 10 second timeout
+            Serial.println("\nFailed to connect to WiFi.");
+            WiFi.disconnect(true);
+            WiFi.mode(WIFI_OFF);
+            // Re-initialize ESP-NOW
+            if (!espNowHandler.begin())
+            {
+                Serial.println("ESP-NOW init failed after OTA attempt.");
+            }
+            return;
+        }
     }
     Serial.println("\nConnected to WiFi");
 
     bool updated = handleOTA();
-    last_ota_check = millis();
 
     WiFi.disconnect(true);
     WiFi.mode(WIFI_OFF);
@@ -157,13 +195,13 @@ void daily_ota_check()
 
     if (!updated)
     {
-      // Re-initialize ESP-NOW
-      if (!espNowHandler.begin())
-      {
-        Serial.println("ESP-NOW init failed after OTA check");
-      }
+        // Re-initialize ESP-NOW
+        if (!espNowHandler.begin())
+        {
+            Serial.println("ESP-NOW init failed after OTA check");
+        }
     }
-  }
+    // If updated, the device will restart, so no need to re-init ESP-NOW here.
 }
 
 // helper: read a trimmed line from Serial (blocks until newline)
@@ -875,22 +913,9 @@ void setup()
 
   pinMode(LED_PIN, OUTPUT);
 
-#ifdef USE_WIFI
-  // WiFi connection
-  WiFi.begin(WIFI_SSID, WIFI_PASS);
-  Serial.print("Connecting to WiFi");
-  while (WiFi.status() != WL_CONNECTED)
-  {
-    Serial.print(".");
-    delay(500);
-  }
-  Serial.println("\nConnected to WiFi");
-
   // Initialise OTA
   wifi_client.setCACert(OTAGH_CA_CERT); // Set the api.github.com SSL cert on the WiFi Client
   OTA::init(wifi_client);
-  handleOTA();
-#endif
 
   // The begin method now handles loading the calibrated resistance
   ina226_adc.begin(6, 10);
@@ -984,6 +1009,9 @@ void setup()
   bleHandler.setVoltageProtectionCallback(voltageProtectionCallback);
   bleHandler.setLowVoltageDelayCallback(lowVoltageDelayCallback);
   bleHandler.setDeviceNameSuffixCallback(deviceNameSuffixCallback);
+  bleHandler.setWifiSsidCallback(wifiSsidCallback);
+  bleHandler.setWifiPassCallback(wifiPassCallback);
+  bleHandler.setOtaTriggerCallback(otaTriggerCallback);
 
   // Create initial telemetry data for the first advertisement
   ina226_adc.readSensors(); // Read sensors to get initial values
@@ -1024,7 +1052,11 @@ void loop()
     ina226_adc.processAlert();
   }
 
-  daily_ota_check();
+  if (ota_triggered)
+  {
+    ota_triggered = false; // Reset trigger
+    runBleOtaUpdate();
+  }
 
   // Check serial for calibration command
   if (Serial.available())
