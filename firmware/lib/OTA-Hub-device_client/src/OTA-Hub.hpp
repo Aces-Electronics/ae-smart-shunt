@@ -191,6 +191,8 @@ namespace OTA
         request.addHeader("authorization", "Bearer " + String(OTA_BEARER)); // Used only in private repos. See the docs.
 #endif
 
+        Serial.print("Requesting path: ");
+        Serial.println(OTA_CHECK_PATH);
         HardStuffHttpResponse response = http_ota->getFromHTTPServer(OTA_CHECK_PATH, &request);
 
         if (response.success())
