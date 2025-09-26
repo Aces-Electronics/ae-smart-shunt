@@ -275,6 +275,7 @@ namespace OTA
         }
 
         Serial.println("Failed to connect to GitHub. Check your OTA_... #defines.");
+        response.print(&Serial);
         return return_object;
     }
 
