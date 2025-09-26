@@ -1044,6 +1044,10 @@ void setup()
   };
   bleHandler.begin(initial_telemetry);
 
+  // Set the firmware version on the BLE characteristic
+  bleHandler.updateFirmwareVersion(OTA_VERSION);
+  Serial.printf("Firmware version %s set on BLE characteristic.\n", OTA_VERSION);
+
   Serial.println("Setup done");
 }
 
