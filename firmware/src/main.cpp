@@ -117,18 +117,21 @@ void IRAM_ATTR alertISR()
 
 bool handleOTA()
 {
+  bleHandler.updateOtaStatus("CHECKING");
   // 1. Check for updates, by checking the latest release on GitHub
   OTA::UpdateObject details = OTA::isUpdateAvailable();
 
   if (OTA::NO_UPDATE == details.condition)
   {
     Serial.println("No new update available. Continuing...");
+    bleHandler.updateOtaStatus("NO_UPDATE");
     return false;
   }
   else
   // 2. Perform the update (if there is one)
   {
     Serial.println("Update available, saving battery capacity...");
+    bleHandler.updateOtaStatus("DOWNLOADING");
     Preferences preferences;
     preferences.begin("storage", false);
     float capacity = ina226_adc.getBatteryCapacity();
@@ -138,10 +141,13 @@ bool handleOTA()
 
     if (OTA::performUpdate(&details) == OTA::SUCCESS)
     {
-      // .. success! It'll restart by default, or you can do other things here...
+      bleHandler.updateOtaStatus("SUCCESS");
+      delay(100); // Give a moment for the BLE message to be sent before reboot
       return true;
     }
   }
+
+  bleHandler.updateOtaStatus("FAILURE");
   return false;
 }
 

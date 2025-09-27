@@ -41,6 +41,7 @@ public:
     void setOtaTriggerCallback(std::function<void(bool)> callback);
     void updateFirmwareVersion(const String& version);
     void updateUpdateUrl(const String& url);
+    void updateOtaStatus(const String& status);
 
 public:
     // Service and Characteristic UUIDs
@@ -51,6 +52,7 @@ public:
     static const char* OTA_TRIGGER_CHAR_UUID;
     static const char* FIRMWARE_VERSION_CHAR_UUID;
     static const char* UPDATE_URL_CHAR_UUID;
+    static const char* OTA_STATUS_CHAR_UUID;
     static const char* VOLTAGE_CHAR_UUID;
     static const char* CURRENT_CHAR_UUID;
     static const char* POWER_CHAR_UUID;
@@ -93,6 +95,7 @@ private:
     BLECharacteristic* pOtaTriggerCharacteristic;
     BLECharacteristic* pFirmwareVersionCharacteristic;
     BLECharacteristic* pUpdateUrlCharacteristic;
+    BLECharacteristic* pOtaStatusCharacteristic;
 
     std::function<void(bool)> loadSwitchCallback;
     std::function<void(float)> socCallback;
