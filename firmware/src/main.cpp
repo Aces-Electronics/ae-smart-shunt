@@ -7,6 +7,7 @@
 #include "espnow_handler.h"
 #include "gpio_adc.h"
 #include "passwords.h"
+#include "ota_handler.h"
 #include <esp_now.h>
 #include <esp_err.h>
 #include "driver/gpio.h"
@@ -17,11 +18,6 @@
 #include <ota-github-cacerts.h>
 #include <ota-github-defaults.h>
 #include <OTA-Hub.hpp>
-
-// Globals for BLE-based OTA
-String wifi_ssid;
-String wifi_pass;
-bool ota_triggered = false;
 
 #define USE_ADC // if defined, use ADC, else, victron BLE
 
@@ -49,6 +45,7 @@ GPIO_ADC starter_adc(3);
 
 ESPNowHandler espNowHandler(broadcastAddress); // ESP-NOW handler for sending data
 BLEHandler bleHandler;
+OtaHandler otaHandler(bleHandler, espNowHandler, ina226_adc, ae_smart_shunt_struct);
 WiFiClientSecure wifi_client;
 
 void loadSwitchCallback(bool enabled) {
@@ -91,132 +88,22 @@ void deviceNameSuffixCallback(String suffix) {
 }
 
 void wifiSsidCallback(String ssid) {
-    Serial.println("[BLE] wifiSsidCallback received.");
-    wifi_ssid = ssid;
-    Serial.printf("[BLE] WiFi SSID set to: %s\n", wifi_ssid.c_str());
+    otaHandler.setWifiSsid(ssid);
 }
 
 void wifiPassCallback(String pass) {
-    Serial.println("[BLE] wifiPassCallback received.");
-    wifi_pass = pass;
-    Serial.println("[BLE] WiFi password has been set.");
+    otaHandler.setWifiPass(pass);
 }
 
 void otaTriggerCallback(bool triggered) {
-    Serial.printf("[BLE] otaTriggerCallback received with value: %s\n", triggered ? "true" : "false");
     if (triggered) {
-        Serial.println("[BLE] OTA trigger has been set to true.");
-        ota_triggered = true;
+        otaHandler.triggerOta();
     }
 }
 
 void IRAM_ATTR alertISR()
 {
   ina226_adc.handleAlert();
-}
-
-bool handleOTA()
-{
-  bleHandler.updateOtaStatus("CHECKING");
-  // 1. Check for updates, by checking the latest release on GitHub
-  OTA::UpdateObject details = OTA::isUpdateAvailable();
-
-  if (OTA::NO_UPDATE == details.condition)
-  {
-    Serial.println("No new update available. Continuing...");
-    bleHandler.updateOtaStatus("NO_UPDATE");
-    return false;
-  }
-  else
-  // 2. Perform the update (if there is one)
-  {
-    Serial.println("Update available, saving battery capacity...");
-    bleHandler.updateOtaStatus("DOWNLOADING");
-    Preferences preferences;
-    preferences.begin("storage", false);
-    float capacity = ina226_adc.getBatteryCapacity();
-    preferences.putFloat("bat_cap", capacity);
-    preferences.end();
-    Serial.printf("Saved battery capacity: %f\n", capacity);
-
-    if (OTA::performUpdate(&details) == OTA::SUCCESS)
-    {
-      bleHandler.updateOtaStatus("SUCCESS");
-      delay(100); // Give a moment for the BLE message to be sent before reboot
-      return true;
-    }
-  }
-
-  bleHandler.updateOtaStatus("FAILURE");
-  return false;
-}
-
-void runBleOtaUpdate()
-{
-    Serial.println("[OTA] runBleOtaUpdate function started.");
-    if (wifi_ssid.length() == 0)
-    {
-        Serial.println("[OTA_ERROR] WiFi SSID is empty. Aborting update.");
-        return;
-    }
-
-    Serial.printf("[OTA] Attempting update with SSID: %s\n", wifi_ssid.c_str());
-
-    // Notify the user that we are checking for updates
-    strncpy(ae_smart_shunt_struct.runFlatTime, "Checking for updates...", sizeof(ae_smart_shunt_struct.runFlatTime));
-    espNowHandler.setAeSmartShuntStruct(ae_smart_shunt_struct);
-    espNowHandler.sendMessageAeSmartShunt();
-    delay(100);
-
-    // Stop ESP-NOW to allow WiFi to connect
-    esp_now_deinit();
-    Serial.println("[OTA] ESP-NOW de-initialized to enable WiFi.");
-
-    // WiFi connection
-    WiFi.begin(wifi_ssid.c_str(), wifi_pass.c_str());
-    Serial.print("[OTA] Connecting to WiFi");
-
-    int connect_tries = 0;
-    while (WiFi.status() != WL_CONNECTED)
-    {
-        Serial.print(".");
-        delay(500);
-        connect_tries++;
-        if (connect_tries > 20)
-        { // 10 second timeout
-            Serial.println("\n[OTA_ERROR] Failed to connect to WiFi after 10 seconds.");
-            WiFi.disconnect(true);
-            WiFi.mode(WIFI_OFF);
-            // Re-initialize ESP-NOW
-            Serial.println("[OTA] Re-initializing ESP-NOW after failed WiFi connection.");
-            if (!espNowHandler.begin())
-            {
-                Serial.println("ESP-NOW init failed after OTA attempt.");
-            }
-            return;
-        }
-    }
-    Serial.println("\n[OTA] Connected to WiFi successfully.");
-
-    Serial.println("[OTA] Calling handleOTA() to check for updates.");
-    bool updated = handleOTA();
-    Serial.printf("[OTA] handleOTA() returned. Update status: %s\n", updated ? "SUCCESS (restarting)" : "NO_UPDATE_OR_FAILURE");
-
-
-    WiFi.disconnect(true);
-    WiFi.mode(WIFI_OFF);
-    Serial.println("[OTA] WiFi disconnected.");
-
-    if (!updated)
-    {
-        Serial.println("[OTA] No update performed. Re-initializing ESP-NOW.");
-        // Re-initialize ESP-NOW
-        if (!espNowHandler.begin())
-        {
-            Serial.println("ESP-NOW init failed after OTA check");
-        }
-    }
-    // If updated, the device will restart, so no need to re-init ESP-NOW here.
 }
 
 // helper: read a trimmed line from Serial (blocks until newline)
@@ -932,6 +819,8 @@ void setup()
   wifi_client.setCACert(OTAGH_CA_CERT); // Set the api.github.com SSL cert on the WiFi Client
   OTA::init(wifi_client);
 
+  otaHandler.begin();
+
   // The begin method now handles loading the calibrated resistance
   ina226_adc.begin(6, 10);
   starter_adc.begin();
@@ -1076,12 +965,7 @@ void loop()
     ina226_adc.processAlert();
   }
 
-  if (ota_triggered)
-  {
-    Serial.println("[LOOP] OTA trigger detected. Initiating update process.");
-    ota_triggered = false; // Reset trigger
-    runBleOtaUpdate();
-  }
+  otaHandler.loop();
 
   // Check serial for calibration command
   if (Serial.available())
