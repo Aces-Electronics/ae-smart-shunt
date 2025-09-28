@@ -2,8 +2,8 @@
 #include <WiFi.h>
 #include <Preferences.h>
 #include <esp_now.h>
-#include <OTA-Hub.hpp>
 #include <ota-github-defaults.h>
+#include <OTA-Hub.hpp>
 
 OtaHandler::OtaHandler(BLEHandler& bleHandler, ESPNowHandler& espNowHandler, INA226_ADC& ina226_adc, struct_message_ae_smart_shunt_1& shunt_struct)
     : bleHandler(bleHandler), espNowHandler(espNowHandler), ina226_adc(ina226_adc), ae_smart_shunt_struct(shunt_struct) {}
