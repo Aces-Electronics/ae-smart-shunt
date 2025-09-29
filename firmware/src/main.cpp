@@ -7,6 +7,7 @@
 #include "espnow_handler.h"
 #include "gpio_adc.h"
 #include "passwords.h"
+#include "ota_handler.h"
 #include <esp_now.h>
 #include <esp_err.h>
 #include "driver/gpio.h"
@@ -14,20 +15,12 @@
 // WiFi and OTA
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
-#include <ota-github-cacerts.h>
-#include <ota-github-defaults.h>
-#include <OTA-Hub.hpp>
 
 #define USE_ADC // if defined, use ADC, else, victron BLE
-#define USE_WIFI // if defined, conect to WIFI, else, don't
 
 float batteryCapacity = 100.0f; // Default rated battery capacity in Ah (used for SOC calc)
 
 uint8_t broadcastAddress[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
-
-// OTA update check interval (24 hours)
-const unsigned long ota_check_interval = 24 * 60 * 60 * 1000;
-unsigned long last_ota_check = 0;
 
 // Main loop interval
 const unsigned long loop_interval = 10000;
@@ -50,6 +43,17 @@ GPIO_ADC starter_adc(3);
 ESPNowHandler espNowHandler(broadcastAddress); // ESP-NOW handler for sending data
 BLEHandler bleHandler;
 WiFiClientSecure wifi_client;
+OtaHandler otaHandler(bleHandler, espNowHandler, wifi_client);
+
+void preOtaUpdate() {
+    Serial.println("[MAIN] Pre-OTA update callback triggered. Saving battery capacity...");
+    Preferences preferences;
+    preferences.begin("storage", false);
+    float capacity = ina226_adc.getBatteryCapacity();
+    preferences.putFloat("bat_cap", capacity);
+    preferences.end();
+    Serial.printf("[MAIN] Saved battery capacity: %f\n", capacity);
+}
 
 void loadSwitchCallback(bool enabled) {
     if (enabled) {
@@ -90,80 +94,23 @@ void deviceNameSuffixCallback(String suffix) {
     ina226_adc.setDeviceNameSuffix(suffix);
 }
 
+void wifiSsidCallback(String ssid) {
+    otaHandler.setWifiSsid(ssid);
+}
+
+void wifiPassCallback(String pass) {
+    otaHandler.setWifiPass(pass);
+}
+
+void otaTriggerCallback(bool triggered) {
+    if (triggered) {
+        otaHandler.triggerOta();
+    }
+}
+
 void IRAM_ATTR alertISR()
 {
   ina226_adc.handleAlert();
-}
-
-bool handleOTA()
-{
-  // 1. Check for updates, by checking the latest release on GitHub
-  OTA::UpdateObject details = OTA::isUpdateAvailable();
-
-  if (OTA::NO_UPDATE == details.condition)
-  {
-    Serial.println("No new update available. Continuing...");
-    return false;
-  }
-  else
-  // 2. Perform the update (if there is one)
-  {
-    Serial.println("Update available, saving battery capacity...");
-    Preferences preferences;
-    preferences.begin("storage", false);
-    float capacity = ina226_adc.getBatteryCapacity();
-    preferences.putFloat("bat_cap", capacity);
-    preferences.end();
-    Serial.printf("Saved battery capacity: %f\n", capacity);
-
-    if (OTA::performUpdate(&details) == OTA::SUCCESS)
-    {
-      // .. success! It'll restart by default, or you can do other things here...
-      return true;
-    }
-  }
-  return false;
-}
-
-void daily_ota_check()
-{
-  if (millis() - last_ota_check > ota_check_interval)
-  {
-    // Notify the user that we are checking for updates
-    strncpy(ae_smart_shunt_struct.runFlatTime, "Checking for updates...", sizeof(ae_smart_shunt_struct.runFlatTime));
-    espNowHandler.setAeSmartShuntStruct(ae_smart_shunt_struct);
-    espNowHandler.sendMessageAeSmartShunt();
-    delay(100); // Give a moment for the message to be sent
-
-    // Stop ESP-NOW to allow WiFi to connect
-    esp_now_deinit();
-
-    // WiFi connection
-    WiFi.begin(WIFI_SSID, WIFI_PASS);
-    Serial.print("Connecting to WiFi for OTA check");
-    while (WiFi.status() != WL_CONNECTED)
-    {
-      Serial.print(".");
-      delay(500);
-    }
-    Serial.println("\nConnected to WiFi");
-
-    bool updated = handleOTA();
-    last_ota_check = millis();
-
-    WiFi.disconnect(true);
-    WiFi.mode(WIFI_OFF);
-    Serial.println("WiFi disconnected");
-
-    if (!updated)
-    {
-      // Re-initialize ESP-NOW
-      if (!espNowHandler.begin())
-      {
-        Serial.println("ESP-NOW init failed after OTA check");
-      }
-    }
-  }
 }
 
 // helper: read a trimmed line from Serial (blocks until newline)
@@ -875,22 +822,8 @@ void setup()
 
   pinMode(LED_PIN, OUTPUT);
 
-#ifdef USE_WIFI
-  // WiFi connection
-  WiFi.begin(WIFI_SSID, WIFI_PASS);
-  Serial.print("Connecting to WiFi");
-  while (WiFi.status() != WL_CONNECTED)
-  {
-    Serial.print(".");
-    delay(500);
-  }
-  Serial.println("\nConnected to WiFi");
-
-  // Initialise OTA
-  wifi_client.setCACert(OTAGH_CA_CERT); // Set the api.github.com SSL cert on the WiFi Client
-  OTA::init(wifi_client);
-  handleOTA();
-#endif
+  otaHandler.begin();
+  otaHandler.setPreUpdateCallback(preOtaUpdate);
 
   // The begin method now handles loading the calibrated resistance
   ina226_adc.begin(6, 10);
@@ -984,6 +917,9 @@ void setup()
   bleHandler.setVoltageProtectionCallback(voltageProtectionCallback);
   bleHandler.setLowVoltageDelayCallback(lowVoltageDelayCallback);
   bleHandler.setDeviceNameSuffixCallback(deviceNameSuffixCallback);
+  bleHandler.setWifiSsidCallback(wifiSsidCallback);
+  bleHandler.setWifiPassCallback(wifiPassCallback);
+  bleHandler.setOtaTriggerCallback(otaTriggerCallback);
 
   // Create initial telemetry data for the first advertisement
   ina226_adc.readSensors(); // Read sensors to get initial values
@@ -1007,6 +943,10 @@ void setup()
   };
   bleHandler.begin(initial_telemetry);
 
+  // Set the firmware version on the BLE characteristic
+  bleHandler.updateFirmwareVersion(OTA_VERSION);
+  Serial.printf("Firmware version %s set on BLE characteristic.\n", OTA_VERSION);
+
   Serial.println("Setup done");
 }
 
@@ -1024,7 +964,7 @@ void loop()
     ina226_adc.processAlert();
   }
 
-  daily_ota_check();
+  otaHandler.loop();
 
   // Check serial for calibration command
   if (Serial.available())
