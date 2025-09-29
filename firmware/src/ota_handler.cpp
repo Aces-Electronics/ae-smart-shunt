@@ -13,6 +13,11 @@ void OtaHandler::begin() {
     wifi_client.setCACert(OTAGH_CA_CERT);
     OTA::init(wifi_client);
     Serial.println("[OTA_HANDLER] OTA Handler initialized.");
+
+    // Construct the update URL and set it on the BLE characteristic
+    String update_url = String(STR(OTAGH_OWNER_NAME)) + "/" + String(STR(OTAGH_REPO_NAME));
+    bleHandler.updateUpdateUrl(update_url);
+    Serial.printf("[OTA_HANDLER] Update URL %s set on BLE characteristic.\n", update_url.c_str());
 }
 
 void OtaHandler::loop() {

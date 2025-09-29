@@ -936,11 +936,6 @@ void setup()
   bleHandler.updateFirmwareVersion(OTA_VERSION);
   Serial.printf("Firmware version %s set on BLE characteristic.\n", OTA_VERSION);
 
-  // Construct the update URL and set it on the BLE characteristic
-  String update_url = String(STR(OTAGH_OWNER_NAME)) + "/" + String(STR(OTAGH_REPO_NAME));
-  bleHandler.updateUpdateUrl(update_url);
-  Serial.printf("Update URL %s set on BLE characteristic.\n", update_url.c_str());
-
   Serial.println("Setup done");
 }
 
