@@ -15,9 +15,6 @@
 // WiFi and OTA
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
-#include <ota-github-cacerts.h>
-#include <ota-github-defaults.h>
-#include <OTA-Hub.hpp>
 
 #define USE_ADC // if defined, use ADC, else, victron BLE
 
@@ -45,8 +42,8 @@ GPIO_ADC starter_adc(3);
 
 ESPNowHandler espNowHandler(broadcastAddress); // ESP-NOW handler for sending data
 BLEHandler bleHandler;
-OtaHandler otaHandler(bleHandler, espNowHandler, ina226_adc, ae_smart_shunt_struct);
 WiFiClientSecure wifi_client;
+OtaHandler otaHandler(bleHandler, espNowHandler, ina226_adc, ae_smart_shunt_struct, wifi_client);
 
 void loadSwitchCallback(bool enabled) {
     if (enabled) {
@@ -814,10 +811,6 @@ void setup()
   gpio_hold_dis(GPIO_NUM_5);
 
   pinMode(LED_PIN, OUTPUT);
-
-  // Initialise OTA
-  wifi_client.setCACert(OTAGH_CA_CERT); // Set the api.github.com SSL cert on the WiFi Client
-  OTA::init(wifi_client);
 
   otaHandler.begin();
 

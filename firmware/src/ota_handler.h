@@ -2,13 +2,14 @@
 #define OTA_HANDLER_H
 
 #include <Arduino.h>
+#include <WiFiClientSecure.h>
 #include "ble_handler.h"
 #include "espnow_handler.h"
 #include "ina226_adc.h"
 
 class OtaHandler {
 public:
-    OtaHandler(BLEHandler& bleHandler, ESPNowHandler& espNowHandler, INA226_ADC& ina226_adc, struct_message_ae_smart_shunt_1& shunt_struct);
+    OtaHandler(BLEHandler& bleHandler, ESPNowHandler& espNowHandler, INA226_ADC& ina226_adc, struct_message_ae_smart_shunt_1& shunt_struct, WiFiClientSecure& wifi_client);
     void begin();
     void loop();
 
@@ -24,6 +25,7 @@ private:
     ESPNowHandler& espNowHandler;
     INA226_ADC& ina226_adc;
     struct_message_ae_smart_shunt_1& ae_smart_shunt_struct;
+    WiFiClientSecure& wifi_client;
 
     String wifi_ssid;
     String wifi_pass;

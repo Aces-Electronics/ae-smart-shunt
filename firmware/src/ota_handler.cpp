@@ -3,13 +3,16 @@
 #include <Preferences.h>
 #include <esp_now.h>
 #include <ota-github-defaults.h>
+#include <ota-github-cacerts.h>
 #include <OTA-Hub.hpp>
 
-OtaHandler::OtaHandler(BLEHandler& bleHandler, ESPNowHandler& espNowHandler, INA226_ADC& ina226_adc, struct_message_ae_smart_shunt_1& shunt_struct)
-    : bleHandler(bleHandler), espNowHandler(espNowHandler), ina226_adc(ina226_adc), ae_smart_shunt_struct(shunt_struct) {}
+OtaHandler::OtaHandler(BLEHandler& bleHandler, ESPNowHandler& espNowHandler, INA226_ADC& ina226_adc, struct_message_ae_smart_shunt_1& shunt_struct, WiFiClientSecure& wifi_client)
+    : bleHandler(bleHandler), espNowHandler(espNowHandler), ina226_adc(ina226_adc), ae_smart_shunt_struct(shunt_struct), wifi_client(wifi_client) {}
 
 void OtaHandler::begin() {
-    // Initialization logic for OtaHandler can go here if needed.
+    wifi_client.setCACert(OTAGH_CA_CERT);
+    OTA::init(wifi_client);
+    Serial.println("[OTA_HANDLER] OTA Handler initialized.");
 }
 
 void OtaHandler::loop() {
