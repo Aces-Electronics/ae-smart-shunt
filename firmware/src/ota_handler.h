@@ -3,19 +3,20 @@
 
 #include <Arduino.h>
 #include <WiFiClientSecure.h>
+#include <functional>
 #include "ble_handler.h"
 #include "espnow_handler.h"
-#include "ina226_adc.h"
 
 class OtaHandler {
 public:
-    OtaHandler(BLEHandler& bleHandler, ESPNowHandler& espNowHandler, INA226_ADC& ina226_adc, struct_message_ae_smart_shunt_1& shunt_struct, WiFiClientSecure& wifi_client);
+    OtaHandler(BLEHandler& bleHandler, ESPNowHandler& espNowHandler, WiFiClientSecure& wifi_client);
     void begin();
     void loop();
 
     void setWifiSsid(const String& ssid);
     void setWifiPass(const String& pass);
     void triggerOta();
+    void setPreUpdateCallback(std::function<void()> callback);
 
 private:
     void runBleOtaUpdate();
@@ -23,9 +24,8 @@ private:
 
     BLEHandler& bleHandler;
     ESPNowHandler& espNowHandler;
-    INA226_ADC& ina226_adc;
-    struct_message_ae_smart_shunt_1& ae_smart_shunt_struct;
     WiFiClientSecure& wifi_client;
+    std::function<void()> pre_update_callback;
 
     String wifi_ssid;
     String wifi_pass;

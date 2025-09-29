@@ -1,13 +1,12 @@
 #include "ota_handler.h"
 #include <WiFi.h>
-#include <Preferences.h>
 #include <esp_now.h>
 #include <ota-github-defaults.h>
 #include <ota-github-cacerts.h>
 #include <OTA-Hub.hpp>
 
-OtaHandler::OtaHandler(BLEHandler& bleHandler, ESPNowHandler& espNowHandler, INA226_ADC& ina226_adc, struct_message_ae_smart_shunt_1& shunt_struct, WiFiClientSecure& wifi_client)
-    : bleHandler(bleHandler), espNowHandler(espNowHandler), ina226_adc(ina226_adc), ae_smart_shunt_struct(shunt_struct), wifi_client(wifi_client) {}
+OtaHandler::OtaHandler(BLEHandler& bleHandler, ESPNowHandler& espNowHandler, WiFiClientSecure& wifi_client)
+    : bleHandler(bleHandler), espNowHandler(espNowHandler), wifi_client(wifi_client) {}
 
 void OtaHandler::begin() {
     wifi_client.setCACert(OTAGH_CA_CERT);
@@ -18,6 +17,10 @@ void OtaHandler::begin() {
     String update_url = String(STR(OTAGH_OWNER_NAME)) + "/" + String(STR(OTAGH_REPO_NAME));
     bleHandler.updateUpdateUrl(update_url);
     Serial.printf("[OTA_HANDLER] Update URL %s set on BLE characteristic.\n", update_url.c_str());
+}
+
+void OtaHandler::setPreUpdateCallback(std::function<void()> callback) {
+    pre_update_callback = callback;
 }
 
 void OtaHandler::loop() {
@@ -55,11 +58,6 @@ void OtaHandler::runBleOtaUpdate() {
     }
 
     Serial.printf("[OTA] Attempting update with SSID: %s\n", wifi_ssid.c_str());
-
-    strncpy(ae_smart_shunt_struct.runFlatTime, "Checking for updates...", sizeof(ae_smart_shunt_struct.runFlatTime));
-    espNowHandler.setAeSmartShuntStruct(ae_smart_shunt_struct);
-    espNowHandler.sendMessageAeSmartShunt();
-    delay(100);
 
     esp_now_deinit();
     Serial.println("[OTA] ESP-NOW de-initialized to enable WiFi.");
@@ -118,14 +116,12 @@ bool OtaHandler::handleOTA() {
   }
   else
   {
-    Serial.println("Update available, saving battery capacity...");
     bleHandler.updateOtaStatus("DOWNLOADING");
-    Preferences preferences;
-    preferences.begin("storage", false);
-    float capacity = ina226_adc.getBatteryCapacity();
-    preferences.putFloat("bat_cap", capacity);
-    preferences.end();
-    Serial.printf("Saved battery capacity: %f\n", capacity);
+
+    if (pre_update_callback) {
+        Serial.println("[OTA_HANDLER] Executing pre-update callback.");
+        pre_update_callback();
+    }
 
     if (OTA::performUpdate(&details) == OTA::SUCCESS)
     {

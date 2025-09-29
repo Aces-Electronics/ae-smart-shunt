@@ -43,7 +43,17 @@ GPIO_ADC starter_adc(3);
 ESPNowHandler espNowHandler(broadcastAddress); // ESP-NOW handler for sending data
 BLEHandler bleHandler;
 WiFiClientSecure wifi_client;
-OtaHandler otaHandler(bleHandler, espNowHandler, ina226_adc, ae_smart_shunt_struct, wifi_client);
+OtaHandler otaHandler(bleHandler, espNowHandler, wifi_client);
+
+void preOtaUpdate() {
+    Serial.println("[MAIN] Pre-OTA update callback triggered. Saving battery capacity...");
+    Preferences preferences;
+    preferences.begin("storage", false);
+    float capacity = ina226_adc.getBatteryCapacity();
+    preferences.putFloat("bat_cap", capacity);
+    preferences.end();
+    Serial.printf("[MAIN] Saved battery capacity: %f\n", capacity);
+}
 
 void loadSwitchCallback(bool enabled) {
     if (enabled) {
@@ -813,6 +823,7 @@ void setup()
   pinMode(LED_PIN, OUTPUT);
 
   otaHandler.begin();
+  otaHandler.setPreUpdateCallback(preOtaUpdate);
 
   // The begin method now handles loading the calibrated resistance
   ina226_adc.begin(6, 10);
