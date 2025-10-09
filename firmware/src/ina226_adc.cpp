@@ -667,24 +667,37 @@ String INA226_ADC::calculateRunFlatTimeFormatted(float currentA, float warningTh
     }
 
     uint32_t totalMinutes = (uint32_t)(runHours * 60.0f);
-    totalMinutes %= (7 * 24 * 60);
     uint32_t days = totalMinutes / (24 * 60);
-    totalMinutes %= (24 * 60);
-    uint32_t hours = totalMinutes / 60;
+    uint32_t hours = (totalMinutes / 60) % 24;
+    uint32_t minutes = totalMinutes % 60;
 
     String result;
+
     if (days > 0) {
-        result += String(days) + (days == 1 ? " day " : " days ");         
-    }
-    if (hours > 0) {
-        result += String(hours) + (hours == 1 ? " hour " : " hours ");
+        result += String(days) + (days == 1 ? " day" : " days");
+        if (hours > 0) {
+            result += " " + String(hours) + (hours == 1 ? " hour" : " hours");
+        }
+    } else if (hours > 0) {
+        result += String(hours) + (hours == 1 ? " hour" : " hours");
+        if (minutes > 0) {
+            result += " " + String(minutes) + (minutes == 1 ? " min" : " mins");
+        }
+    } else if (minutes > 0) {
+        result += String(minutes) + (minutes == 1 ? " min" : " mins");
+    } else {
+        if (runHours > 0) {
+            result = "< 1 min";
+        } else {
+            return charging ? "Fully Charged!" : "Instantly flat";
+        }
     }
 
     // Add "until flat" or "until full" based on charging state
     if (!charging) {
-        result += "until flat";
+        result += " until flat";
     } else {
-        result += "until full";
+        result += " until full";
     }
 
     return result;
