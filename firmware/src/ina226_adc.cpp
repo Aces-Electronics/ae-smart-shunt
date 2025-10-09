@@ -623,7 +623,7 @@ void INA226_ADC::updateBatteryCapacity(float currentA) {
 
     float deltaTimeSec = (currentTime - lastUpdateTime) / 1000.0f;
     float deltaAh = (currentA * deltaTimeSec) / 3600.0f;
-    batteryCapacity -= deltaAh;
+    batteryCapacity += deltaAh;
     if (batteryCapacity < 0.0f) batteryCapacity = 0.0f;
     if (batteryCapacity > maxBatteryCapacity) batteryCapacity = maxBatteryCapacity;
     lastUpdateTime = currentTime;
@@ -641,16 +641,17 @@ String INA226_ADC::calculateRunFlatTimeFormatted(float currentA, float warningTh
     // Define a small tolerance for "fully charged" state, e.g., 99.5%
     const float fullyChargedThreshold = maxBatteryCapacity * 0.995f;
 
-    if (currentA > 0.001f) {
-        runHours = batteryCapacity / currentA;
-        charging = false;
-    } else if (currentA < -0.20f) {
+    // With inverted current, positive is charging, negative is discharging.
+    if (currentA > 0.20f) { // Charging
         if (batteryCapacity >= fullyChargedThreshold) {
              return String("Fully Charged!");
         }
         float remainingToFullAh = maxBatteryCapacity - batteryCapacity;
-        runHours = remainingToFullAh / (-currentA);
+        runHours = remainingToFullAh / currentA;
         charging = true;
+    } else if (currentA < -0.001f) { // Discharging
+        runHours = batteryCapacity / (-currentA);
+        charging = false;
     }
 
     if (runHours <= 0.0f) {
@@ -887,9 +888,9 @@ void INA226_ADC::checkAndHandleProtection() {
             }
         }
 
-        // Overcurrent protection (immediate)
-        if (current > overcurrentThreshold) {
-            Serial.printf("Overcurrent detected (%.2fA > %.2fA). Disconnecting load.\n", current, overcurrentThreshold);
+        // Overcurrent protection (immediate) - use absolute value of current
+        if (fabs(current) > overcurrentThreshold) {
+            Serial.printf("Overcurrent detected (%.2fA > %.2fA). Disconnecting load.\n", fabs(current), overcurrentThreshold);
             setLoadConnected(false, OVERCURRENT);
         }
     } else {
@@ -997,7 +998,7 @@ bool INA226_ADC::areHardwareAlertsDisabled() const {
 void INA226_ADC::loadInvertCurrent() {
     Preferences prefs;
     prefs.begin("ina_cal", true);
-    m_invertCurrent = prefs.getBool("invert_curr", false);
+    m_invertCurrent = prefs.getBool("invert_curr", true);
     prefs.end();
     Serial.printf("Current inversion is %s\n", m_invertCurrent ? "ENABLED" : "DISABLED");
 }
