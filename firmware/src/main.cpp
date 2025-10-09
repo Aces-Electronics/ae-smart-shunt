@@ -390,12 +390,12 @@ void runTableBasedCalibration(INA226_ADC &ina, int shuntA)
             break;
         }
 
-        const int samples = 8;
+        const int samples = 100;
         float sumRaw = 0.0f;
         for (int s = 0; s < samples; ++s) {
             ina.readSensors();
             sumRaw += ina.getRawCurrent_mA();
-            delay(120);
+            delay(20);
         }
         float avgRaw = sumRaw / (float)samples;
         Serial.printf("Recorded avg raw reading: %.3f mA  (expected true: %.3f mA)\n", avgRaw, true_milli);
@@ -496,7 +496,7 @@ void runTableBasedCalibration(INA226_ADC &ina, int shuntA)
   float no_load_current = measured_mA[0]; // First point was zero-load
   Serial.printf("Current after disconnect: %.3f mA (expected ~%.3f mA)\n", current_after, no_load_current);
 
-  if (abs(current_after - no_load_current) < 50.0f) { // Allow 50mA tolerance
+  if (abs(current_after - no_load_current) < 200.0f) { // Allow 200mA tolerance for device draw
     Serial.println(F("SUCCESS: Load switch appears to be working."));
   } else {
     Serial.println(F("FAILURE: Current did not drop to no-load value. Check MOSFET wiring."));
@@ -604,12 +604,12 @@ void runShuntResistanceCalibration(INA226_ADC &ina)
   if (line.equalsIgnoreCase("x")) { Serial.println(F("Canceled.")); return; }
   true_a_zero = line.toFloat();
 
-  const int samples = 8;
+  const int samples = 100;
   float sum_v_zero = 0;
   for (int s = 0; s < samples; ++s) {
     ina.readSensors();
     sum_v_zero += ina.getShuntVoltage_mV();
-    delay(120);
+    delay(20);
   }
   v_shunt_zero_mv = sum_v_zero / samples;
   Serial.printf("  -> Recorded avg shunt voltage: %.6f mV (for true current %.6f A)\n", v_shunt_zero_mv, true_a_zero);
@@ -628,7 +628,7 @@ void runShuntResistanceCalibration(INA226_ADC &ina)
   for (int s = 0; s < samples; ++s) {
     ina.readSensors();
     sum_v_1a += ina.getShuntVoltage_mV();
-    delay(120);
+    delay(20);
   }
   v_shunt_1_mv = sum_v_1a / samples;
   Serial.printf("  -> Recorded avg shunt voltage: %.6f mV (for true current %.6f A)\n", v_shunt_1_mv, true_a_1);
@@ -647,7 +647,7 @@ void runShuntResistanceCalibration(INA226_ADC &ina)
   for (int s = 0; s < samples; ++s) {
     ina.readSensors();
     sum_v_5a += ina.getShuntVoltage_mV();
-    delay(120);
+    delay(20);
   }
   v_shunt_5_mv = sum_v_5a / samples;
   Serial.printf("  -> Recorded avg shunt voltage: %.6f mV (for true current %.6f A)\n", v_shunt_5_mv, true_a_5);
