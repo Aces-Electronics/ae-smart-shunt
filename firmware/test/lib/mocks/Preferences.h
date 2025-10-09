@@ -4,6 +4,7 @@
 #include <string>
 #include <map>
 #include <variant>
+#include "Arduino.h" // For String
 
 class Preferences {
 public:
@@ -25,10 +26,13 @@ public:
     void putBool(const char* key, bool value);
     bool getBool(const char* key, bool defaultValue);
 
+    void putString(const char* key, String value);
+    String getString(const char* key, String defaultValue);
+
     static void clear_static();
 
 private:
-    using pref_variant = std::variant<float, uint16_t, uint32_t, bool>;
+    using pref_variant = std::variant<float, uint16_t, uint32_t, bool, String>;
     static std::map<std::string, pref_variant> preferences;
 };
 

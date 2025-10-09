@@ -67,6 +67,17 @@ bool Preferences::getBool(const char* key, bool defaultValue) {
     return defaultValue;
 }
 
+void Preferences::putString(const char* key, String value) {
+    preferences[key] = value;
+}
+
+String Preferences::getString(const char* key, String defaultValue) {
+    if (preferences.count(key)) {
+        return std::get<String>(preferences[key]);
+    }
+    return defaultValue;
+}
+
 void Preferences::clear_static() {
     preferences.clear();
 }

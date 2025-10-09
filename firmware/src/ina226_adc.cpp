@@ -1100,15 +1100,19 @@ void INA226_ADC::updateEnergyUsage(float power_mW) {
 }
 
 float INA226_ADC::getLastHourEnergy_Wh() const {
-    return lastHourEnergy_Wh;
+    // Return the energy usage for the current (incomplete) hour.
+    // This provides a continuously updating value, rather than waiting for the hour to be over.
+    return currentHourEnergy_Ws / 3600.0f;
 }
 
 float INA226_ADC::getLastDayEnergy_Wh() const {
-    return lastDayEnergy_Wh;
+    // Return the energy usage for the current (incomplete) day.
+    return currentDayEnergy_Ws / 3600.0f;
 }
 
 float INA226_ADC::getLastWeekEnergy_Wh() const {
-    return lastWeekEnergy_Wh;
+    // Return the energy usage for the current (incomplete) week.
+    return currentWeekEnergy_Ws / 3600.0f;
 }
 
 void INA226_ADC::setLowVoltageDelay(uint32_t delay_s) {

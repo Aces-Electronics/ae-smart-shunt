@@ -6,6 +6,11 @@
 #include <iostream>
 #include <vector>
 #include <algorithm>
+#include <cstdarg>
+
+// Define missing macros for native builds
+#define RTC_DATA_ATTR
+#define IRAM_ATTR
 
 // Arduino constants
 #define HIGH 0x1
@@ -38,17 +43,14 @@ public:
     void println(float val) { std::cout << val << std::endl; }
     void println() { std::cout << std::endl; }
     void println(uint16_t val, int base) { std::cout << val << std::endl; }
-    template<typename T>
-    void printf(const char* format, T value) {
-        // A very basic printf mock
+
+    // Variadic printf mock
+    void printf(const char* format, ...) {
         char buffer[256];
-        snprintf(buffer, sizeof(buffer), format, value);
-        std::cout << buffer;
-    }
-     template<typename T1, typename T2>
-    void printf(const char* format, T1 val1, T2 val2) {
-        char buffer[256];
-        snprintf(buffer, sizeof(buffer), format, val1, val2);
+        va_list args;
+        va_start(args, format);
+        vsnprintf(buffer, sizeof(buffer), format, args);
+        va_end(args);
         std::cout << buffer;
     }
 };
@@ -70,7 +72,6 @@ void esp_sleep_enable_timer_wakeup(uint64_t time_in_us);
 void esp_deep_sleep_start();
 void mock_esp_deep_sleep_clear();
 bool mock_esp_deep_sleep_called();
-
 
 // Basic String mock
 class String : public std::string {
@@ -102,6 +103,16 @@ public:
         std::transform(s1.begin(), s1.end(), s1.begin(), ::tolower);
         std::transform(s2.begin(), s2.end(), s2.begin(), ::tolower);
         return s1 == s2;
+    }
+
+    // Add missing substring method
+    String substring(unsigned int beginIndex, unsigned int endIndex) const {
+        return this->substr(beginIndex, endIndex - beginIndex);
+    }
+
+    // Add missing toFloat method
+    float toFloat() const {
+        return std::stof(*this);
     }
 };
 
