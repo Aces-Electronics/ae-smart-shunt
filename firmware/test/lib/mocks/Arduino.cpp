@@ -1,6 +1,9 @@
 #include "Arduino.h"
+#include "esp_sleep.h"
 
 static unsigned long mock_millis_value = 0;
+// g_low_power_sleep_flag is defined in ina226_adc.cpp, which is included by the test
+//uint32_t g_low_power_sleep_flag = 0;
 
 unsigned long millis() {
     return mock_millis_value;
@@ -59,4 +62,9 @@ void mock_esp_deep_sleep_clear() {
 
 bool mock_esp_deep_sleep_called() {
     return mock_deep_sleep_called;
+}
+
+esp_reset_reason_t esp_reset_reason(void) {
+    // Return a default reason for tests
+    return ESP_RST_POWERON;
 }
