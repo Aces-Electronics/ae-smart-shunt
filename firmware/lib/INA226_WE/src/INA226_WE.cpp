@@ -14,7 +14,14 @@
 *
 ******************************************************************/
 
-#include "INA226_WE.h"
+\1
+// === Patch: helper clamp ===
+static inline int16_t _ina226_clamp16(int32_t x){
+    if (x >  32767) return  32767;
+    if (x < -32768) return -32768;
+    return (int16_t)x;
+}
+
 
 bool INA226_WE::init(){
     _wire->beginTransmission(i2cAddress);
@@ -194,43 +201,53 @@ void INA226_WE::enableConvReadyAlert(){
 }
     
 void INA226_WE::setAlertType(INA226_ALERT_TYPE type, float limit){
-    deviceAlertType = type;
-    uint16_t alertLimit = 0;
-    
-    switch(deviceAlertType){
-        case SHUNT_OVER:
-            alertLimit = limit * 400000;
-            break;
-        case SHUNT_UNDER:
-            alertLimit = limit * 400000;
-            break;
-        case CURRENT_OVER:
-            deviceAlertType = SHUNT_OVER;
-            alertLimit = limit * 2048 * currentDivider_mA / calVal;
-            break;
-        case CURRENT_UNDER:
-            deviceAlertType = SHUNT_UNDER;
-            alertLimit = limit * 2048 * currentDivider_mA / calVal;
-            break;
-        case BUS_OVER:
-            alertLimit = limit * 800;
-            break;
-        case BUS_UNDER:
-            alertLimit = limit * 800;
-            break;
-        case POWER_OVER:
-            alertLimit = limit / pwrMultiplier_mW;
-            break;
-    }
-    
-    writeRegister(INA226_ALERT_LIMIT_REG, alertLimit);
-    
-    uint16_t value = readRegister(INA226_MASK_EN_REG);
-    value &= ~(0xF800);
-    value |= deviceAlertType;
-    writeRegister(INA226_MASK_EN_REG, value);
-    
+deviceAlertType = type;
+int32_t alertCounts = 0;
+
+switch (deviceAlertType) {
+    case SHUNT_OVER:
+    case SHUNT_UNDER:
+        // limit is in Volts; LSB = 2.5uV -> counts = V / 2.5e-6
+        alertCounts = static_cast<int32_t>(limit * 400000.0f);
+        break;
+
+    case BUS_OVER:
+    case BUS_UNDER:
+        // limit is in Volts; LSB = 1.25mV -> counts = V / 1.25e-3
+        alertCounts = static_cast<int32_t>(limit * 800.0f);
+        break;
+
+    case CURRENT_OVER:
+        deviceAlertType = SHUNT_OVER;
+        // limit is in Amperes. Convert I -> shunt counts using current calibration.
+        // counts = (I / current_LSB) * (2048 / CAL)
+        alertCounts = static_cast<int32_t>(
+            (limit / (0.001f / currentDivider_mA)) * (2048.0f / calVal)
+        );
+        break;
+
+    case CURRENT_UNDER:
+        deviceAlertType = SHUNT_UNDER;
+        alertCounts = static_cast<int32_t>(
+            (limit / (0.001f / currentDivider_mA)) * (2048.0f / calVal)
+        );
+        break;
+
+    case POWER_OVER:
+        // limit is in mW; mW per power count = pwrMultiplier_mW
+        alertCounts = static_cast<int32_t>(limit / pwrMultiplier_mW);
+        break;
 }
+
+int16_t reg = _ina226_clamp16(alertCounts);
+writeRegister(INA226_ALERT_LIMIT_REG, static_cast<uint16_t>(reg));
+
+uint16_t mask = readRegister(INA226_MASK_EN_REG);
+mask &= ~(0xF800);
+mask |= deviceAlertType;
+writeRegister(INA226_MASK_EN_REG, mask);
+}
+
 
 void INA226_WE::readAndClearFlags(){
     uint16_t value = readRegister(INA226_MASK_EN_REG);
@@ -272,6 +289,18 @@ uint16_t INA226_WE::readRegister(uint8_t reg) const {
   regValue = (MSByte<<8) + LSByte;
   return regValue;
 }
-    
 
+// === Patch: calibration API ===
+void INA226_WE::setCalibration(float shunt_ohms, float current_lsb_A) {
+    // Per datasheet: CAL = 0.00512 / (current_LSB(A) * Rshunt(Ohms))
+    float cal = 0.00512f / (current_lsb_A * shunt_ohms);
+    if (cal > 65535.0f) cal = 65535.0f;
+    if (cal < 1.0f)     cal = 1.0f;
+    calVal = static_cast<uint16_t>(cal + 0.5f);
+    writeRegister(INA226_CAL_REG, calVal);
+
+    // Keep the three in sync
+    currentDivider_mA = 0.001f / current_lsb_A;              // factor to convert raw current counts to mA
+    pwrMultiplier_mW  = 25.0f * current_lsb_A * 1000.0f;     // mW per power-count (Power LSB = 25 * current_LSB (W))
+}
 
