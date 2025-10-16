@@ -81,11 +81,12 @@ typedef enum INA226_CURRENT_RANGE{ // Deprecated, but left for downward compatib
 
 class INA226_WE
 {
-// Set calibration for your specific shunt and desired current LSB (in Amperes).
-// This updates calVal, currentDivider_mA, and pwrMultiplier_mW together.
-void setCalibration(float shunt_ohms, float current_lsb_A);
+public:
+        // Set calibration for your specific shunt and desired current LSB (in Amperes).
+        // This updates calVal, currentDivider_mA, and pwrMultiplier_mW together.
+        void setCalibration(float shunt_ohms, float current_lsb_A);
 
-/* registers */
+        /* registers */
         static constexpr uint8_t INA226_ADDRESS          {0x40};
         static constexpr uint8_t INA226_CONF_REG         {0x00}; //Configuration Register
         static constexpr uint8_t INA226_SHUNT_REG        {0x01}; //Shunt Voltage Register
