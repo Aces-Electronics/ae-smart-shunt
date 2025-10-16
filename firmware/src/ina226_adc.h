@@ -45,6 +45,7 @@ public:
     bool saveShuntResistance(float resistance);
     bool loadShuntResistance();
     bool loadFactoryDefaultResistance(uint16_t shuntRatedA);
+    bool getFactoryDefaultResistance(uint16_t shuntRatedA, float &outOhms) const;
 
     // Protection features
     void loadProtectionSettings();

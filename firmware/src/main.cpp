@@ -1,6 +1,7 @@
 #include <vector>
 #include <Arduino.h>
 #include <Preferences.h>
+#include <cmath>
 #include "shared_defs.h"
 #include "ina226_adc.h"
 #include "ble_handler.h"
@@ -614,6 +615,10 @@ void runShuntResistanceCalibration(INA226_ADC &ina)
   Serial.println(F("Press 'x' at any time to cancel."));
   Serial.println(F("Note: Enter EXTERNAL load current only. Firmware adds ~0.050A MCU draw automatically."));
 
+  const uint16_t activeShuntA = ina.getActiveShunt();
+  const float step2TargetExternalA = activeShuntA * 0.02f;  // ~2% of rated current
+  const float step3TargetExternalA = activeShuntA * 0.10f;  // ~10% of rated current
+
   float true_a_zero = 0.0f, v_shunt_zero_mv = 0.0f;
   float true_a_1 = 0.0f, v_shunt_1_mv = 0.0f;
   float true_a_5 = 0.0f, v_shunt_5_mv = 0.0f;
@@ -642,10 +647,10 @@ void runShuntResistanceCalibration(INA226_ADC &ina)
   Serial.printf("  -> Recorded avg shunt voltage: %.6f mV (for true current %.6f A)\n", v_shunt_zero_mv, true_a_zero);
 
   // --- Step 2: ~1A Load ---
-  Serial.println(F("\n--- Step 2 of 3: ~1A External Load ---"));
-  Serial.println(F("1. Apply a constant external load of approximately 1A."));
+  Serial.printf("\n--- Step 2 of 3: ~%.3fA External Load ---\n", step2TargetExternalA);
+  Serial.printf("1. Apply a constant external load of approximately %.3fA.\n", step2TargetExternalA);
   Serial.println(F("2. Measure the external load current (firmware adds ~0.050A MCU draw)."));
-  Serial.print(F("3. Enter the external load current in Amps (e.g., 1.000) and press Enter: "));
+  Serial.printf("3. Enter the external load current in Amps (e.g., %.3f) and press Enter: ", step2TargetExternalA);
 
   line = SerialReadLineBlocking();
   if (line.equalsIgnoreCase("x")) { Serial.println(F("Canceled.")); return; }
@@ -663,10 +668,10 @@ void runShuntResistanceCalibration(INA226_ADC &ina)
   Serial.printf("  -> Recorded avg shunt voltage: %.6f mV (for true current %.6f A)\n", v_shunt_1_mv, true_a_1);
 
   // --- Step 3: ~5A Load ---
-  Serial.println(F("\n--- Step 3 of 3: ~5A External Load ---"));
-  Serial.println(F("1. Apply a constant external load of approximately 5A."));
+  Serial.printf("\n--- Step 3 of 3: ~%.3fA External Load ---\n", step3TargetExternalA);
+  Serial.printf("1. Apply a constant external load of approximately %.3fA.\n", step3TargetExternalA);
   Serial.println(F("2. Measure the external load current (firmware adds ~0.050A MCU draw)."));
-  Serial.print(F("3. Enter the external load current in Amps (e.g., 5.000) and press Enter: "));
+  Serial.printf("3. Enter the external load current in Amps (e.g., %.3f) and press Enter: ", step3TargetExternalA);
 
   line = SerialReadLineBlocking();
   if (line.equalsIgnoreCase("x")) { Serial.println(F("Canceled.")); return; }
@@ -702,8 +707,10 @@ void runShuntResistanceCalibration(INA226_ADC &ina)
   float r_1a = (delta_v_1 / 1000.0f) / delta_i_1;
   float r_5a = (delta_v_5 / 1000.0f) / delta_i_5;
 
-  Serial.printf("Resistance from ~1A load: (%.6f mV / 1000) / %.6f A = %.9f Ohms\n", delta_v_1, delta_i_1, r_1a);
-  Serial.printf("Resistance from ~5A load: (%.6f mV / 1000) / %.6f A = %.9f Ohms\n", delta_v_5, delta_i_5, r_5a);
+  Serial.printf("Resistance from ~%.3fA load: (%.6f mV / 1000) / %.6f A = %.9f Ohms\n",
+                step2TargetExternalA, delta_v_1, delta_i_1, r_1a);
+  Serial.printf("Resistance from ~%.3fA load: (%.6f mV / 1000) / %.6f A = %.9f Ohms\n",
+                step3TargetExternalA, delta_v_5, delta_i_5, r_5a);
 
   if (r_1a <= 0 || r_5a <= 0) {
     Serial.println(F("\n[ERROR] Calculated resistance is zero or negative. This can happen if the load was not applied correctly or if the 'no load' voltage was higher than the load voltage. Please try again."));
@@ -711,6 +718,27 @@ void runShuntResistanceCalibration(INA226_ADC &ina)
   }
 
   float newShuntOhms = (r_1a + r_5a) / 2.0f;
+
+  float disagreement = std::fabs(r_1a - r_5a);
+  if (newShuntOhms <= 0.0f || disagreement > (newShuntOhms * 0.25f)) {
+    Serial.println(F("\n[ERROR] Measurements disagree by more than 25%. Please double-check the applied currents and try again."));
+    return;
+  }
+
+  float expectedOhms = 0.0f;
+  if (!ina.getFactoryDefaultResistance(activeShuntA, expectedOhms) || expectedOhms <= 0.0f) {
+    expectedOhms = ina.getCalibratedShuntResistance();
+  }
+
+  if (expectedOhms > 0.0f) {
+    const float minAllowed = expectedOhms * 0.3f;
+    const float maxAllowed = expectedOhms * 3.0f;
+    if (newShuntOhms < minAllowed || newShuntOhms > maxAllowed) {
+      Serial.printf("\n[ERROR] Calculated resistance %.9f Ohms is implausible for the %dA shunt (expected around %.9f Ohms). Please verify the measurements and retry.\n",
+                    newShuntOhms, activeShuntA, expectedOhms);
+      return;
+    }
+  }
 
   Serial.printf("\nCalculated new average shunt resistance: %.9f Ohms.\n", newShuntOhms);
 

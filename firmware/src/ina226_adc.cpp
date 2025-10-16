@@ -454,6 +454,16 @@ bool INA226_ADC::loadFactoryDefaultResistance(uint16_t shuntRatedA) {
     }
 }
 
+bool INA226_ADC::getFactoryDefaultResistance(uint16_t shuntRatedA, float &outOhms) const {
+    auto it = factory_shunt_resistances.find(shuntRatedA);
+    if (it == factory_shunt_resistances.end()) {
+        return false;
+    }
+
+    outOhms = it->second;
+    return true;
+}
+
 void INA226_ADC::applyShuntConfiguration() {
     float shunt = calibratedOhms;
     if (shunt <= 0.0f) {
