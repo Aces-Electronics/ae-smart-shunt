@@ -2,6 +2,7 @@
 #include "esp_sleep.h"
 #include <cfloat>
 #include <algorithm>
+#include <cmath>
 #include <map>
 #include "driver/gpio.h"
 
@@ -10,8 +11,8 @@ RTC_DATA_ATTR uint32_t g_low_power_sleep_flag = 0;
 #define LOW_POWER_SLEEP_MAGIC 0x12345678 // A magic number to indicate low power sleep
 
 namespace {
-    // Factory-calibrated table for the 50A shunt, based on user-provided data
-    const std::vector<CalPoint> factory_cal_50A = {
+    // Factory-calibrated table for the 100A shunt, based on user-provided data
+    const std::vector<CalPoint> factory_cal_100A = {
         {688.171f, 0.000f},
         {2116.966f, 1000.000f},
         {3544.236f, 2000.000f},
@@ -26,16 +27,16 @@ namespace {
 
 // Initialize the static map of factory default shunt resistances.
 const std::map<uint16_t, float> INA226_ADC::factory_shunt_resistances = {
-    {50, 0.000789840f},
-    {100, 0.000789840f},
-    {150, 0.000789840f},
-    {200, 0.000789840f},
-    {250, 0.000789840f},
-    {300, 0.000789840f},
-    {350, 0.000789840f},
-    {400, 0.000789840f},
-    {450, 0.000789840f},
-    {500, 0.000789840f}
+    {50, 0.001500000f},
+    {100, 0.000750000f},
+    {150, 0.000500000f},
+    {200, 0.000375000f},
+    {250, 0.000300000f},
+    {300, 0.000250000f},
+    {350, 0.000214286f},
+    {400, 0.000187500f},
+    {450, 0.000166667f},
+    {500, 0.000150000f}
 };
 
 const std::map<float, float> INA226_ADC::soc_voltage_map = {
@@ -58,8 +59,8 @@ const std::map<float, float> INA226_ADC::soc_voltage_map = {
 
 INA226_ADC::INA226_ADC(uint8_t address, float shuntResistorOhms, float batteryCapacityAh)
     : ina226(address),
-      defaultOhms(0.000789840f), // Store the default value
-      calibratedOhms(0.000789840f), // Initialize with default
+      defaultOhms(shuntResistorOhms > 0.0f ? shuntResistorOhms : 0.000750000f),
+      calibratedOhms(shuntResistorOhms > 0.0f ? shuntResistorOhms : 0.000750000f),
       batteryCapacity(batteryCapacityAh),
       maxBatteryCapacity(batteryCapacityAh),
       lastUpdateTime(0),
@@ -79,10 +80,9 @@ INA226_ADC::INA226_ADC(uint8_t address, float shuntResistorOhms, float batteryCa
       loadConnected(true),
       alertTriggered(false),
       m_isConfigured(false),
-      m_activeShuntA(50), // Default to 50A
+      m_activeShuntA(100), // Default to 100A
       m_disconnectReason(NONE),
       m_hardwareAlertsDisabled(false),
-      m_invertCurrent(false),
       sampleIndex(0),
       sampleCount(0),
       lastSampleTime(0),
@@ -148,9 +148,8 @@ void INA226_ADC::begin(int sdaPin, int sclPin) {
         }
     }
     
-    // Set the resistor range with the calibrated or default value
-    ina226.setResistorRange(calibratedOhms, (float)m_activeShuntA);
-    Serial.printf("Set INA226 range for %.2fA\n", (float)m_activeShuntA);
+    // Apply the resistor and calibration settings to the INA226
+    applyShuntConfiguration();
 
     // Load the calibration table for the active shunt
     if (loadCalibrationTable(m_activeShuntA)) {
@@ -165,7 +164,6 @@ void INA226_ADC::begin(int sdaPin, int sclPin) {
     }
 
     loadProtectionSettings();
-    loadInvertCurrent();
     configureAlert(overcurrentThreshold);
     setInitialSOC();
 }
@@ -195,10 +193,7 @@ float INA226_ADC::getCurrent_mA() const {
         result_mA = (current_mA * calibrationGain) + calibrationOffset_mA;
     }
 
-    if (m_invertCurrent) {
-        return -result_mA;
-    }
-    return result_mA;
+    return -result_mA;
 }
 
 void INA226_ADC::setInitialSOC() {
@@ -207,10 +202,10 @@ void INA226_ADC::setInitialSOC() {
     float current = getCurrent_mA() / 1000.0f; // Convert to Amps
 
     // Adjust voltage based on load/charge
-    if (current > 0.1) { // Discharging (under load)
-        voltage += 0.4;
-    } else if (current < -0.1) { // Charging
-        voltage -= 0.4;
+    if (current < -0.1f) { // Discharging (under load)
+        voltage += 0.4f;
+    } else if (current > 0.1f) { // Charging
+        voltage -= 0.4f;
     }
 
     float soc_percent = 50.0; // Default SOC
@@ -400,8 +395,7 @@ bool INA226_ADC::saveShuntResistance(float resistance) {
     calibratedOhms = resistance;
 
     // Immediately apply the new resistance to the INA226 configuration
-    ina226.setResistorRange(calibratedOhms, (float)m_activeShuntA);
-    Serial.printf("Live INA226 configuration updated for new shunt resistance and %dA range.\n", m_activeShuntA);
+    applyShuntConfiguration();
 
     // Mark the device as configured now
     m_isConfigured = true;
@@ -458,6 +452,27 @@ bool INA226_ADC::loadFactoryDefaultResistance(uint16_t shuntRatedA) {
         Serial.printf("No factory default found for %dA shunt.\n", shuntRatedA);
         return false;
     }
+}
+
+void INA226_ADC::applyShuntConfiguration() {
+    float shunt = calibratedOhms;
+    if (shunt <= 0.0f) {
+        shunt = defaultOhms;
+    }
+
+    float rangeA = static_cast<float>(m_activeShuntA);
+    if (rangeA <= 0.0f) {
+        rangeA = 100.0f;
+    }
+
+    float currentLsbA = rangeA / 32768.0f;
+    if (currentLsbA <= 0.0f) {
+        currentLsbA = 0.0001f;
+    }
+
+    ina226.setCalibration(shunt, currentLsbA);
+    Serial.printf("Configured INA226 calibration for %dA range using %.9f Ohms (current LSB %.6f A).\n",
+                  m_activeShuntA, shunt, currentLsbA);
 }
 
 // ---------------- Table-based calibration ----------------
@@ -590,8 +605,8 @@ bool INA226_ADC::loadFactoryCalibrationTable(uint16_t shuntRatedA) {
     const std::vector<CalPoint>* factory_table = nullptr;
 
     switch (shuntRatedA) {
-        case 50:
-            factory_table = &factory_cal_50A;
+        case 100:
+            factory_table = &factory_cal_100A;
             break;
         // Future pre-calibrated tables can be added here
         default:
@@ -641,7 +656,7 @@ String INA226_ADC::calculateRunFlatTimeFormatted(float currentA, float warningTh
     // Define a small tolerance for "fully charged" state, e.g., 99.5%
     const float fullyChargedThreshold = maxBatteryCapacity * 0.995f;
 
-    // With inverted current, positive is charging, negative is discharging.
+    // Positive current indicates charging, negative indicates discharging.
     if (currentA > 0.20f) { // Charging
         if (batteryCapacity >= fullyChargedThreshold) {
              return String("Fully Charged!");
@@ -827,9 +842,8 @@ void INA226_ADC::setActiveShunt(uint16_t shuntRatedA) {
         }
     }
 
-    // Set the resistor range with the calibrated or default value
-    ina226.setResistorRange(calibratedOhms, (float)m_activeShuntA);
-    Serial.printf("Set INA226 range for %.2fA\n", (float)m_activeShuntA);
+    // Apply the resistor range and calibration settings to the INA226
+    applyShuntConfiguration();
 
     // Load the calibration table for the new active shunt
     if (loadCalibrationTable(m_activeShuntA)) {
@@ -865,6 +879,10 @@ float INA226_ADC::getHardwareAlertThreshold_A() const {
     } else {
         return 0.0f; // Avoid division by zero
     }
+}
+
+float INA226_ADC::getCalibratedShuntResistance() const {
+    return calibratedOhms;
 }
 
 void INA226_ADC::checkAndHandleProtection() {
@@ -937,13 +955,11 @@ void INA226_ADC::configureAlert(float amps) {
         ina226.writeRegister(INA226_WE::INA226_MASK_EN_REG, 0x0000);
         Serial.println("INA226 hardware alert DISABLED.");
     } else {
-        // Configure INA226 to trigger alert on overcurrent (shunt voltage over limit)
-        float shuntVoltageLimit_V = amps * calibratedOhms;
-
-        ina226.setAlertType(SHUNT_OVER, shuntVoltageLimit_V);
+        // Configure INA226 to trigger alert on overcurrent using the calibrated current range
+        float limitAmps = fabsf(amps);
+        ina226.setAlertType(CURRENT_OVER, limitAmps);
         ina226.enableAlertLatch();
-        Serial.printf("Configured INA226 alert for overcurrent threshold of %.2fA (Shunt Voltage > %.4fV)\n",
-                      amps, shuntVoltageLimit_V);
+        Serial.printf("Configured INA226 alert for overcurrent threshold of %.2fA.\n", limitAmps);
     }
 }
 
@@ -1004,33 +1020,6 @@ void INA226_ADC::toggleHardwareAlerts() {
 
 bool INA226_ADC::areHardwareAlertsDisabled() const {
     return m_hardwareAlertsDisabled;
-}
-
-// ---------------- Invert Current ----------------
-
-void INA226_ADC::loadInvertCurrent() {
-    Preferences prefs;
-    prefs.begin("ina_cal", true);
-    m_invertCurrent = prefs.getBool("invert_curr", true);
-    prefs.end();
-    Serial.printf("Current inversion is %s\n", m_invertCurrent ? "ENABLED" : "DISABLED");
-}
-
-void INA226_ADC::saveInvertCurrent() {
-    Preferences prefs;
-    prefs.begin("ina_cal", false);
-    prefs.putBool("invert_curr", m_invertCurrent);
-    prefs.end();
-}
-
-void INA226_ADC::toggleInvertCurrent() {
-    m_invertCurrent = !m_invertCurrent;
-    saveInvertCurrent();
-    Serial.printf("Current inversion set to: %s\n", m_invertCurrent ? "ENABLED" : "DISABLED");
-}
-
-bool INA226_ADC::isInvertCurrentEnabled() const {
-    return m_invertCurrent;
 }
 
 void INA226_ADC::dumpRegisters() const {

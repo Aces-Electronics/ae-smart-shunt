@@ -20,7 +20,7 @@ The overall goal of this project is to make a simple, robust and reliable Ssmart
 
 # Features
 - **High-Precision Monitoring**: Measures battery voltage, current, and power, and calculates state-of-charge (SOC).
-- **Intuitive Current Reading**: By default, current is displayed as a positive value when the battery is charging and a negative value when discharging. This can be toggled via the CLI.
+- **Intuitive Current Reading**: Current is displayed as a positive value when the battery is charging and a negative value when discharging.
 - **Persistent State**: Remembers battery capacity and calibration settings across power cycles.
 - **ESP-NOW Broadcasting**: Transmits battery data wirelessly to other ESP devices.
 - **Heartbeat LED**: A blinking LED provides a visual indication that the device is running.
@@ -48,7 +48,6 @@ The smart shunt is configured via a simple serial command-line interface. When c
 | `r` | **Shunt Resistance Calibration** | Runs a routine to calculate the precise resistance of your shunt. **This must be run before first use.** |
 | `v` | **Voltage Calibration** | Runs the guided 8-point calibration routine for the starter battery voltage input. |
 | `p` | **Protection Settings** | Allows you to configure the thresholds for Low-Voltage Cutoff, Hysteresis, and Overcurrent Protection. |
-| `i` | **Invert Current** | Toggles the direction of the current reading. When enabled (default), charging is positive and discharging is negative. |
 | `l` | **Load Toggle** | Manually toggles the load disconnect MOSFET ON or OFF. Useful for testing the hardware circuit. |
 | `a` | **Alert Toggle** | Toggles the hardware overcurrent alert ON or OFF. Useful for debugging. |
 | `s` | **Status Display** | Displays the current protection settings, including the actual hardware alert threshold read from the INA226. |

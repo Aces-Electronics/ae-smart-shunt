@@ -19,6 +19,10 @@ void INA226_WE::waitUntilConversionCompleted() {}
 void INA226_WE::setAverage(ina226_averages averages) {}
 void INA226_WE::setConversionTime(ina226_conversion_times convTime) {}
 void INA226_WE::setResistorRange(float resistor, float current) {}
+void INA226_WE::setCalibration(float resistor, float current_lsb_A) {
+    (void)resistor;
+    (void)current_lsb_A;
+}
 void INA226_WE::readAndClearFlags() {}
 
 void INA226_WE::setAlertType(ina226_alert_type type, float limit) {
