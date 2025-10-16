@@ -14,14 +14,16 @@
 *
 ******************************************************************/
 
-\1
-// === Patch: helper clamp ===
-static inline int16_t _ina226_clamp16(int32_t x){
-    if (x >  32767) return  32767;
-    if (x < -32768) return -32768;
-    return (int16_t)x;
-}
+#include "INA226_WE.h"
+#include <cmath>
 
+namespace {
+    inline int16_t _ina226_clamp16(int32_t x){
+        if (x >  32767) return  32767;
+        if (x < -32768) return -32768;
+        return static_cast<int16_t>(x);
+    }
+}
 
 bool INA226_WE::init(){
     _wire->beginTransmission(i2cAddress);
@@ -201,51 +203,58 @@ void INA226_WE::enableConvReadyAlert(){
 }
     
 void INA226_WE::setAlertType(INA226_ALERT_TYPE type, float limit){
-deviceAlertType = type;
-int32_t alertCounts = 0;
+    deviceAlertType = type;
+    int32_t alertCounts = 0;
 
-switch (deviceAlertType) {
-    case SHUNT_OVER:
-    case SHUNT_UNDER:
-        // limit is in Volts; LSB = 2.5uV -> counts = V / 2.5e-6
-        alertCounts = static_cast<int32_t>(limit * 400000.0f);
-        break;
+    auto toCurrentCounts = [&](float amps) -> int32_t {
+        if (currentDivider_mA <= 0.0f || calVal == 0) {
+            return 0;
+        }
+        const float currentLsbA = 0.001f / currentDivider_mA;
+        const float shuntCounts = amps / currentLsbA;
+        const float calScale = 2048.0f / static_cast<float>(calVal);
+        return static_cast<int32_t>(std::lround(shuntCounts * calScale));
+    };
 
-    case BUS_OVER:
-    case BUS_UNDER:
-        // limit is in Volts; LSB = 1.25mV -> counts = V / 1.25e-3
-        alertCounts = static_cast<int32_t>(limit * 800.0f);
-        break;
+    switch (type) {
+        case SHUNT_OVER:
+        case SHUNT_UNDER:
+            // limit is in Volts; LSB = 2.5uV -> counts = V / 2.5e-6
+            alertCounts = static_cast<int32_t>(std::lround(limit * 400000.0f));
+            break;
 
-    case CURRENT_OVER:
-        deviceAlertType = SHUNT_OVER;
-        // limit is in Amperes. Convert I -> shunt counts using current calibration.
-        // counts = (I / current_LSB) * (2048 / CAL)
-        alertCounts = static_cast<int32_t>(
-            (limit / (0.001f / currentDivider_mA)) * (2048.0f / calVal)
-        );
-        break;
+        case BUS_OVER:
+        case BUS_UNDER:
+            // limit is in Volts; LSB = 1.25mV -> counts = V / 1.25e-3
+            alertCounts = static_cast<int32_t>(std::lround(limit * 800.0f));
+            break;
 
-    case CURRENT_UNDER:
-        deviceAlertType = SHUNT_UNDER;
-        alertCounts = static_cast<int32_t>(
-            (limit / (0.001f / currentDivider_mA)) * (2048.0f / calVal)
-        );
-        break;
+        case CURRENT_OVER:
+            deviceAlertType = SHUNT_OVER;
+            alertCounts = toCurrentCounts(std::fabs(limit));
+            break;
 
-    case POWER_OVER:
-        // limit is in mW; mW per power count = pwrMultiplier_mW
-        alertCounts = static_cast<int32_t>(limit / pwrMultiplier_mW);
-        break;
-}
+        case CURRENT_UNDER:
+            deviceAlertType = SHUNT_UNDER;
+            alertCounts = -toCurrentCounts(std::fabs(limit));
+            break;
 
-int16_t reg = _ina226_clamp16(alertCounts);
-writeRegister(INA226_ALERT_LIMIT_REG, static_cast<uint16_t>(reg));
+        case POWER_OVER:
+            if (pwrMultiplier_mW != 0.0f) {
+                alertCounts = static_cast<int32_t>(std::lround(limit / pwrMultiplier_mW));
+            } else {
+                alertCounts = 0;
+            }
+            break;
+    }
 
-uint16_t mask = readRegister(INA226_MASK_EN_REG);
-mask &= ~(0xF800);
-mask |= deviceAlertType;
-writeRegister(INA226_MASK_EN_REG, mask);
+    const int16_t reg = _ina226_clamp16(alertCounts);
+    writeRegister(INA226_ALERT_LIMIT_REG, static_cast<uint16_t>(reg));
+
+    uint16_t mask = readRegister(INA226_MASK_EN_REG);
+    mask &= 0x07FF;
+    mask |= static_cast<uint16_t>(deviceAlertType);
+    writeRegister(INA226_MASK_EN_REG, mask);
 }
 
 
@@ -292,15 +301,22 @@ uint16_t INA226_WE::readRegister(uint8_t reg) const {
 
 // === Patch: calibration API ===
 void INA226_WE::setCalibration(float shunt_ohms, float current_lsb_A) {
+    if (shunt_ohms <= 0.0f || current_lsb_A <= 0.0f) {
+        return;
+    }
+
     // Per datasheet: CAL = 0.00512 / (current_LSB(A) * Rshunt(Ohms))
-    float cal = 0.00512f / (current_lsb_A * shunt_ohms);
+    const float rawCal = 0.00512f / (current_lsb_A * shunt_ohms);
+    float cal = rawCal;
     if (cal > 65535.0f) cal = 65535.0f;
     if (cal < 1.0f)     cal = 1.0f;
-    calVal = static_cast<uint16_t>(cal + 0.5f);
+    calVal = static_cast<uint16_t>(std::lround(cal));
     writeRegister(INA226_CAL_REG, calVal);
 
     // Keep the three in sync
     currentDivider_mA = 0.001f / current_lsb_A;              // factor to convert raw current counts to mA
     pwrMultiplier_mW  = 25.0f * current_lsb_A * 1000.0f;     // mW per power-count (Power LSB = 25 * current_LSB (W))
+    Serial.printf("INA226 CAL=%u, currentDivider_mA=%.6f, pwrMultiplier_mW=%.6f\n",
+        calVal, currentDivider_mA, pwrMultiplier_mW);
 }
 

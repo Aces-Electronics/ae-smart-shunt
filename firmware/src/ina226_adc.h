@@ -19,6 +19,8 @@ struct CalPoint {
 
 class INA226_ADC {
 public:
+    static constexpr float MCU_IDLE_CURRENT_A = 0.05f;
+
     INA226_ADC(uint8_t address, float shuntResistorOhms, float batteryCapacityAh);
     void begin(int sdaPin, int sclPin);
     void readSensors();
@@ -30,7 +32,7 @@ public:
     float getLoadVoltage_V() const;
     float getBatteryCapacity() const;
     void setBatteryCapacity(float capacity);
-    void updateBatteryCapacity(float currentA); // current in A (positive = discharge)
+    void updateBatteryCapacity(float currentA); // current in A (positive = charge)
     bool isOverflow() const;
     bool clearCalibrationTable(uint16_t shuntRatedA);
     String getAveragedRunFlatTime(float currentA, float warningThresholdHours, bool &warningTriggered);
@@ -43,6 +45,7 @@ public:
     bool saveShuntResistance(float resistance);
     bool loadShuntResistance();
     bool loadFactoryDefaultResistance(uint16_t shuntRatedA);
+    bool getFactoryDefaultResistance(uint16_t shuntRatedA, float &outOhms) const;
 
     // Protection features
     void loadProtectionSettings();
@@ -74,9 +77,7 @@ public:
     float getHardwareAlertThreshold_A() const;
     void dumpRegisters() const;
 
-    // Invert current reading
-    void toggleInvertCurrent();
-    bool isInvertCurrentEnabled() const;
+    float getCalibratedShuntResistance() const;
 
     // ---------- Linear calibration (legacy / fallback) ----------
     bool loadCalibration(uint16_t shuntRatedA);                          // apply stored linear (gain/offset)
@@ -123,7 +124,6 @@ private:
     uint16_t m_activeShuntA;
     DisconnectReason m_disconnectReason;
     bool m_hardwareAlertsDisabled;
-    bool m_invertCurrent;
 
     // Table-based calibration
     std::vector<CalPoint> calibrationTable;
@@ -143,8 +143,7 @@ private:
     unsigned long lastSampleTime;
     int sampleIntervalSeconds;
 
-    void loadInvertCurrent();
-    void saveInvertCurrent();
+    void applyShuntConfiguration();
 
     // Energy usage tracking
     unsigned long lastEnergyUpdateTime;

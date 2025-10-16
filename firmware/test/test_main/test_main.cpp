@@ -54,7 +54,7 @@ void test_current_calibration(void) {
 
     // Check that the calibrated current is correct
     float expectedCurrent_mA = (1000.0 * gain) + offset_mA;
-    TEST_ASSERT_EQUAL_FLOAT(expectedCurrent_mA, adc.getCurrent_mA());
+    TEST_ASSERT_EQUAL_FLOAT(-expectedCurrent_mA, adc.getCurrent_mA());
 }
 
 void test_battery_capacity(void) {
@@ -70,7 +70,7 @@ void test_battery_capacity(void) {
 
     // --- Test discharging ---
     set_mock_millis(1000 + 3600 * 1000); // Advance time by 1 hour
-    adc.updateBatteryCapacity(10.0);    // 10A discharge over the last hour
+    adc.updateBatteryCapacity(-10.0);    // 10A discharge over the last hour
 
     // After 1 hour at 10A, capacity should decrease by 10Ah
     float expectedCapacity = initialCapacity - 10.0;
@@ -78,7 +78,7 @@ void test_battery_capacity(void) {
 
     // --- Test charging ---
     set_mock_millis(1000 + 2 * 3600 * 1000); // Advance time by another 1 hour
-    adc.updateBatteryCapacity(-5.0);        // 5A charge over the last hour
+    adc.updateBatteryCapacity(5.0);        // 5A charge over the last hour
 
     // After 1 hour at -5A, capacity should increase by 5Ah
     expectedCapacity += 5.0;
@@ -87,7 +87,7 @@ void test_battery_capacity(void) {
     // --- Test capacity limits ---
     // Test not exceeding max capacity
     set_mock_millis(1000 + 3 * 3600 * 1000); // Advance time by another 1 hour
-    adc.updateBatteryCapacity(-100.0);      // charge with 100A for 1h
+    adc.updateBatteryCapacity(100.0);      // charge with 100A for 1h
     expectedCapacity += 100.0;
     if (expectedCapacity > initialCapacity) {
         expectedCapacity = initialCapacity;
@@ -96,7 +96,7 @@ void test_battery_capacity(void) {
 
     // Test not going below zero
     set_mock_millis(1000 + 4 * 3600 * 1000); // Advance time by another 1 hour
-    adc.updateBatteryCapacity(200.0);       // discharge with 200A for 1h
+    adc.updateBatteryCapacity(-200.0);       // discharge with 200A for 1h
     expectedCapacity -= 200.0;
     if (expectedCapacity < 0) {
         expectedCapacity = 0;
@@ -110,7 +110,7 @@ void test_run_flat_time_formatted(void) {
     // Test discharging (100Ah capacity, 10A load -> 10 hours)
     {
         INA226_ADC adc(0x40, 0.001, 100.0);
-        String result = adc.calculateRunFlatTimeFormatted(10.0, 12.0, warning);
+        String result = adc.calculateRunFlatTimeFormatted(-10.0, 12.0, warning);
         TEST_ASSERT_EQUAL_STRING("10 hours until flat", result.c_str());
         TEST_ASSERT(warning);
     }
@@ -125,7 +125,7 @@ void test_run_flat_time_formatted(void) {
         adc.updateBatteryCapacity(50.0);
         TEST_ASSERT_EQUAL_FLOAT(50.0, adc.getBatteryCapacity());
 
-        String result = adc.calculateRunFlatTimeFormatted(-10.0, 12.0, warning);
+        String result = adc.calculateRunFlatTimeFormatted(10.0, 12.0, warning);
         TEST_ASSERT_EQUAL_STRING("5 hours until full", result.c_str());
         // The warning should not be triggered when charging.
         TEST_ASSERT(!warning);
@@ -140,14 +140,14 @@ void test_run_flat_time_formatted(void) {
         set_mock_millis(1 + 3600 * 1000);
         adc.updateBatteryCapacity(0.4);
 
-        String result = adc.calculateRunFlatTimeFormatted(-1.0, 12.0, warning);
+        String result = adc.calculateRunFlatTimeFormatted(1.0, 12.0, warning);
         TEST_ASSERT_EQUAL_STRING("Fully Charged!", result.c_str());
     }
 
     // Test > 7 days (200Ah capacity, 1A load -> 200 hours)
     {
         INA226_ADC adc(0x40, 0.001, 200.0);
-        String result = adc.calculateRunFlatTimeFormatted(1.0, 200.0, warning);
+        String result = adc.calculateRunFlatTimeFormatted(-1.0, 200.0, warning);
         TEST_ASSERT_EQUAL_STRING("> 7 days", result.c_str());
     }
 
@@ -161,7 +161,7 @@ void test_run_flat_time_formatted(void) {
     // Test days and hours formatting
     {
         INA226_ADC adc(0x40, 0.001, 100.0);
-        String result = adc.calculateRunFlatTimeFormatted(2.0, 100.0, warning); // 50 hours
+        String result = adc.calculateRunFlatTimeFormatted(-2.0, 100.0, warning); // 50 hours
         TEST_ASSERT_EQUAL_STRING("2 days 2 hours until flat", result.c_str());
     }
 }
@@ -172,22 +172,22 @@ void test_averaged_run_flat_time(void) {
 
     // 1. Initial state - no samples yet
     set_mock_millis(0);
-    String result = adc.getAveragedRunFlatTime(10.0, 12.0, warning);
+    String result = adc.getAveragedRunFlatTime(-10.0, 12.0, warning);
     TEST_ASSERT_EQUAL_STRING("Gathering data...", result.c_str());
 
     // 2. First sample is taken after 10 seconds
     set_mock_millis(10000); // 10s
-    result = adc.getAveragedRunFlatTime(10.0, 12.0, warning);
+    result = adc.getAveragedRunFlatTime(-10.0, 12.0, warning);
     TEST_ASSERT_EQUAL_STRING("Gathering data...", result.c_str()); // Still not enough samples
 
     // 3. Second sample is taken after 20 seconds
     set_mock_millis(20000); // 20s
-    result = adc.getAveragedRunFlatTime(10.0, 12.0, warning);
+    result = adc.getAveragedRunFlatTime(-10.0, 12.0, warning);
     TEST_ASSERT_EQUAL_STRING("Gathering data...", result.c_str()); // Still not enough samples
 
     // 4. Third sample is taken, now we have enough for an average
     set_mock_millis(30000); // 30s
-    result = adc.getAveragedRunFlatTime(10.0, 12.0, warning);
+    result = adc.getAveragedRunFlatTime(-10.0, 12.0, warning);
     TEST_ASSERT_EQUAL_STRING("10 hours until flat", result.c_str());
 }
 
@@ -269,8 +269,8 @@ void test_main_loop_logic(void) {
 
     // Assertions
     TEST_ASSERT_EQUAL_FLOAT(12.8, shunt_message.batteryVoltage);
-    TEST_ASSERT_EQUAL_FLOAT(2.5, shunt_message.batteryCurrent);
-    TEST_ASSERT_EQUAL_FLOAT(32.0, shunt_message.batteryPower);
+    TEST_ASSERT_EQUAL_FLOAT(-2.5, shunt_message.batteryCurrent);
+    TEST_ASSERT_EQUAL_FLOAT(-32.0, shunt_message.batteryPower);
     TEST_ASSERT_EQUAL_FLOAT(ratedCapacity - 2.5, shunt_message.batteryCapacity);
     TEST_ASSERT_EQUAL_FLOAT((ratedCapacity - 2.5) / ratedCapacity, shunt_message.batterySOC);
 }
@@ -354,23 +354,6 @@ void test_alert_disconnect(void) {
     TEST_ASSERT_FALSE(adc.isAlertTriggered());
 }
 
-void test_current_inversion(void) {
-    INA226_ADC adc(0x40, 0.001, 100.0);
-    INA226_WE::mockCurrent_mA = 1234.5;
-
-    // 1. Test with inversion enabled
-    adc.toggleInvertCurrent(); // Enable inversion
-    TEST_ASSERT_TRUE(adc.isInvertCurrentEnabled());
-    adc.readSensors();
-    TEST_ASSERT_EQUAL_FLOAT(-1234.5, adc.getCurrent_mA());
-
-    // 2. Test with inversion disabled
-    adc.toggleInvertCurrent(); // Disable inversion
-    TEST_ASSERT_FALSE(adc.isInvertCurrentEnabled());
-    adc.readSensors();
-    TEST_ASSERT_EQUAL_FLOAT(1234.5, adc.getCurrent_mA());
-}
-
 void test_usb_power_no_disconnect(void) {
     INA226_ADC adc(0x40, 0.001, 100.0);
     adc.setProtectionSettings(9.0f, 0.5f, 50.0f);
@@ -417,7 +400,6 @@ int main(int argc, char **argv) {
     RUN_TEST(test_alert_disconnect);
     RUN_TEST(test_usb_power_no_disconnect);
     RUN_TEST(test_alert_ignored_when_disconnected);
-    RUN_TEST(test_current_inversion);
     UNITY_END();
     return 0;
 }

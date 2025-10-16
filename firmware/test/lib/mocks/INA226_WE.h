@@ -50,6 +50,7 @@ public:
     void setAverage(ina226_averages averages);
     void setConversionTime(ina226_conversion_times convTime);
     void setResistorRange(float resistor, float current);
+    void setCalibration(float resistor, float current_lsb_A);
     void readAndClearFlags();
     void setAlertType(ina226_alert_type type, float limit);
     void enableAlertLatch();
