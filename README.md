@@ -45,6 +45,7 @@ The smart shunt is configured via a simple serial command-line interface. When c
 | Key | Command | Description |
 |:---:|---|---|
 | `c` | **Current Calibration Menu** | Enters the menu for current shunt calibration. From here you can run a detailed calibration (`T`) or restore factory defaults (`F`). |
+| `f` | **Factory Reset** | Clears all settings and wipes all data - fresh like a daisy. |
 | `r` | **Shunt Resistance Calibration** | Runs a routine to calculate the precise resistance of your shunt. **This must be run before first use.** |
 | `v` | **Voltage Calibration** | Runs the guided 8-point calibration routine for the starter battery voltage input. |
 | `p` | **Protection Settings** | Allows you to configure the thresholds for Low-Voltage Cutoff, Hysteresis, and Overcurrent Protection. |

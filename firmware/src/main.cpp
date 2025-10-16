@@ -36,7 +36,7 @@ struct_message_ae_smart_shunt_1 ae_smart_shunt_struct;
 // if a calibrated value is loaded from NVS.
 // The default resistance value here is a fallback and will be overwritten by either a
 // custom calibrated value from NVS or the factory default for the active shunt.
-INA226_ADC ina226_adc(I2C_ADDRESS, 0.000750000f, 100.00f);
+INA226_ADC ina226_adc(I2C_ADDRESS, 0.003286742f, 100.00f);
 
 // ADC for the starter battery voltage on GPIO3
 GPIO_ADC starter_adc(3);
@@ -262,7 +262,7 @@ void runCurrentCalibrationMenu(INA226_ADC &ina)
   Serial.println(F("Load enabled for calibration."));
 
   Serial.println(F("\n--- Calibration Menu ---"));
-  Serial.println(F("Step 1: Choose installed shunt rating (50-500 A in 50A steps) or 'x' to cancel:"));
+  Serial.println(F("Step 1: Choose installed shunt rating (100-500 A in 50A steps) or 'x' to cancel:"));
   Serial.print(F("> "));
 
   String sel = SerialReadLineBlocking();
@@ -272,7 +272,7 @@ void runCurrentCalibrationMenu(INA226_ADC &ina)
   }
 
   int shuntA = sel.toInt();
-  if (shuntA < 50 || shuntA > 500 || (shuntA % 50) != 0) {
+  if (shuntA < 100 || shuntA > 500 || (shuntA % 50) != 0) {
     Serial.println(F("Invalid shunt rating. Aborting calibration."));
     return;
   }
@@ -549,7 +549,7 @@ void runTableBasedCalibration(INA226_ADC &ina, int shuntA)
 
   bool alert_fired = false;
   unsigned long test_start = millis();
-  while(millis() - test_start < 15000) { // 15s timeout
+  while(millis() - test_start < 20000) { // 20s timeout
       if (ina.isAlertTriggered()) {
           ina.processAlert();
           alert_fired = true;
@@ -825,7 +825,7 @@ void runProtectionConfigMenu(INA226_ADC &ina)
 void runExportCalibrationMenu(INA226_ADC &ina)
 {
   Serial.println(F("\n--- Export Calibration Data ---"));
-  Serial.println(F("Choose shunt rating to export (50-500 A):"));
+  Serial.println(F("Choose shunt rating to export (100-500 A):"));
   Serial.print(F("> "));
 
   String sel = SerialReadLineBlocking();
@@ -836,7 +836,7 @@ void runExportCalibrationMenu(INA226_ADC &ina)
   }
 
   int shuntA = sel.toInt();
-  if (shuntA < 50 || shuntA > 500 || (shuntA % 50) != 0)
+  if (shuntA < 100 || shuntA > 500 || (shuntA % 50) != 0)
   {
     Serial.println(F("Invalid shunt rating. Aborting export."));
     return;
@@ -925,7 +925,7 @@ void setup()
 
   // Print calibration summary on boot
   Serial.println("Calibration summary:");
-  for (int sh = 50; sh <= 500; sh += 50)
+  for (int sh = 100; sh <= 500; sh += 50)
   {
     float g, o;
     size_t cnt = 0;
@@ -1054,6 +1054,45 @@ void loop()
     {
       // run the protection configuration menu
       runProtectionConfigMenu(ina226_adc);
+    }
+    // run the factory reset menu
+    else if (s.equalsIgnoreCase("f"))
+    {
+      // FACTORY RESET: erase saved settings and reboot
+      Serial.println(F("\n*** FACTORY RESET ***"));
+      Serial.println(F("This will erase ALL saved settings (calibration, protection, capacity, names) and reboot."));
+      Serial.println(F("Type YES to confirm:"));
+      String conf = SerialReadLineBlocking();
+      if (conf == "YES") {
+        // Best-effort: put hardware into a safe state first
+        ina226_adc.setLoadConnected(false, MANUAL);
+
+        // Ensure hardware alerts are enabled (toggle if they were disabled)
+        if (ina226_adc.areHardwareAlertsDisabled()) {
+          ina226_adc.toggleHardwareAlerts();
+        }
+
+        Preferences p;
+
+        // Known namespaces (clear all keys)
+        p.begin("storage", false);            // battery capacity, etc.
+        p.clear();
+        p.end();
+
+        p.begin(NVS_CAL_NAMESPACE, false);    // "ina_cal" (shunt, tables, suffix if stored here)
+        p.clear();
+        p.end();
+
+        p.begin(NVS_PROTECTION_NAMESPACE, false); // "protection" (LV cutoff, hysteresis, OC)
+        p.clear();
+        p.end();
+
+        Serial.println(F("Factory reset complete. Rebooting..."));
+        delay(500);
+        ESP.restart();   // Arduino-style restart
+      } else {
+        Serial.println(F("Factory reset cancelled."));
+      }
     }
     else if (s.equalsIgnoreCase("l"))
     {

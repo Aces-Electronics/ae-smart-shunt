@@ -13,22 +13,21 @@ RTC_DATA_ATTR uint32_t g_low_power_sleep_flag = 0;
 namespace {
     // Factory-calibrated table for the 100A shunt, based on user-provided data
     const std::vector<CalPoint> factory_cal_100A = {
-        {688.171f, 0.000f},
-        {2116.966f, 1000.000f},
-        {3544.236f, 2000.000f},
-        {7829.666f, 5000.000f},
-        {15001.298f, 10000.000f},
-        {29259.684f, 20000.000f},
-        {43518.070f, 30000.002f},
-        {57776.453f, 40000.000f},
-        {72034.844f, 50000.000f}
+        {27.161f, 50.000f},
+        {2021.088f, 2050.000f},
+        {4019.657f, 4050.000f},
+        {10002.939f, 10050.000f},
+        {19962.066f, 20050.000f},
+        {24902.336f, 40050.000f},
+        {29842.605f, 60050.004f},
+        {34782.875f, 80050.000f},
+        {39723.145f, 100050.000f}
     };
 } // end anonymous namespace
 
 // Initialize the static map of factory default shunt resistances.
 const std::map<uint16_t, float> INA226_ADC::factory_shunt_resistances = {
-    {50, 0.001500000f},
-    {100, 0.000750000f},
+    {100, 0.003286742f},
     {150, 0.000500000f},
     {200, 0.000375000f},
     {250, 0.000300000f},
@@ -59,8 +58,8 @@ const std::map<float, float> INA226_ADC::soc_voltage_map = {
 
 INA226_ADC::INA226_ADC(uint8_t address, float shuntResistorOhms, float batteryCapacityAh)
     : ina226(address),
-      defaultOhms(shuntResistorOhms > 0.0f ? shuntResistorOhms : 0.000750000f),
-      calibratedOhms(shuntResistorOhms > 0.0f ? shuntResistorOhms : 0.000750000f),
+      defaultOhms(shuntResistorOhms > 0.0f ? shuntResistorOhms : 0.003286742f),
+      calibratedOhms(shuntResistorOhms > 0.0f ? shuntResistorOhms : 0.003286742f),
       batteryCapacity(batteryCapacityAh),
       maxBatteryCapacity(batteryCapacityAh),
       lastUpdateTime(0),
@@ -151,6 +150,7 @@ void INA226_ADC::begin(int sdaPin, int sclPin) {
     // Apply the resistor and calibration settings to the INA226
     applyShuntConfiguration();
 
+    Serial.printf("INA226 boot cfg: activeShunt=%u A, Rsh=%.9f Ohm\n", m_activeShuntA, calibratedOhms);
     // Load the calibration table for the active shunt
     if (loadCalibrationTable(m_activeShuntA)) {
         Serial.printf("Loaded custom calibration table for %dA shunt.\n", m_activeShuntA);
@@ -245,7 +245,9 @@ void INA226_ADC::setInitialSOC() {
 }
 
 float INA226_ADC::getCalibratedCurrent_mA(float raw_mA) const {
-    if (calibrationTable.empty()) {
+    
+    if (calibrationTable.size() < 2) return raw_mA;
+if (calibrationTable.empty()) {
         return raw_mA;
     }
 
@@ -468,7 +470,12 @@ void INA226_ADC::applyShuntConfiguration() {
     // Sanity-check the stored/calculated shunt value; reject obviously-bad values
     // Typical shunts here are ~0.2–5.0 mΩ
     float shunt = calibratedOhms;
+    
     if (!(shunt > 0.0002f && shunt < 0.005f)) {
+        Serial.printf("WARN: Rejected invalid shunt resistance %.9f Ohm; falling back.\n", shunt);
+        shunt = defaultOhms;
+    }
+if (!(shunt > 0.0002f && shunt < 0.005f)) {
         Serial.printf("WARN: Rejected invalid shunt resistance %.9f Ω; falling back to defaults.\n", shunt);
         shunt = defaultOhms;
     }
@@ -480,9 +487,15 @@ void INA226_ADC::applyShuntConfiguration() {
         maxCurrentA = (0.08192f * 0.95f) / shunt; // 5% headroom
     }
     float currentLsbA = maxCurrentA / 32768.0f;
-    if (!(currentLsbA > 0.0f)) currentLsbA = 0.0001f;
+    
+    if (!(currentLsbA > 0.0f) || currentLsbA > 0.01f) {
+        Serial.printf("WARN: current_LSB %.6f A out of expected range; fixing\n", currentLsbA);
+        currentLsbA = 100.0f / 32768.0f;
+    }
+if (!(currentLsbA > 0.0f)) currentLsbA = 0.0001f;
 
     ina226.setCalibration(shunt, currentLsbA);
+    Serial.printf("Configured INA226: Rsh=%.9f Ohm, I_LSB=%.6f A (max~=%.2f A)\n", shunt, currentLsbA, maxCurrentA);
     Serial.printf("Configured INA226: Rsh=%.9f Ω, I_LSB=%.6f A (max≈%.2f A).\n",
                   shunt, currentLsbA, maxCurrentA);
 }

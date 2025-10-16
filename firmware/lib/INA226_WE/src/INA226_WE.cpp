@@ -316,5 +316,7 @@ void INA226_WE::setCalibration(float shunt_ohms, float current_lsb_A) {
     // Keep the three in sync
     currentDivider_mA = 0.001f / current_lsb_A;              // factor to convert raw current counts to mA
     pwrMultiplier_mW  = 25.0f * current_lsb_A * 1000.0f;     // mW per power-count (Power LSB = 25 * current_LSB (W))
+    Serial.printf("INA226 CAL=%u, currentDivider_mA=%.6f, pwrMultiplier_mW=%.6f\n",
+        calVal, currentDivider_mA, pwrMultiplier_mW);
 }
 
