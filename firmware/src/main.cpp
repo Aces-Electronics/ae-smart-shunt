@@ -866,7 +866,10 @@ void onDataSent(const uint8_t *mac_addr, esp_now_send_status_t status)
 void setup()
 {
   Serial.begin(115200);
-  delay(100); // let Serial start
+
+  // Wait for serial monitor to connect
+  while (!Serial && millis() < 2000);
+  delay(250);
 
   // Disable the RTC GPIO hold on boot
   gpio_hold_dis(GPIO_NUM_5);
