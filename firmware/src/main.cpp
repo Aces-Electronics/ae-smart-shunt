@@ -117,17 +117,20 @@ void IRAM_ATTR alertISR()
 // helper: read a trimmed line from Serial (blocks until newline)
 static String SerialReadLineBlocking()
 {
-  String s;
-  while (true)
-  {
-    while (Serial.available() == 0)
-      delay(5);
-    s = Serial.readStringUntil('\n');
-    s.trim();
-    if (s.length() > 0)
-      return s;
-    // allow empty Enter to be treated as empty string
-    return s;
+  String s = "";
+  char c;
+  while (true) {
+    // Check for input without blocking
+    if (Serial.available()) {
+      c = Serial.read();
+      if (c == '\n' || c == '\r') {
+        s.trim();
+        return s;
+      }
+      s += c;
+    }
+    // Yield to other tasks
+    delay(5);
   }
 }
 
@@ -144,24 +147,13 @@ static String waitForEnterOrXWithDebug(INA226_ADC &ina, bool debugMode)
 
   while (true)
   {
-    if (Serial.available())
-    {
-      String line = Serial.readStringUntil('\n');
-      line.trim();
-      if (line.length() == 0)
-      {
-        // Enter pressed (empty line) - record step
-        return String("");
-      }
-      else
-      {
-        // Could be 'x' or other input
-        if (line.equalsIgnoreCase("x"))
-          return String("x");
-        // treat any non-empty as confirmation as well
-        return line;
-      }
+    // Use the robust line reader
+    String line = SerialReadLineBlocking();
+    if (line.equalsIgnoreCase("x")) {
+      return String("x");
     }
+    // Any other line, including an empty one from just pressing Enter, is returned.
+    return line;
 
     // Periodically print debug readings if enabled
     unsigned long now = millis();
@@ -924,33 +916,35 @@ void setup()
   }
 
   // Print calibration summary on boot
-  Serial.println("Calibration summary:");
+  Serial.println(F("\n--- Stored Calibration Summary ---"));
+  uint16_t activeShuntA = ina226_adc.getActiveShunt();
+
+  Serial.printf("Active Shunt: %uA\n", activeShuntA);
+  Serial.printf(" -> Calibrated Resistance: %.9f Ohms\n", ina226_adc.getCalibratedShuntResistance());
+  if (ina226_adc.hasCalibrationTable()) {
+      Serial.printf(" -> Using TABLE calibration (%u points)\n", ina226_adc.getCalibrationTable().size());
+  } else {
+      float g, o;
+      ina226_adc.getCalibration(g, o);
+      Serial.printf(" -> Using LINEAR calibration (gain=%.6f, offset=%.3f mA)\n", g, o);
+  }
+
+  Serial.println(F("\nStored calibrations for all shunts:"));
   for (int sh = 100; sh <= 500; sh += 50)
   {
-    float g, o;
     size_t cnt = 0;
     bool hasTbl = ina226_adc.hasStoredCalibrationTable(sh, cnt);
-    bool hasLin = ina226_adc.getStoredCalibrationForShunt(sh, g, o);
     if (hasTbl)
     {
-      Serial.printf("  %dA: TABLE present (%u pts)", sh, (unsigned)cnt);
-      if (hasLin)
-        Serial.printf(", linear fallback gain=%.6f offset_mA=%.3f", g, o);
-      Serial.println();
-    }
-    else if (hasLin)
-    {
-      Serial.printf("  %dA: LINEAR gain=%.6f offset_mA=%.3f\n", sh, g, o);
+      Serial.printf("  %dA: TABLE present (%u pts)\n", sh, (unsigned)cnt);
     }
     else
     {
-      Serial.printf("  %dA: No saved calibration (using defaults)\n", sh);
+      // To keep the log cleaner, let's not print anything if no calibration is stored.
+      // The old way printed "No saved calibration", which was noisy.
     }
   }
-  // Also print currently applied linear calibration (table is runtime-based)
-  float curG, curO;
-  ina226_adc.getCalibration(curG, curO);
-  Serial.printf("Active linear fallback: gain=%.9f offset_mA=%.3f\n", curG, curO);
+  Serial.println(F("------------------------------------"));
 
   // Initialize ESP-NOW
   if (!espNowHandler.begin())
