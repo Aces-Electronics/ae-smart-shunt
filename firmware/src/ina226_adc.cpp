@@ -465,24 +465,26 @@ bool INA226_ADC::getFactoryDefaultResistance(uint16_t shuntRatedA, float &outOhm
 }
 
 void INA226_ADC::applyShuntConfiguration() {
+    // Sanity-check the stored/calculated shunt value; reject obviously-bad values
+    // Typical shunts here are ~0.2–5.0 mΩ
     float shunt = calibratedOhms;
-    if (shunt <= 0.0f) {
+    if (!(shunt > 0.0002f && shunt < 0.005f)) {
+        Serial.printf("WARN: Rejected invalid shunt resistance %.9f Ω; falling back to defaults.\n", shunt);
         shunt = defaultOhms;
     }
 
-    float rangeA = static_cast<float>(m_activeShuntA);
-    if (rangeA <= 0.0f) {
-        rangeA = 100.0f;
+    // Derive current_LSB sensibly. If the active shunt rating is known, use that;
+    // otherwise derive max current from INA226 shunt range (±81.92 mV) with a margin.
+    float maxCurrentA = static_cast<float>(m_activeShuntA);
+    if (!(maxCurrentA > 0.0f)) {
+        maxCurrentA = (0.08192f * 0.95f) / shunt; // 5% headroom
     }
-
-    float currentLsbA = rangeA / 32768.0f;
-    if (currentLsbA <= 0.0f) {
-        currentLsbA = 0.0001f;
-    }
+    float currentLsbA = maxCurrentA / 32768.0f;
+    if (!(currentLsbA > 0.0f)) currentLsbA = 0.0001f;
 
     ina226.setCalibration(shunt, currentLsbA);
-    Serial.printf("Configured INA226 calibration for %dA range using %.9f Ohms (current LSB %.6f A).\n",
-                  m_activeShuntA, shunt, currentLsbA);
+    Serial.printf("Configured INA226: Rsh=%.9f Ω, I_LSB=%.6f A (max≈%.2f A).\n",
+                  shunt, currentLsbA, maxCurrentA);
 }
 
 // ---------------- Table-based calibration ----------------
@@ -964,13 +966,19 @@ void INA226_ADC::configureAlert(float amps) {
         // Disable alerts by clearing the Mask/Enable Register
         ina226.writeRegister(INA226_WE::INA226_MASK_EN_REG, 0x0000);
         Serial.println("INA226 hardware alert DISABLED.");
-    } else {
-        // Configure INA226 to trigger alert on overcurrent using the calibrated current range
-        float limitAmps = fabsf(amps);
-        ina226.setAlertType(CURRENT_OVER, limitAmps);
-        ina226.enableAlertLatch();
-        Serial.printf("Configured INA226 alert for overcurrent threshold of %.2fA.\n", limitAmps);
+        return;
     }
+
+    // Program alert as SHUNT_OVER in VOLTS to avoid dependence on CAL or current LSB.
+    // V_limit = I_limit * R_shunt
+    const float limitAmps = fabsf(amps);
+    const float r_shunt = (calibratedOhms > 0.0f) ? calibratedOhms : defaultOhms;
+    const float v_limit = limitAmps * r_shunt; // volts
+
+    ina226.setAlertType(SHUNT_OVER, v_limit);
+    ina226.enableAlertLatch();
+    Serial.printf("Configured INA226 alert: %.2f A (%.3f mV @ %.6f Ω).\n",
+                  limitAmps, v_limit * 1000.0f, r_shunt);
 }
 
 void INA226_ADC::handleAlert() {
