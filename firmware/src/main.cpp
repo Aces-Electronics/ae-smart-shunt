@@ -777,9 +777,16 @@ void runShuntResistanceCalibration(INA226_ADC &ina)
     const float minAllowed = expectedOhms * 0.3f;
     const float maxAllowed = expectedOhms * 3.0f;
     if (newShuntOhms < minAllowed || newShuntOhms > maxAllowed) {
-      Serial.printf("\n[ERROR] Calculated resistance %.9f Ohms is implausible for the %dA shunt (expected around %.9f Ohms). Please verify the measurements and retry.\n",
+      Serial.printf("\n[WARNING] Calculated resistance %.9f Ohms is implausible for the %dA shunt (expected around %.9f Ohms).\n",
                     newShuntOhms, activeShuntA, expectedOhms);
-      return;
+      Serial.println(F("This may indicate an issue with your measurement setup."));
+      Serial.print(F("Do you want to accept this value anyway? (y/N): "));
+      String choice = SerialReadLineBlocking();
+      if (!choice.equalsIgnoreCase("y")) {
+        Serial.println(F("Calibration canceled. The old value has been retained."));
+        return;
+      }
+      Serial.println(F("Accepting implausible value based on user override."));
     }
   }
 
