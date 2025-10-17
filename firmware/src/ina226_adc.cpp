@@ -28,8 +28,8 @@ namespace {
 // Initialize the static map of factory default shunt resistances.
 const std::map<uint16_t, float> INA226_ADC::factory_shunt_resistances = {
     {100, 0.003286742f},
-    {150, 0.000500000f},
-    {200, 0.000375000f},
+    {150, 0.003450000f},
+    {200, 0.003794600f},
     {250, 0.000300000f},
     {300, 0.000250000f},
     {350, 0.000214286f},
