@@ -114,46 +114,74 @@ void IRAM_ATTR alertISR()
   ina226_adc.handleAlert();
 }
 
-// helper: read a trimmed line from Serial (blocks until newline)
+// helper: read a trimmed line from Serial (blocks until newline), with echo and backspace support.
 static String SerialReadLineBlocking()
 {
   String s = "";
   char c;
+
+  // Consume any preceding newline characters left in the buffer.
+  while(Serial.available() && (Serial.peek() == '\r' || Serial.peek() == '\n')) {
+    Serial.read();
+  }
+
   while (true) {
-    // Check for input without blocking
     if (Serial.available()) {
       c = Serial.read();
-      if (c == '\n' || c == '\r') {
+
+      if (c == '\r' || c == '\n') {
+        Serial.println(); // Echo for neatness.
+        // Consume any trailing newline characters (\r\n or \n\r).
+        while(Serial.available() && (Serial.peek() == '\r' || Serial.peek() == '\n')) {
+          Serial.read();
+        }
         s.trim();
         return s;
+      } else if (c == 127 || c == 8) { // Handle Backspace (ASCII 8) and Delete (ASCII 127).
+        if (s.length() > 0) {
+          s.remove(s.length() - 1);
+          Serial.print("\b \b"); // Erase character from the terminal.
+        }
+      } else if (isPrintable(c)) {
+        s += c;
+        Serial.print(c); // Echo character to the terminal.
       }
-      s += c;
     }
-    // Yield to other tasks
-    delay(5);
+    delay(5); // Yield to other tasks.
   }
 }
 
-// Helper: wait for enter or 'x' while optionally streaming debug raw vs calibrated values.
-// Returns the user-entered line (possibly empty string if they just pressed Enter), or "x" if canceled.
-static String waitForEnterOrXWithDebug(INA226_ADC &ina, bool debugMode)
+// Helper: wait for a single key press: Enter or 'x'/'X'.
+// Returns the character pressed ('\n' for Enter, 'x' for cancel).
+// This function does NOT wait for a newline after 'x' is pressed.
+static char waitForEnterOrXWithDebug(INA226_ADC &ina, bool debugMode)
 {
-  // Flush any existing chars
-  while (Serial.available())
-    Serial.read();
+  // Flush any existing chars from previous inputs to avoid accidental triggers.
+  while (Serial.available()) Serial.read();
 
   unsigned long lastPrint = 0;
   const unsigned long printInterval = 300; // ms
 
   while (true)
   {
-    // Use the robust line reader
-    String line = SerialReadLineBlocking();
-    if (line.equalsIgnoreCase("x")) {
-      return String("x");
+    if (Serial.available() > 0) {
+      char c = Serial.read();
+
+      if (c == 'x' || c == 'X') {
+        Serial.println("x"); // Echo and newline
+        return 'x';
+      }
+
+      if (c == '\r' || c == '\n') {
+        Serial.println(); // Newline for neatness
+        // Consume any other newline characters that might follow (\r\n or \n\r).
+        while(Serial.available() && (Serial.peek() == '\r' || Serial.peek() == '\n')) {
+          Serial.read();
+        }
+        return '\n';
+      }
+      // Silently ignore other characters.
     }
-    // Any other line, including an empty one from just pressing Enter, is returned.
-    return line;
 
     // Periodically print debug readings if enabled
     unsigned long now = millis();
@@ -314,10 +342,21 @@ void runTableBasedCalibration(INA226_ADC &ina, int shuntA)
   // First, check if the base shunt resistance has been calibrated.
   if (!ina.isConfigured()) {
     Serial.println(F("\n[WARNING] Base shunt resistance not calibrated."));
-    Serial.println(F("Loading factory default resistance for selected shunt."));
-    if (!ina.loadFactoryDefaultResistance(shuntA)) {
-        Serial.println(F("[ERROR] Could not load factory default. Aborting."));
+    Serial.println(F("This fine-tuning step requires the base resistance to be calibrated first."));
+    Serial.println(F("Would you like to run the 3-point resistance calibration now? (y/N)"));
+    Serial.print("> ");
+    String choice = SerialReadLineBlocking();
+    if (choice.equalsIgnoreCase("y")) {
+      runShuntResistanceCalibration(ina);
+      // After resistance calibration, check again. If it's still not configured, abort.
+      if (!ina.isConfigured()) {
+        Serial.println(F("[ERROR] Resistance calibration was not completed successfully. Aborting fine-tuning."));
         return;
+      }
+      Serial.println(F("\nResistance calibration complete. Now proceeding to fine-tuning..."));
+    } else {
+      Serial.println(F("Fine-tuning calibration aborted."));
+      return;
     }
   }
 
@@ -399,8 +438,8 @@ void runTableBasedCalibration(INA226_ADC &ina, int shuntA)
         }
 
         Serial.print("> ");
-        String line = waitForEnterOrXWithDebug(ina, debugMode);
-        if (line.equalsIgnoreCase("x")) {
+        char key = waitForEnterOrXWithDebug(ina, debugMode);
+        if (key == 'x') {
             Serial.println("User canceled early; accepting tests recorded so far.");
             break;
         }
@@ -497,7 +536,13 @@ void runTableBasedCalibration(INA226_ADC &ina, int shuntA)
   Serial.println(F("This test will verify the load disconnect MOSFET."));
   Serial.println(F("Please apply a constant 1A load, then press Enter."));
   Serial.print(F("> "));
-  waitForEnterOrXWithDebug(ina, false);
+  if (waitForEnterOrXWithDebug(ina, false) == 'x') {
+    Serial.println(F("Test canceled."));
+    // Restore original alert configuration and reconnect load before exiting.
+    ina.restoreOvercurrentAlert();
+    ina.setLoadConnected(true, NONE);
+    return;
+  }
 
   delay(500);
   ina.readSensors();
@@ -532,7 +577,13 @@ void runTableBasedCalibration(INA226_ADC &ina, int shuntA)
   Serial.printf("The alert threshold will be temporarily set to %.3f A.\n", test_current);
   Serial.println(F("Please ensure your load is set to 0A, then press Enter."));
   Serial.print(F("> "));
-  waitForEnterOrXWithDebug(ina, false);
+  if (waitForEnterOrXWithDebug(ina, false) == 'x') {
+    Serial.println(F("Test canceled."));
+    // Restore original alert configuration and reconnect load before exiting.
+    ina.restoreOvercurrentAlert();
+    ina.setLoadConnected(true, NONE);
+    return;
+  }
 
   ina.setTempOvercurrentAlert(test_current);
 
