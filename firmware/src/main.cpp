@@ -427,15 +427,19 @@ void runTableBasedCalibration(INA226_ADC &ina, int shuntA)
     float netA = externalA + INA226_ADC::MCU_IDLE_CURRENT_A;
     float true_milli = netA * 1000.0f;
 
-    // --- Measure points up to and including 50% ---
-    if (p <= 0.5f) {
+  // --- Measure points up to the 40A dummy load limit ---
+    const float MAX_MEASURABLE_A = 40.0f;
+    if (externalA <= MAX_MEASURABLE_A) {
         if (p == 0.0f) {
-        Serial.printf("\nStep %u of %u: Target external load = %.3f A (Zero Load).\nTotal through shunt will be %.3f A including MCU %.3f A.\nDisconnect all external loads, then press Enter to record. Enter 'x' to cancel.\n",
-                        (unsigned)(i + 1), (unsigned)perc.size(), externalA, netA, INA226_ADC::MCU_IDLE_CURRENT_A);
+        Serial.printf("\nStep %u of %u: Target external load = %.3f A (Zero Load).\n",
+                        (unsigned)(i + 1), (unsigned)perc.size());
+        Serial.println(F("Disconnect all external loads, then press Enter to record. Enter 'x' to cancel."));
         } else {
-        Serial.printf("\nStep %u of %u: Target external load = %.3f A (%.2f%% of %dA).\nTotal through shunt will be %.3f A including MCU %.3f A.\nSet test jig to the external target current, then press Enter to record. Enter 'x' to cancel and accept measured so far.\n",
-                        (unsigned)(i + 1), (unsigned)perc.size(), externalA, p * 100.0f, shuntA, netA, INA226_ADC::MCU_IDLE_CURRENT_A);
+        Serial.printf("\nStep %u of %u: Target external load = %.3f A (%.2f%% of %dA).\n",
+                        (unsigned)(i + 1), (unsigned)perc.size(), externalA, p * 100.0f, shuntA);
+        Serial.println(F("Set test jig to the external target current, then press Enter. Enter 'x' to cancel."));
         }
+        Serial.printf("   (Total through shunt will be %.3f A including MCU draw of %.3f A)\n", netA, INA226_ADC::MCU_IDLE_CURRENT_A);
 
         Serial.print("> ");
         char key = waitForEnterOrXWithDebug(ina, debugMode);
@@ -459,9 +463,9 @@ void runTableBasedCalibration(INA226_ADC &ina, int shuntA)
     }
   }
 
-  // --- Extrapolate for points > 50% ---
+  // --- Extrapolate for points > 40A ---
   if (last_measured_idx > 0 && last_measured_idx < perc.size() - 1) {
-    Serial.println("\nExtrapolating remaining points > 50%...");
+    Serial.printf("\nExtrapolating remaining points > %.1fA...\n", MAX_MEASURABLE_A);
 
     // Get the last two measured points to establish a linear trend
     float raw1 = measured_mA[last_measured_idx - 1];
