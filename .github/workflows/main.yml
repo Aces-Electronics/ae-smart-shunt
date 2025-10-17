@@ -50,6 +50,6 @@ jobs:
           name: Release ${{ github.ref_name }}
           files: ./firmware/.pio/build/ae-smart-shunt/firmware.bin
           generate_release_notes: true
-          overwrite: true
+          overwrite_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
