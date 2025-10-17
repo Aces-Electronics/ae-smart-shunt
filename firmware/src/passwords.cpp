@@ -1,3 +1,4 @@
+#include <Arduino.h>   // Arduino/ESP-IDF cores define uint8_t here
 #include "passwords.h"
 
 // victron key
