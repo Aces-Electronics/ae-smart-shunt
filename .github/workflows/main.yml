@@ -8,6 +8,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write  # needed for gh-release
     steps:
       - uses: actions/checkout@v4
 
@@ -21,13 +23,26 @@ jobs:
           python -m pip install --upgrade pip
           pip install -U platformio
 
+      # 🔐 Generate header from GitHub Secrets
+      - name: Generate passwords.h
+        run: |
+          mkdir -p firmware/src
+          cat > firmware/src/passwords.h <<'EOF'
+          #pragma once
+          #define WIFI_SSID "${{ secrets.WIFI_SSID }}"
+          #define WIFI_PASS "${{ secrets.WIFI_PASS }}"
+          #define MQTT_USER "${{ secrets.MQTT_USER }}"
+          #define MQTT_PASS "${{ secrets.MQTT_PASS }}"
+          #define OTA_TOKEN "${{ secrets.OTA_TOKEN }}"
+          EOF
+
       - name: Build firmware
         env:
           OTA_VERSION: ${{ github.ref_name }}
         run: |
           echo "Building with OTA_VERSION=${OTA_VERSION}"
           pio run -e ae-smart-shunt
-          
+
       - name: Release (create or update)
         uses: softprops/action-gh-release@v2
         with:
