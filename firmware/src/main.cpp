@@ -114,53 +114,73 @@ void IRAM_ATTR alertISR()
   ina226_adc.handleAlert();
 }
 
-// helper: read a trimmed line from Serial (blocks until newline)
+// helper: read a trimmed line from Serial (blocks until newline), with echo and backspace support.
 static String SerialReadLineBlocking()
 {
-  String s;
-  while (true)
-  {
-    while (Serial.available() == 0)
-      delay(5);
-    s = Serial.readStringUntil('\n');
-    s.trim();
-    if (s.length() > 0)
-      return s;
-    // allow empty Enter to be treated as empty string
-    return s;
+  String s = "";
+  char c;
+
+  // Consume any preceding newline characters left in the buffer.
+  while(Serial.available() && (Serial.peek() == '\r' || Serial.peek() == '\n')) {
+    Serial.read();
+  }
+
+  while (true) {
+    if (Serial.available()) {
+      c = Serial.read();
+
+      if (c == '\r' || c == '\n') {
+        Serial.println(); // Echo for neatness.
+        // Consume any trailing newline characters (\r\n or \n\r).
+        while(Serial.available() && (Serial.peek() == '\r' || Serial.peek() == '\n')) {
+          Serial.read();
+        }
+        s.trim();
+        return s;
+      } else if (c == 127 || c == 8) { // Handle Backspace (ASCII 8) and Delete (ASCII 127).
+        if (s.length() > 0) {
+          s.remove(s.length() - 1);
+          Serial.print("\b \b"); // Erase character from the terminal.
+        }
+      } else if (isPrintable(c)) {
+        s += c;
+        Serial.print(c); // Echo character to the terminal.
+      }
+    }
+    delay(5); // Yield to other tasks.
   }
 }
 
-// Helper: wait for enter or 'x' while optionally streaming debug raw vs calibrated values.
-// Returns the user-entered line (possibly empty string if they just pressed Enter), or "x" if canceled.
-static String waitForEnterOrXWithDebug(INA226_ADC &ina, bool debugMode)
+// Helper: wait for a single key press: Enter or 'x'/'X'.
+// Returns the character pressed ('\n' for Enter, 'x' for cancel).
+// This function does NOT wait for a newline after 'x' is pressed.
+static char waitForEnterOrXWithDebug(INA226_ADC &ina, bool debugMode)
 {
-  // Flush any existing chars
-  while (Serial.available())
-    Serial.read();
+  // Flush any existing chars from previous inputs to avoid accidental triggers.
+  while (Serial.available()) Serial.read();
 
   unsigned long lastPrint = 0;
   const unsigned long printInterval = 300; // ms
 
   while (true)
   {
-    if (Serial.available())
-    {
-      String line = Serial.readStringUntil('\n');
-      line.trim();
-      if (line.length() == 0)
-      {
-        // Enter pressed (empty line) - record step
-        return String("");
+    if (Serial.available() > 0) {
+      char c = Serial.read();
+
+      if (c == 'x' || c == 'X') {
+        Serial.println("x"); // Echo and newline
+        return 'x';
       }
-      else
-      {
-        // Could be 'x' or other input
-        if (line.equalsIgnoreCase("x"))
-          return String("x");
-        // treat any non-empty as confirmation as well
-        return line;
+
+      if (c == '\r' || c == '\n') {
+        Serial.println(); // Newline for neatness
+        // Consume any other newline characters that might follow (\r\n or \n\r).
+        while(Serial.available() && (Serial.peek() == '\r' || Serial.peek() == '\n')) {
+          Serial.read();
+        }
+        return '\n';
       }
+      // Silently ignore other characters.
     }
 
     // Periodically print debug readings if enabled
@@ -319,13 +339,25 @@ void runCurrentCalibrationMenu(INA226_ADC &ina)
 // It was originally named runCalibrationMenu.
 void runTableBasedCalibration(INA226_ADC &ina, int shuntA)
 {
+  const float MAX_MEASURABLE_A = 40.0f;
   // First, check if the base shunt resistance has been calibrated.
   if (!ina.isConfigured()) {
     Serial.println(F("\n[WARNING] Base shunt resistance not calibrated."));
-    Serial.println(F("Loading factory default resistance for selected shunt."));
-    if (!ina.loadFactoryDefaultResistance(shuntA)) {
-        Serial.println(F("[ERROR] Could not load factory default. Aborting."));
+    Serial.println(F("This fine-tuning step requires the base resistance to be calibrated first."));
+    Serial.println(F("Would you like to run the 3-point resistance calibration now? (y/N)"));
+    Serial.print("> ");
+    String choice = SerialReadLineBlocking();
+    if (choice.equalsIgnoreCase("y")) {
+      runShuntResistanceCalibration(ina);
+      // After resistance calibration, check again. If it's still not configured, abort.
+      if (!ina.isConfigured()) {
+        Serial.println(F("[ERROR] Resistance calibration was not completed successfully. Aborting fine-tuning."));
         return;
+      }
+      Serial.println(F("\nResistance calibration complete. Now proceeding to fine-tuning..."));
+    } else {
+      Serial.println(F("Fine-tuning calibration aborted."));
+      return;
     }
   }
 
@@ -396,19 +428,22 @@ void runTableBasedCalibration(INA226_ADC &ina, int shuntA)
     float netA = externalA + INA226_ADC::MCU_IDLE_CURRENT_A;
     float true_milli = netA * 1000.0f;
 
-    // --- Measure points up to and including 50% ---
-    if (p <= 0.5f) {
+  // --- Measure points up to the 40A dummy load limit ---
+    if (externalA <= MAX_MEASURABLE_A) {
         if (p == 0.0f) {
-        Serial.printf("\nStep %u of %u: Target external load = %.3f A (Zero Load).\nTotal through shunt will be %.3f A including MCU %.3f A.\nDisconnect all external loads, then press Enter to record. Enter 'x' to cancel.\n",
-                        (unsigned)(i + 1), (unsigned)perc.size(), externalA, netA, INA226_ADC::MCU_IDLE_CURRENT_A);
+        Serial.printf("\nStep %u of %u: Target external load = %.3f A (Zero Load).\n",
+                        (unsigned)(i + 1), (unsigned)perc.size());
+        Serial.println(F("Disconnect all external loads, then press Enter to record. Enter 'x' to cancel."));
         } else {
-        Serial.printf("\nStep %u of %u: Target external load = %.3f A (%.2f%% of %dA).\nTotal through shunt will be %.3f A including MCU %.3f A.\nSet test jig to the external target current, then press Enter to record. Enter 'x' to cancel and accept measured so far.\n",
-                        (unsigned)(i + 1), (unsigned)perc.size(), externalA, p * 100.0f, shuntA, netA, INA226_ADC::MCU_IDLE_CURRENT_A);
+        Serial.printf("\nStep %u of %u: Target external load = %.3f A (%.2f%% of %dA).\n",
+                        (unsigned)(i + 1), (unsigned)perc.size(), externalA, p * 100.0f, shuntA);
+        Serial.println(F("Set test jig to the external target current, then press Enter. Enter 'x' to cancel."));
         }
+        Serial.printf("   (Total through shunt will be %.3f A including MCU draw of %.3f A)\n", netA, INA226_ADC::MCU_IDLE_CURRENT_A);
 
         Serial.print("> ");
-        String line = waitForEnterOrXWithDebug(ina, debugMode);
-        if (line.equalsIgnoreCase("x")) {
+        char key = waitForEnterOrXWithDebug(ina, debugMode);
+        if (key == 'x') {
             Serial.println("User canceled early; accepting tests recorded so far.");
             break;
         }
@@ -428,9 +463,9 @@ void runTableBasedCalibration(INA226_ADC &ina, int shuntA)
     }
   }
 
-  // --- Extrapolate for points > 50% ---
+  // --- Extrapolate for points > 40A ---
   if (last_measured_idx > 0 && last_measured_idx < perc.size() - 1) {
-    Serial.println("\nExtrapolating remaining points > 50%...");
+    Serial.printf("\nExtrapolating remaining points > %.1fA...\n", MAX_MEASURABLE_A);
 
     // Get the last two measured points to establish a linear trend
     float raw1 = measured_mA[last_measured_idx - 1];
@@ -505,7 +540,13 @@ void runTableBasedCalibration(INA226_ADC &ina, int shuntA)
   Serial.println(F("This test will verify the load disconnect MOSFET."));
   Serial.println(F("Please apply a constant 1A load, then press Enter."));
   Serial.print(F("> "));
-  waitForEnterOrXWithDebug(ina, false);
+  if (waitForEnterOrXWithDebug(ina, false) == 'x') {
+    Serial.println(F("Test canceled."));
+    // Restore original alert configuration and reconnect load before exiting.
+    ina.restoreOvercurrentAlert();
+    ina.setLoadConnected(true, NONE);
+    return;
+  }
 
   delay(500);
   ina.readSensors();
@@ -540,7 +581,13 @@ void runTableBasedCalibration(INA226_ADC &ina, int shuntA)
   Serial.printf("The alert threshold will be temporarily set to %.3f A.\n", test_current);
   Serial.println(F("Please ensure your load is set to 0A, then press Enter."));
   Serial.print(F("> "));
-  waitForEnterOrXWithDebug(ina, false);
+  if (waitForEnterOrXWithDebug(ina, false) == 'x') {
+    Serial.println(F("Test canceled."));
+    // Restore original alert configuration and reconnect load before exiting.
+    ina.restoreOvercurrentAlert();
+    ina.setLoadConnected(true, NONE);
+    return;
+  }
 
   ina.setTempOvercurrentAlert(test_current);
 
@@ -734,9 +781,16 @@ void runShuntResistanceCalibration(INA226_ADC &ina)
     const float minAllowed = expectedOhms * 0.3f;
     const float maxAllowed = expectedOhms * 3.0f;
     if (newShuntOhms < minAllowed || newShuntOhms > maxAllowed) {
-      Serial.printf("\n[ERROR] Calculated resistance %.9f Ohms is implausible for the %dA shunt (expected around %.9f Ohms). Please verify the measurements and retry.\n",
+      Serial.printf("\n[WARNING] Calculated resistance %.9f Ohms is implausible for the %dA shunt (expected around %.9f Ohms).\n",
                     newShuntOhms, activeShuntA, expectedOhms);
-      return;
+      Serial.println(F("This may indicate an issue with your measurement setup."));
+      Serial.print(F("Do you want to accept this value anyway? (y/N): "));
+      String choice = SerialReadLineBlocking();
+      if (!choice.equalsIgnoreCase("y")) {
+        Serial.println(F("Calibration canceled. The old value has been retained."));
+        return;
+      }
+      Serial.println(F("Accepting implausible value based on user override."));
     }
   }
 
@@ -874,7 +928,10 @@ void onDataSent(const uint8_t *mac_addr, esp_now_send_status_t status)
 void setup()
 {
   Serial.begin(115200);
-  delay(100); // let Serial start
+
+  // Wait for serial monitor to connect
+  while (!Serial && millis() < 2000);
+  delay(250);
 
   // Disable the RTC GPIO hold on boot
   gpio_hold_dis(GPIO_NUM_5);
@@ -924,33 +981,35 @@ void setup()
   }
 
   // Print calibration summary on boot
-  Serial.println("Calibration summary:");
+  Serial.println(F("\n--- Stored Calibration Summary ---"));
+  uint16_t activeShuntA = ina226_adc.getActiveShunt();
+
+  Serial.printf("Active Shunt: %uA\n", activeShuntA);
+  Serial.printf(" -> Calibrated Resistance: %.9f Ohms\n", ina226_adc.getCalibratedShuntResistance());
+  if (ina226_adc.hasCalibrationTable()) {
+      Serial.printf(" -> Using TABLE calibration (%u points)\n", ina226_adc.getCalibrationTable().size());
+  } else {
+      float g, o;
+      ina226_adc.getCalibration(g, o);
+      Serial.printf(" -> Using LINEAR calibration (gain=%.6f, offset=%.3f mA)\n", g, o);
+  }
+
+  Serial.println(F("\nStored calibrations for all shunts:"));
   for (int sh = 100; sh <= 500; sh += 50)
   {
-    float g, o;
     size_t cnt = 0;
     bool hasTbl = ina226_adc.hasStoredCalibrationTable(sh, cnt);
-    bool hasLin = ina226_adc.getStoredCalibrationForShunt(sh, g, o);
     if (hasTbl)
     {
-      Serial.printf("  %dA: TABLE present (%u pts)", sh, (unsigned)cnt);
-      if (hasLin)
-        Serial.printf(", linear fallback gain=%.6f offset_mA=%.3f", g, o);
-      Serial.println();
-    }
-    else if (hasLin)
-    {
-      Serial.printf("  %dA: LINEAR gain=%.6f offset_mA=%.3f\n", sh, g, o);
+      Serial.printf("  %dA: TABLE present (%u pts)\n", sh, (unsigned)cnt);
     }
     else
     {
-      Serial.printf("  %dA: No saved calibration (using defaults)\n", sh);
+      // To keep the log cleaner, let's not print anything if no calibration is stored.
+      // The old way printed "No saved calibration", which was noisy.
     }
   }
-  // Also print currently applied linear calibration (table is runtime-based)
-  float curG, curO;
-  ina226_adc.getCalibration(curG, curO);
-  Serial.printf("Active linear fallback: gain=%.9f offset_mA=%.3f\n", curG, curO);
+  Serial.println(F("------------------------------------"));
 
   // Initialize ESP-NOW
   if (!espNowHandler.begin())
