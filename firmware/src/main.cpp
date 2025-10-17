@@ -339,6 +339,7 @@ void runCurrentCalibrationMenu(INA226_ADC &ina)
 // It was originally named runCalibrationMenu.
 void runTableBasedCalibration(INA226_ADC &ina, int shuntA)
 {
+  const float MAX_MEASURABLE_A = 40.0f;
   // First, check if the base shunt resistance has been calibrated.
   if (!ina.isConfigured()) {
     Serial.println(F("\n[WARNING] Base shunt resistance not calibrated."));
@@ -428,7 +429,6 @@ void runTableBasedCalibration(INA226_ADC &ina, int shuntA)
     float true_milli = netA * 1000.0f;
 
   // --- Measure points up to the 40A dummy load limit ---
-    const float MAX_MEASURABLE_A = 40.0f;
     if (externalA <= MAX_MEASURABLE_A) {
         if (p == 0.0f) {
         Serial.printf("\nStep %u of %u: Target external load = %.3f A (Zero Load).\n",
