@@ -6,6 +6,7 @@
 #include <functional>
 #include "ble_handler.h"
 #include "espnow_handler.h"
+#include <OTA-Hub.hpp>
 
 class OtaHandler {
 public:
@@ -15,21 +16,22 @@ public:
 
     void setWifiSsid(const String& ssid);
     void setWifiPass(const String& pass);
-    void triggerOta();
+    void handleOtaControl(uint8_t command);
     void setPreUpdateCallback(std::function<void()> callback);
 
+
 private:
-    void runBleOtaUpdate();
-    bool handleOTA();
+    void checkForUpdate();
+    void startUpdate();
 
     BLEHandler& bleHandler;
     ESPNowHandler& espNowHandler;
     WiFiClientSecure& wifi_client;
     std::function<void()> pre_update_callback;
+    OTA::UpdateObject latest_update_details;
 
     String wifi_ssid;
     String wifi_pass;
-    bool ota_triggered = false;
 };
 
 #endif // OTA_HANDLER_H

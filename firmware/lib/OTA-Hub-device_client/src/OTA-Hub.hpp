@@ -285,7 +285,7 @@ namespace OTA
      * @param restart You can stop the updater from automatically restarting the board, say if you need to wind things down a bit...
      * @return InstallCondition Was it a success?
      */
-    InstallCondition performUpdate(UpdateObject *details, bool follow_redirects = true, bool restart = true)
+    InstallCondition performUpdate(UpdateObject *details, bool follow_redirects = true, bool restart = true, std::function<void(size_t, size_t)> progress_callback = nullptr)
     {
         Serial.println("Fetching update from: " + (details->redirect_server.isEmpty() ? String(OTA_SERVER) : details->redirect_server) + details->firmware_asset_endpoint);
 
@@ -330,7 +330,7 @@ namespace OTA
             if (follow_redirects)
             {
                 Serial.println("Redirect required, handling internally...");
-                return continueRedirect(details, restart);
+                return continueRedirect(details, restart, progress_callback);
             }
             else
             {
@@ -362,6 +362,9 @@ namespace OTA
             if (contentLength && isValidContentType)
             {
                 Serial.println(String(FIRMWARE_BIN_MATCH) + " is good. Beginning the OTA update, this may take a while...");
+                if (progress_callback) {
+                    Update.onProgress(progress_callback);
+                }
                 if (Update.begin(contentLength))
                 {
                     Update.writeStream(*http_ota);
@@ -404,10 +407,10 @@ namespace OTA
      * Behaves similar to performUpdate, but is used after defining new SSL certs as needed.
      * @return InstallCondition
      */
-    InstallCondition continueRedirect(UpdateObject *details, bool restart)
+    InstallCondition continueRedirect(UpdateObject *details, bool restart, std::function<void(size_t, size_t)> progress_callback = nullptr)
     {
         reinit(*underlying_client, details->redirect_server.c_str(), OTA_PORT);
-        return performUpdate(details, false, restart);
+        return performUpdate(details, false, restart, progress_callback);
     }
 #pragma endregion
 }
