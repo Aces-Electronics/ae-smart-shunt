@@ -117,6 +117,8 @@ void OtaHandler::checkForUpdate() {
         size_t written = serializeJson(doc, metadata);
         if (written == 0) {
             Serial.println("[OTA_HANDLER] ERROR: serializeJson() failed. The JSON document is likely too large for the available memory.");
+        } else {
+            Serial.printf("[OTA_HANDLER] Generated metadata (length %d): %s\n", metadata.length(), metadata.c_str());
         }
 
         bleHandler.updateReleaseMetadata(metadata);
