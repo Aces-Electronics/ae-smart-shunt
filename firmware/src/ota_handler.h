@@ -35,6 +35,18 @@ private:
 
     bool check_for_update_pending = false;
     bool start_update_pending = false;
+
+    enum OtaState {
+        OTA_IDLE,
+        OTA_WIFI_CONNECTING,
+        OTA_CHECKING_FOR_UPDATE,
+        OTA_UPDATE_AVAILABLE,
+        OTA_IN_PROGRESS,
+        OTA_FAILED
+    };
+
+    OtaState ota_state = OTA_IDLE;
+    unsigned long ota_wifi_start_time = 0;
 };
 
 #endif // OTA_HANDLER_H

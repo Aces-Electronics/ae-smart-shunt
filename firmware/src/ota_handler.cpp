@@ -28,6 +28,16 @@ void OtaHandler::loop() {
         start_update_pending = false; // Reset flag
         startUpdate();
     }
+
+    // Handle WiFi timeout
+    if (ota_state == OTA_UPDATE_AVAILABLE && (millis() - ota_wifi_start_time > 120000)) { // 2 minute timeout
+        Serial.println("[OTA_HANDLER] Timed out waiting for start command. Disconnecting WiFi.");
+        WiFi.disconnect(true);
+        WiFi.mode(WIFI_OFF);
+        espNowHandler.begin();
+        ota_state = OTA_IDLE;
+        bleHandler.updateOtaStatus(0); // Set status back to Idle
+    }
 }
 
 void OtaHandler::setWifiSsid(const String& ssid) {
@@ -92,7 +102,10 @@ void OtaHandler::checkForUpdate() {
     if (OTA::NO_UPDATE == latest_update_details.condition) {
         Serial.println("No new update available.");
         bleHandler.updateOtaStatus(3); // 3: No update available
-        delay(500); // Allow time for BLE notification to send
+        WiFi.disconnect(true);
+        WiFi.mode(WIFI_OFF);
+        espNowHandler.begin();
+        ota_state = OTA_IDLE;
     } else {
         Serial.printf("Update available: %s\n", latest_update_details.tag_name.c_str());
 
@@ -105,12 +118,9 @@ void OtaHandler::checkForUpdate() {
 
         bleHandler.updateReleaseMetadata(metadata);
         bleHandler.updateOtaStatus(2); // 2: Update available
-        delay(500); // Allow time for BLE notification to send
+        ota_state = OTA_UPDATE_AVAILABLE;
+        ota_wifi_start_time = millis(); // Start the timeout timer
     }
-
-    WiFi.disconnect(true);
-    WiFi.mode(WIFI_OFF);
-    espNowHandler.begin();
 }
 
 void OtaHandler::startUpdate() {
@@ -123,25 +133,8 @@ void OtaHandler::startUpdate() {
         return;
     }
 
+    ota_state = OTA_IN_PROGRESS;
     bleHandler.updateOtaStatus(4); // 4: Update in progress
-
-    esp_now_deinit();
-    WiFi.begin(wifi_ssid.c_str(), wifi_pass.c_str());
-
-    int connect_tries = 0;
-    while (WiFi.status() != WL_CONNECTED) {
-        delay(500);
-        connect_tries++;
-        if (connect_tries > 20) {
-            Serial.println("\n[OTA_ERROR] Failed to connect to WiFi for update.");
-            WiFi.disconnect(true);
-            WiFi.mode(WIFI_OFF);
-            espNowHandler.begin();
-            bleHandler.updateOtaStatus(5); // 5: Update failed
-            delay(500); // Allow time for BLE notification to send
-            return;
-        }
-    }
 
     if (pre_update_callback) {
         Serial.println("[OTA_HANDLER] Executing pre-update callback.");
@@ -165,5 +158,6 @@ void OtaHandler::startUpdate() {
         WiFi.disconnect(true);
         WiFi.mode(WIFI_OFF);
         espNowHandler.begin();
+        ota_state = OTA_FAILED;
     }
 }
