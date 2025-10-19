@@ -15,7 +15,7 @@ SET_LOOP_TASK_STACK_SIZE(16 * 1024); // 16KB, GitHub responses are heavy
 #endif
 
 #pragma region HelperFunctions
-String getMacAddress()
+inline String getMacAddress()
 {
     uint8_t baseMac[6];
     // Get MAC address for WiFi station
@@ -25,7 +25,7 @@ String getMacAddress()
     return String(baseMacChr);
 }
 
-time_t cvtDate()
+inline time_t cvtDate()
 {
     char s_month[5];
     int year;
