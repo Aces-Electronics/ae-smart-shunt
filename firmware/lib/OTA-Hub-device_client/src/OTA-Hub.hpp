@@ -2,7 +2,6 @@
 #define HTTP_MAX_HEADERS 30 // GitHub sends ~28 headers back!
 
 #include <Arduino.h>
-SET_LOOP_TASK_STACK_SIZE(16 * 1024); // 16KB, GitHub responses are heavy
 
 // libs
 #include <Hard-Stuff-Http.hpp>
