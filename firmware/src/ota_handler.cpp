@@ -110,13 +110,16 @@ void OtaHandler::checkForUpdate() {
         Serial.printf("Update available: %s\n", latest_update_details.tag_name.c_str());
 
         // Create JSON for release metadata
-        JsonDocument doc;
+        JsonDocument doc(1024);
         doc["version"] = latest_update_details.tag_name;
         doc["notes"] = latest_update_details.release_notes;
         String metadata;
         serializeJson(doc, metadata);
 
         bleHandler.updateReleaseMetadata(metadata);
+        // It is critical to delay briefly AFTER setting the value and BEFORE sending the notification
+        // to ensure the BLE stack has processed the value update.
+        delay(100);
         bleHandler.updateOtaStatus(2); // 2: Update available
         ota_state = OTA_UPDATE_AVAILABLE;
         ota_wifi_start_time = millis(); // Start the timeout timer

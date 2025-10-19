@@ -318,7 +318,8 @@ void BLEHandler::begin(const Telemetry& initial_telemetry) {
 
     pOtaReleaseMetadataCharacteristic = pOtaService->createCharacteristic(
         OTA_RELEASE_METADATA_CHAR_UUID,
-        NIMBLE_PROPERTY::READ
+        NIMBLE_PROPERTY::READ,
+        512 // Max size for release notes JSON
     );
 
     pOtaProgressCharacteristic = pOtaService->createCharacteristic(

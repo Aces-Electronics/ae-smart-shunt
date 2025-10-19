@@ -246,7 +246,9 @@ namespace OTA
 
             return_object.name = release_response["name"].as<String>();
             return_object.tag_name = release_response["tag_name"].as<String>();
-            return_object.release_notes = release_response["body"].as<String>();
+            if (!release_response["body"].isNull()) {
+                return_object.release_notes = release_response["body"].as<String>();
+            }
             return_object.published_at = http_ota->formatTimeFromISO8601(release_response["published_at"].as<String>());
 
             // Compare OTA_VERSION against tag_name, not name
