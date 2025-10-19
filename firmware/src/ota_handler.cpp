@@ -110,11 +110,14 @@ void OtaHandler::checkForUpdate() {
         Serial.printf("Update available: %s\n", latest_update_details.tag_name.c_str());
 
         // Create JSON for release metadata
-        JsonDocument doc(1024);
+        JsonDocument doc;
         doc["version"] = latest_update_details.tag_name;
         doc["notes"] = latest_update_details.release_notes;
         String metadata;
-        serializeJson(doc, metadata);
+        size_t written = serializeJson(doc, metadata);
+        if (written == 0) {
+            Serial.println("[OTA_HANDLER] ERROR: serializeJson() failed. The JSON document is likely too large for the available memory.");
+        }
 
         bleHandler.updateReleaseMetadata(metadata);
         // It is critical to delay briefly AFTER setting the value and BEFORE sending the notification
