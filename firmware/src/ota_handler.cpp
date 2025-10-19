@@ -64,6 +64,7 @@ void OtaHandler::checkForUpdate() {
     if (wifi_ssid.length() == 0) {
         Serial.println("[OTA_ERROR] WiFi SSID is empty. Aborting.");
         bleHandler.updateOtaStatus(5); // 5: Update failed
+        delay(200); // Allow time for BLE notification to send
         return;
     }
 
@@ -80,6 +81,7 @@ void OtaHandler::checkForUpdate() {
             WiFi.mode(WIFI_OFF);
             espNowHandler.begin();
             bleHandler.updateOtaStatus(5); // 5: Update failed
+            delay(200); // Allow time for BLE notification to send
             return;
         }
     }
@@ -90,6 +92,7 @@ void OtaHandler::checkForUpdate() {
     if (OTA::NO_UPDATE == latest_update_details.condition) {
         Serial.println("No new update available.");
         bleHandler.updateOtaStatus(3); // 3: No update available
+        delay(200); // Allow time for BLE notification to send
     } else {
         Serial.printf("Update available: %s\n", latest_update_details.tag_name.c_str());
 
@@ -102,6 +105,7 @@ void OtaHandler::checkForUpdate() {
 
         bleHandler.updateReleaseMetadata(metadata);
         bleHandler.updateOtaStatus(2); // 2: Update available
+        delay(200); // Allow time for BLE notification to send
     }
 
     WiFi.disconnect(true);
@@ -115,6 +119,7 @@ void OtaHandler::startUpdate() {
     if (latest_update_details.condition != OTA::NEW_DIFFERENT && latest_update_details.condition != OTA::NEW_SAME) {
         Serial.println("[OTA_ERROR] No update details available or no new update. Run 'check for update' first.");
         bleHandler.updateOtaStatus(5); // 5: Update failed
+        delay(200); // Allow time for BLE notification to send
         return;
     }
 
@@ -133,6 +138,7 @@ void OtaHandler::startUpdate() {
             WiFi.mode(WIFI_OFF);
             espNowHandler.begin();
             bleHandler.updateOtaStatus(5); // 5: Update failed
+            delay(200); // Allow time for BLE notification to send
             return;
         }
     }
