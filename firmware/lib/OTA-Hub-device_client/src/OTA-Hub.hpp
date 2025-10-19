@@ -51,9 +51,9 @@ time_t cvtDate()
 namespace OTA
 {
 #pragma region WorkingVariabls
-    HardStuffHttpClient *http_ota;
-    Client *underlying_client;
-    String asset_id;
+    inline HardStuffHttpClient *http_ota;
+    inline Client *underlying_client;
+    inline String asset_id;
 #pragma endregion
 
 #pragma region UsefulStructs
@@ -116,16 +116,16 @@ namespace OTA
 #pragma region SupportFunctions
 
     // Initial define of function
-    InstallCondition continueRedirect(UpdateObject *details, bool restart = true, std::function<void(size_t, size_t)> progress_callback = nullptr);
+    inline InstallCondition continueRedirect(UpdateObject *details, bool restart = true, std::function<void(size_t, size_t)> progress_callback = nullptr);
 
-    void confirmConnected()
+    inline void confirmConnected()
     {
         if (http_ota->connected())
         {
         }
     }
 
-    void printFirmwareDetails(Stream *print_stream = &Serial, const char *latest_tag = nullptr)
+    inline void printFirmwareDetails(Stream *print_stream = &Serial, const char *latest_tag = nullptr)
     {
         print_stream->println("------------------------");
         print_stream->println("Device MAC: " + getMacAddress());
@@ -140,7 +140,7 @@ namespace OTA
         print_stream->println("------------------------");
     }
 
-    void deinit()
+    inline void deinit()
     {
         if (http_ota != nullptr)
         {
@@ -150,7 +150,7 @@ namespace OTA
         }
     }
 
-    void reinit(Client &set_underlying_client, const char *server, uint16_t port)
+    inline void reinit(Client &set_underlying_client, const char *server, uint16_t port)
     {
         deinit();
         Serial.print("Server: ");
@@ -159,7 +159,7 @@ namespace OTA
         http_ota = new HardStuffHttpClient(set_underlying_client, server, port);
     }
 
-    void init(Client &set_underlying_client)
+    inline void init(Client &set_underlying_client)
     {
         printFirmwareDetails();
         reinit(set_underlying_client, OTA_SERVER, OTA_PORT);
@@ -174,7 +174,7 @@ namespace OTA
      *
      * @return UpdateObject that bundles all the info we'll need.
      */
-    UpdateObject isUpdateAvailable()
+    inline UpdateObject isUpdateAvailable()
     {
         UpdateObject return_object;
         return_object.condition = NO_UPDATE;
@@ -288,7 +288,7 @@ namespace OTA
      * @param restart You can stop the updater from automatically restarting the board, say if you need to wind things down a bit...
      * @return InstallCondition Was it a success?
      */
-    InstallCondition performUpdate(UpdateObject *details, bool follow_redirects = true, bool restart = true, std::function<void(size_t, size_t)> progress_callback = nullptr)
+    inline InstallCondition performUpdate(UpdateObject *details, bool follow_redirects = true, bool restart = true, std::function<void(size_t, size_t)> progress_callback = nullptr)
     {
         Serial.println("Fetching update from: " + (details->redirect_server.isEmpty() ? String(OTA_SERVER) : details->redirect_server) + details->firmware_asset_endpoint);
 
@@ -410,7 +410,7 @@ namespace OTA
      * Behaves similar to performUpdate, but is used after defining new SSL certs as needed.
      * @return InstallCondition
      */
-    InstallCondition continueRedirect(UpdateObject *details, bool restart, std::function<void(size_t, size_t)> progress_callback)
+    inline InstallCondition continueRedirect(UpdateObject *details, bool restart, std::function<void(size_t, size_t)> progress_callback)
     {
         reinit(*underlying_client, details->redirect_server.c_str(), OTA_PORT);
         return performUpdate(details, false, restart, progress_callback);
