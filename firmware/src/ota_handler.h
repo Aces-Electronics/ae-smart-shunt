@@ -32,6 +32,9 @@ private:
 
     String wifi_ssid;
     String wifi_pass;
+
+    bool check_for_update_pending = false;
+    bool start_update_pending = false;
 };
 
 #endif // OTA_HANDLER_H

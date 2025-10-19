@@ -20,7 +20,14 @@ void OtaHandler::setPreUpdateCallback(std::function<void()> callback) {
 }
 
 void OtaHandler::loop() {
-    // The loop is no longer needed as OTA is now triggered by BLE commands.
+    if (check_for_update_pending) {
+        check_for_update_pending = false; // Reset flag
+        checkForUpdate();
+    }
+    if (start_update_pending) {
+        start_update_pending = false; // Reset flag
+        startUpdate();
+    }
 }
 
 void OtaHandler::setWifiSsid(const String& ssid) {
@@ -39,10 +46,10 @@ void OtaHandler::handleOtaControl(uint8_t command) {
     Serial.printf("[OTA_HANDLER] Received OTA control command: %d\n", command);
     switch (command) {
         case 1: // Check for update
-            checkForUpdate();
+            check_for_update_pending = true;
             break;
         case 2: // Start the update process
-            startUpdate();
+            start_update_pending = true;
             break;
         default:
             Serial.printf("[OTA_HANDLER] Unknown OTA command: %d\n", command);
