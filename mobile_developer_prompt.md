@@ -9,29 +9,61 @@ This document outlines the BLE protocol for the new Over-the-Air (OTA) firmware 
 
 The user's experience is our top priority. The app's UI should clearly and accurately reflect the device's status at every stage of the process to ensure the user feels informed and confident.
 
-## BLE Service and Characteristic UUIDs
+## High-Level Flow
 
-You will need to interact with a dedicated OTA service. All communication is managed through the characteristics listed below.
+The OTA process requires an internet connection. Before starting the update, the app must first provide the device with WiFi credentials.
 
-**OTA Service UUID:** `1a89b148-b4e8-43d7-952b-a0b4b01e43b3`
+1.  **Provide WiFi Credentials** (Main Service)
+2.  **Check for Update** (OTA Service)
+3.  **Start Update & Monitor Progress** (OTA Service)
+
+---
+
+## Service and Characteristic UUIDs
+
+You will need to interact with two services: the main device service for WiFi setup and the dedicated OTA service for the update process itself.
+
+### Main Device Service
+
+**Service UUID:** `4fafc201-1fb5-459e-8fcc-c5c9c331914b`
 
 | Characteristic Name       | UUID                                     | Properties       | Description                                                                                                                              |
 | ------------------------- | ---------------------------------------- | ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| **Current Version**       | `8A1B2C3D-4E5F-6A7B-8C9D-0E1F2A3B4C65`    | Read             | Read this characteristic to get the device's current firmware version as a UTF-8 string (e.g., "1.0.0"). This is in the main device service. |
+| **WiFi SSID**             | `5A1B2C3D-4E5F-6A7B-8C9D-0E1F2A3B4C62`    | Write            | Write the user's WiFi network name (SSID) as a UTF-8 string to this characteristic.                                                      |
+| **WiFi Password**         | `6A1B2C3D-4E5F-6A7B-8C9D-0E1F2A3B4C63`    | Write            | Write the user's WiFi password as a UTF-8 string to this characteristic.                                                                 |
+| **Current Version**       | `8A1B2C3D-4E5F-6A7B-8C9D-0E1F2A3B4C65`    | Read             | Read this characteristic to get the device's current firmware version as a UTF-8 string (e.g., "1.0.0").                                  |
+
+### Dedicated OTA Service
+
+**Service UUID:** `1a89b148-b4e8-43d7-952b-a0b4b01e43b3`
+
+| Characteristic Name       | UUID                                     | Properties       | Description                                                                                                                              |
+| ------------------------- | ---------------------------------------- | ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
 | **Update Status**         | `2a89b148-b4e8-43d7-952b-a0b4b01e43b3`    | Read, Notify     | Subscribe to notifications on this characteristic to receive status updates. The status is a single-byte integer. See the status codes below. |
 | **Update Control**        | `3a89b148-b4e8-43d7-952b-a0b4b01e43b3`    | Write            | Write a single-byte integer to this characteristic to send commands to the device. See the command codes below.                          |
 | **Release Metadata**      | `4a89b148-b4e8-43d7-952b-a0b4b01e43b3`    | Read             | After an update is found (Status 2), read this characteristic to get a JSON string with the new version and release notes.                |
 | **Progress**              | `5a89b148-b4e8-43d7-952b-a0b4b01e43b3`    | Read, Notify     | During the update (Status 4), subscribe to notifications to receive a single-byte integer representing the percentage complete (0-100).     |
 
+---
+
 ## Interaction Logic & State Flow
 
 The following is a step-by-step guide to the entire OTA process. The app should follow this logic precisely.
 
+### Step 0: WiFi Provisioning (Prerequisite)
+
+Before starting an update, the device must have internet access.
+
+1.  **Connect** to the device and discover services.
+2.  Provide a UI for the user to enter their WiFi SSID and password.
+3.  **Write** the SSID to the `WiFi SSID` characteristic.
+4.  **Write** the password to the `WiFi Password` characteristic.
+5.  This step only needs to be done once, or when the user's WiFi network changes. The device will store these credentials.
+
 ### Step 1: Initial State & Version Check
 
-1.  **Connect** to the device.
-2.  **Read** the `Current Version` characteristic to display the device's firmware version in your UI.
-3.  **Subscribe** to notifications for the `Update Status` characteristic. The initial status will be `0` (Idle).
+1.  **Read** the `Current Version` characteristic from the main service to display the device's firmware version in your UI.
+2.  **Subscribe** to notifications for the `Update Status` characteristic on the OTA service. The initial status will be `0` (Idle).
 
 ### Step 2: Checking for an Update
 
@@ -40,7 +72,7 @@ The following is a step-by-step guide to the entire OTA process. The app should 
     *   `1` (Checking for update): Display a "Checking..." message to the user.
     *   `2` (Update available): An update has been found. Proceed to Step 3.
     *   `3` (No update available): Inform the user they are on the latest version. The process ends here.
-    *   `5` (Update failed): This may happen if the device cannot connect to WiFi or the update server. Inform the user of the failure.
+    *   `5` (Update failed): This will happen if the device cannot connect to WiFi (e.g., wrong password) or the update server. Inform the user of the failure and suggest they re-enter their WiFi credentials.
 
 ### Step 3: Displaying Update Information
 
