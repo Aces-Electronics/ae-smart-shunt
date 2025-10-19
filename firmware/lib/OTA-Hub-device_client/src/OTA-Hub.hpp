@@ -410,7 +410,7 @@ namespace OTA
      * Behaves similar to performUpdate, but is used after defining new SSL certs as needed.
      * @return InstallCondition
      */
-    InstallCondition continueRedirect(UpdateObject *details, bool restart, std::function<void(size_t, size_t)> progress_callback = nullptr)
+    InstallCondition continueRedirect(UpdateObject *details, bool restart, std::function<void(size_t, size_t)> progress_callback)
     {
         reinit(*underlying_client, details->redirect_server.c_str(), OTA_PORT);
         return performUpdate(details, false, restart, progress_callback);
