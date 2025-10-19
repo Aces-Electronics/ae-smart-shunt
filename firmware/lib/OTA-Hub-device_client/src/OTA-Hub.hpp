@@ -8,6 +8,7 @@ SET_LOOP_TASK_STACK_SIZE(16 * 1024); // 16KB, GitHub responses are heavy
 #include <Hard-Stuff-Http.hpp>
 #include <Update.h>
 #include <ArduinoJson.h>
+#include "ota-github-defaults.h"
 
 #ifndef OTA_VERSION
 #define OTA_VERSION "local_development"
@@ -86,6 +87,7 @@ namespace OTA
         String name;
         String tag_name;
         time_t published_at;
+        String release_notes;
         String firmware_asset_id;
         String firmware_asset_endpoint;
         String redirect_server;
@@ -114,7 +116,7 @@ namespace OTA
 #pragma region SupportFunctions
 
     // Initial define of function
-    InstallCondition continueRedirect(UpdateObject *details, bool restart = true);
+    InstallCondition continueRedirect(UpdateObject *details, bool restart = true, std::function<void(size_t, size_t)> progress_callback = nullptr);
 
     void confirmConnected()
     {
@@ -245,6 +247,7 @@ namespace OTA
 
             return_object.name = release_response["name"].as<String>();
             return_object.tag_name = release_response["tag_name"].as<String>();
+            return_object.release_notes = release_response["body"].as<String>();
             return_object.published_at = http_ota->formatTimeFromISO8601(release_response["published_at"].as<String>());
 
             // Compare OTA_VERSION against tag_name, not name

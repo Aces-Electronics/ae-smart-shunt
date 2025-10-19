@@ -124,6 +124,12 @@ public:
 
 BLEHandler::BLEHandler() : pServer(NULL), pService(NULL) {}
 
+void BLEHandler::setServerCallbacks(BLEServerCallbacks* callbacks) {
+    if (pServer) {
+        pServer->setCallbacks(callbacks);
+    }
+}
+
 void BLEHandler::setLoadSwitchCallback(std::function<void(bool)> callback) {
     this->loadSwitchCallback = callback;
 }

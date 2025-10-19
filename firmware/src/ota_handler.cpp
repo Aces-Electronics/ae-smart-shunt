@@ -105,8 +105,8 @@ void OtaHandler::checkForUpdate() {
 void OtaHandler::startUpdate() {
     Serial.println("[OTA] Start update sequence initiated.");
 
-    if (latest_update_details.condition != OTA::UPDATE_AVAILABLE && latest_update_details.condition != OTA::NEW_DIFFERENT && latest_update_details.condition != OTA::NEW_SAME) {
-        Serial.println("[OTA_ERROR] No update details available. Run 'check for update' first.");
+    if (latest_update_details.condition != OTA::NEW_DIFFERENT && latest_update_details.condition != OTA::NEW_SAME) {
+        Serial.println("[OTA_ERROR] No update details available or no new update. Run 'check for update' first.");
         bleHandler.updateOtaStatus(5); // 5: Update failed
         return;
     }
