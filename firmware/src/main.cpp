@@ -1,5 +1,6 @@
 #include <vector>
 #include <Arduino.h>
+SET_LOOP_TASK_STACK_SIZE(16 * 1024); // 16KB, GitHub responses are heavy
 #include <Preferences.h>
 #include <cmath>
 #include "shared_defs.h"
@@ -16,7 +17,12 @@
 // WiFi and OTA
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
+#include <Update.h>
 
+bool ota_success_notification_pending = false;
+
+// The firmware version is defined by the build system via the version.py script.
+// It is passed as a compile-time macro OTA_VERSION (e.g., -DOTA_VERSION="1.0.0").
 #define USE_ADC // if defined, use ADC, else, victron BLE
 
 float batteryCapacity = 100.0f; // Default rated battery capacity in Ah (used for SOC calc)
@@ -103,11 +109,23 @@ void wifiPassCallback(String pass) {
     otaHandler.setWifiPass(pass);
 }
 
-void otaTriggerCallback(bool triggered) {
-    if (triggered) {
-        otaHandler.triggerOta();
-    }
+void otaControlCallback(uint8_t command) {
+    otaHandler.handleOtaControl(command);
 }
+
+class MainServerCallbacks: public BLEServerCallbacks {
+    void onConnect(BLEServer* pServer) {
+      Serial.println("BLE client connected");
+      if (ota_success_notification_pending) {
+          bleHandler.updateOtaStatus(7); // 7: Post-reboot success confirmation
+          ota_success_notification_pending = false; // Reset the flag
+      }
+    }
+
+    void onDisconnect(BLEServer* pServer) {
+      Serial.println("BLE client disconnected");
+    }
+};
 
 void IRAM_ATTR alertISR()
 {
@@ -938,6 +956,12 @@ void setup()
 
   pinMode(LED_PIN, OUTPUT);
 
+  // Check if the device has just been updated
+  if (Update.isFinished()) {
+    Serial.println("OTA update successful! Rebooted.");
+    ota_success_notification_pending = true;
+  }
+
   otaHandler.begin();
   otaHandler.setPreUpdateCallback(preOtaUpdate);
 
@@ -1037,7 +1061,8 @@ void setup()
   bleHandler.setDeviceNameSuffixCallback(deviceNameSuffixCallback);
   bleHandler.setWifiSsidCallback(wifiSsidCallback);
   bleHandler.setWifiPassCallback(wifiPassCallback);
-  bleHandler.setOtaTriggerCallback(otaTriggerCallback);
+  bleHandler.setOtaControlCallback(otaControlCallback);
+  bleHandler.setServerCallbacks(new MainServerCallbacks());
 
   // Create initial telemetry data for the first advertisement
   ina226_adc.readSensors(); // Read sensors to get initial values

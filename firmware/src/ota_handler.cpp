@@ -4,6 +4,7 @@
 #include <ota-github-defaults.h>
 #include <ota-github-cacerts.h>
 #include <OTA-Hub.hpp>
+#include <ArduinoJson.h>
 
 OtaHandler::OtaHandler(BLEHandler& bleHandler, ESPNowHandler& espNowHandler, WiFiClientSecure& wifi_client)
     : bleHandler(bleHandler), espNowHandler(espNowHandler), wifi_client(wifi_client) {}
@@ -12,11 +13,6 @@ void OtaHandler::begin() {
     wifi_client.setCACert(OTAGH_CA_CERT);
     OTA::init(wifi_client);
     Serial.println("[OTA_HANDLER] OTA Handler initialized.");
-
-    // Construct the update URL and set it on the BLE characteristic
-    String update_url = String(STR(OTAGH_OWNER_NAME)) + "/" + String(STR(OTAGH_REPO_NAME));
-    bleHandler.updateUpdateUrl(update_url);
-    Serial.printf("[OTA_HANDLER] Update URL %s set on BLE characteristic.\n", update_url.c_str());
 }
 
 void OtaHandler::setPreUpdateCallback(std::function<void()> callback) {
@@ -24,10 +20,23 @@ void OtaHandler::setPreUpdateCallback(std::function<void()> callback) {
 }
 
 void OtaHandler::loop() {
-    if (ota_triggered) {
-        Serial.println("[OTA_HANDLER] OTA trigger detected. Initiating update process.");
-        ota_triggered = false; // Reset trigger
-        runBleOtaUpdate();
+    if (check_for_update_pending) {
+        check_for_update_pending = false; // Reset flag
+        checkForUpdate();
+    }
+    if (start_update_pending) {
+        start_update_pending = false; // Reset flag
+        startUpdate();
+    }
+
+    // Handle WiFi timeout
+    if (ota_state == OTA_UPDATE_AVAILABLE && (millis() - ota_wifi_start_time > 120000)) { // 2 minute timeout
+        Serial.println("[OTA_HANDLER] Timed out waiting for start command. Disconnecting WiFi.");
+        WiFi.disconnect(true);
+        WiFi.mode(WIFI_OFF);
+        espNowHandler.begin();
+        ota_state = OTA_IDLE;
+        bleHandler.updateOtaStatus(0); // Set status back to Idle
     }
 }
 
@@ -43,94 +52,118 @@ void OtaHandler::setWifiPass(const String& pass) {
     Serial.println("[OTA_HANDLER] WiFi password has been set.");
 }
 
-void OtaHandler::triggerOta() {
-    Serial.println("[OTA_HANDLER] otaTriggerCallback received with value: true");
-    Serial.println("[OTA_HANDLER] OTA trigger has been set to true.");
-    ota_triggered = true;
+void OtaHandler::handleOtaControl(uint8_t command) {
+    Serial.printf("[OTA_HANDLER] Received OTA control command: %d\n", command);
+    switch (command) {
+        case 1: // Check for update
+            check_for_update_pending = true;
+            break;
+        case 2: // Start the update process
+            start_update_pending = true;
+            break;
+        default:
+            Serial.printf("[OTA_HANDLER] Unknown OTA command: %d\n", command);
+            break;
+    }
 }
 
-void OtaHandler::runBleOtaUpdate() {
-    Serial.println("[OTA] runBleOtaUpdate function started.");
-    if (wifi_ssid.length() == 0)
-    {
-        Serial.println("[OTA_ERROR] WiFi SSID is empty. Aborting update.");
+void OtaHandler::checkForUpdate() {
+    Serial.println("[OTA] Check for update sequence started.");
+    bleHandler.updateOtaStatus(1); // 1: Checking for update
+
+    if (wifi_ssid.length() == 0) {
+        Serial.println("[OTA_ERROR] WiFi SSID is empty. Aborting.");
+        bleHandler.updateOtaStatus(5); // 5: Update failed
+        delay(500); // Allow time for BLE notification to send
         return;
     }
 
-    Serial.printf("[OTA] Attempting update with SSID: %s\n", wifi_ssid.c_str());
-
     esp_now_deinit();
-    Serial.println("[OTA] ESP-NOW de-initialized to enable WiFi.");
-
     WiFi.begin(wifi_ssid.c_str(), wifi_pass.c_str());
-    Serial.print("[OTA] Connecting to WiFi");
 
     int connect_tries = 0;
-    while (WiFi.status() != WL_CONNECTED)
-    {
-        Serial.print(".");
+    while (WiFi.status() != WL_CONNECTED) {
         delay(500);
         connect_tries++;
-        if (connect_tries > 20)
-        {
-            Serial.println("\n[OTA_ERROR] Failed to connect to WiFi after 10 seconds.");
+        if (connect_tries > 20) {
+            Serial.println("\n[OTA_ERROR] Failed to connect to WiFi.");
             WiFi.disconnect(true);
             WiFi.mode(WIFI_OFF);
-            Serial.println("[OTA] Re-initializing ESP-NOW after failed WiFi connection.");
-            if (!espNowHandler.begin())
-            {
-                Serial.println("ESP-NOW init failed after OTA attempt.");
-            }
+            espNowHandler.begin();
+            bleHandler.updateOtaStatus(5); // 5: Update failed
+            delay(500); // Allow time for BLE notification to send
             return;
         }
     }
-    Serial.println("\n[OTA] Connected to WiFi successfully.");
 
-    Serial.println("[OTA] Calling handleOTA() to check for updates.");
-    bool updated = handleOTA();
-    Serial.printf("[OTA] handleOTA() returned. Update status: %s\n", updated ? "SUCCESS (restarting)" : "NO_UPDATE_OR_FAILURE");
+    Serial.println("\n[OTA] Connected to WiFi. Checking for updates...");
+    latest_update_details = OTA::isUpdateAvailable();
 
-    WiFi.disconnect(true);
-    WiFi.mode(WIFI_OFF);
-    Serial.println("[OTA] WiFi disconnected.");
+    if (OTA::NO_UPDATE == latest_update_details.condition) {
+        Serial.println("No new update available.");
+        bleHandler.updateOtaStatus(3); // 3: No update available
+        WiFi.disconnect(true);
+        WiFi.mode(WIFI_OFF);
+        espNowHandler.begin();
+        ota_state = OTA_IDLE;
+    } else {
+        Serial.printf("Update available: %s\n", latest_update_details.tag_name.c_str());
 
-    if (!updated)
-    {
-        Serial.println("[OTA] No update performed. Re-initializing ESP-NOW.");
-        if (!espNowHandler.begin())
-        {
-            Serial.println("ESP-NOW init failed after OTA check");
+        // Create JSON for release metadata
+        StaticJsonDocument<2048> doc;
+        doc["version"] = latest_update_details.tag_name;
+        doc["notes"] = latest_update_details.release_notes;
+        String metadata;
+        size_t written = serializeJson(doc, metadata);
+        if (written == 0) {
+            Serial.println("[OTA_HANDLER] ERROR: serializeJson() failed. The JSON document is likely too large for the available memory.");
         }
+
+        bleHandler.updateReleaseMetadata(metadata);
+        // It is critical to delay briefly AFTER setting the value and BEFORE sending the notification
+        // to ensure the BLE stack has processed the value update.
+        delay(100);
+        bleHandler.updateOtaStatus(2); // 2: Update available
+        ota_state = OTA_UPDATE_AVAILABLE;
+        ota_wifi_start_time = millis(); // Start the timeout timer
     }
 }
 
-bool OtaHandler::handleOTA() {
-  bleHandler.updateOtaStatus("CHECKING");
-  OTA::UpdateObject details = OTA::isUpdateAvailable();
+void OtaHandler::startUpdate() {
+    Serial.println("[OTA] Start update sequence initiated.");
 
-  if (OTA::NO_UPDATE == details.condition)
-  {
-    Serial.println("No new update available. Continuing...");
-    bleHandler.updateOtaStatus("NO_UPDATE");
-    return false;
-  }
-  else
-  {
-    bleHandler.updateOtaStatus("DOWNLOADING");
+    if (latest_update_details.condition != OTA::NEW_DIFFERENT && latest_update_details.condition != OTA::NEW_SAME) {
+        Serial.println("[OTA_ERROR] No update details available or no new update. Run 'check for update' first.");
+        bleHandler.updateOtaStatus(5); // 5: Update failed
+        delay(500); // Allow time for BLE notification to send
+        return;
+    }
+
+    ota_state = OTA_IN_PROGRESS;
+    bleHandler.updateOtaStatus(4); // 4: Update in progress
 
     if (pre_update_callback) {
         Serial.println("[OTA_HANDLER] Executing pre-update callback.");
         pre_update_callback();
     }
 
-    if (OTA::performUpdate(&details) == OTA::SUCCESS)
-    {
-      bleHandler.updateOtaStatus("SUCCESS");
-      delay(100);
-      return true;
-    }
-  }
+    auto progress_callback = [&](size_t downloaded, size_t total) {
+        if (total > 0) {
+            uint8_t percentage = (uint8_t)((downloaded * 100) / total);
+            bleHandler.updateOtaProgress(percentage);
+        }
+    };
 
-  bleHandler.updateOtaStatus("FAILURE");
-  return false;
+    if (OTA::performUpdate(&latest_update_details, true, true, progress_callback) == OTA::SUCCESS) {
+        bleHandler.updateOtaStatus(6); // 6: Update successful, rebooting
+        delay(1000); // Allow time for BLE notification to send
+        ESP.restart();
+    } else {
+        Serial.println("[OTA_ERROR] OTA::performUpdate failed.");
+        bleHandler.updateOtaStatus(5); // 5: Update failed
+        WiFi.disconnect(true);
+        WiFi.mode(WIFI_OFF);
+        espNowHandler.begin();
+        ota_state = OTA_FAILED;
+    }
 }
