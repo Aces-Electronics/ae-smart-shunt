@@ -197,12 +197,14 @@ namespace OTA
         if (response.success())
         {
             // The releases endpoint returns an array, so we need to process it as such.
-#if ARDUINOJSON_VERSION_MAJOR >= 7
-            JsonDocument doc;
-#else
-            DynamicJsonDocument doc(16384); // Increased size for potential larger array
-#endif
-            deserializeJson(doc, response.body);
+            StaticJsonDocument<4096> doc; // GitHub API response can be large
+            DeserializationError error = deserializeJson(doc, response.body);
+
+            if (error) {
+                Serial.print(F("deserializeJson() failed: "));
+                Serial.println(error.c_str());
+                return return_object;
+            }
 
             JsonObject release_response;
             if (doc.is<JsonArray>())

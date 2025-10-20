@@ -110,7 +110,7 @@ void OtaHandler::checkForUpdate() {
         Serial.printf("Update available: %s\n", latest_update_details.tag_name.c_str());
 
         // Create JSON for release metadata
-        JsonDocument doc;
+        StaticJsonDocument<2048> doc;
         doc["version"] = latest_update_details.tag_name;
         doc["notes"] = latest_update_details.release_notes;
         String metadata;
