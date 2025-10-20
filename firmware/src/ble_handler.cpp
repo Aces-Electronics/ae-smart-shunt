@@ -182,10 +182,7 @@ void BLEHandler::updateOtaStatus(uint8_t status) {
 
 void BLEHandler::updateReleaseMetadata(const String& metadata) {
     if (pOtaReleaseMetadataCharacteristic) {
-        Serial.printf("[BLE_HANDLER] Setting metadata (length %d): %s\n", metadata.length(), metadata.c_str());
         pOtaReleaseMetadataCharacteristic->setValue(metadata);
-        String value_after_set = pOtaReleaseMetadataCharacteristic->getValue().c_str();
-        Serial.printf("[BLE_HANDLER] Read metadata back (length %d): %s\n", value_after_set.length(), value_after_set.c_str());
     }
 }
 
@@ -322,7 +319,7 @@ void BLEHandler::begin(const Telemetry& initial_telemetry) {
     pOtaReleaseMetadataCharacteristic = pOtaService->createCharacteristic(
         OTA_RELEASE_METADATA_CHAR_UUID,
         NIMBLE_PROPERTY::READ,
-        512 // Max size for release notes JSON
+        1024 // Max size for release notes JSON
     );
 
     pOtaProgressCharacteristic = pOtaService->createCharacteristic(
