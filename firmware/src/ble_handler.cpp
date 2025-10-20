@@ -182,7 +182,11 @@ void BLEHandler::updateOtaStatus(uint8_t status) {
 
 void BLEHandler::updateReleaseMetadata(const String& metadata) {
     if (pOtaReleaseMetadataCharacteristic) {
+        Serial.printf("[%lu] [BLE_HANDLER] Setting metadata (length %d)\n", millis(), metadata.length());
         pOtaReleaseMetadataCharacteristic->setValue(metadata);
+        Serial.printf("[%lu] [BLE_HANDLER] setValue() returned\n", millis());
+        String value_after_set = pOtaReleaseMetadataCharacteristic->getValue().c_str();
+        Serial.printf("[%lu] [BLE_HANDLER] Read metadata back (length %d)\n", millis(), value_after_set.length());
     }
 }
 

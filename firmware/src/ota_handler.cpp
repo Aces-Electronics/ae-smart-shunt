@@ -119,10 +119,12 @@ void OtaHandler::checkForUpdate() {
             Serial.println("[OTA_HANDLER] ERROR: serializeJson() failed. The JSON document is likely too large for the available memory.");
         }
 
+        Serial.printf("[%lu] [OTA_HANDLER] Calling updateReleaseMetadata\n", millis());
         bleHandler.updateReleaseMetadata(metadata);
         // It is critical to delay briefly AFTER setting the value and BEFORE sending the notification
         // to ensure the BLE stack has processed the value update.
         delay(100);
+        Serial.printf("[%lu] [OTA_HANDLER] Calling updateOtaStatus(2)\n", millis());
         bleHandler.updateOtaStatus(2); // 2: Update available
         ota_state = OTA_UPDATE_AVAILABLE;
         ota_wifi_start_time = millis(); // Start the timeout timer
