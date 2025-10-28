@@ -42,14 +42,36 @@ void OtaHandler::loop() {
 
 void OtaHandler::setWifiSsid(const String& ssid) {
     Serial.println("[OTA_HANDLER] wifiSsidCallback received.");
-    wifi_ssid = ssid;
-    Serial.printf("[OTA_HANDLER] WiFi SSID set to: %s\n", wifi_ssid.c_str());
+    String trimmed_ssid = ssid;
+    trimmed_ssid.trim();
+    wifi_ssid = trimmed_ssid;
+    Serial.printf("[OTA_HANDLER] WiFi SSID set to: '%s'\n", wifi_ssid.c_str());
+
+    // Reset OTA state to allow for a new check
+    if (ota_state != OTA_IDLE) {
+        Serial.println("[OTA_HANDLER] Resetting OTA state due to new SSID.");
+        WiFi.disconnect(true);
+        WiFi.mode(WIFI_OFF);
+        espNowHandler.begin();
+        ota_state = OTA_IDLE;
+        bleHandler.updateOtaStatus(0); // Set status back to Idle
+    }
 }
 
 void OtaHandler::setWifiPass(const String& pass) {
     Serial.println("[OTA_HANDLER] wifiPassCallback received.");
     wifi_pass = pass;
     Serial.println("[OTA_HANDLER] WiFi password has been set.");
+
+    // Reset OTA state to allow for a new check
+    if (ota_state != OTA_IDLE) {
+        Serial.println("[OTA_HANDLER] Resetting OTA state due to new password.");
+        WiFi.disconnect(true);
+        WiFi.mode(WIFI_OFF);
+        espNowHandler.begin();
+        ota_state = OTA_IDLE;
+        bleHandler.updateOtaStatus(0); // Set status back to Idle
+    }
 }
 
 void OtaHandler::handleOtaControl(uint8_t command) {
