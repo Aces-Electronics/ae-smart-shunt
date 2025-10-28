@@ -187,8 +187,8 @@ void BLEHandler::updateReleaseMetadata(const String& metadata) {
         // Clear the existing value first
         pOtaReleaseMetadataCharacteristic->setValue("");
 
-        bool success = pOtaReleaseMetadataCharacteristic->setValue((uint8_t*)metadata.c_str(), metadata.length());
-        Serial.printf("[%lu] [BLE_HANDLER] setValue() returned: %s\n", millis(), success ? "true" : "false");
+        pOtaReleaseMetadataCharacteristic->setValue((uint8_t*)metadata.c_str(), metadata.length());
+        Serial.printf("[%lu] [BLE_HANDLER] setValue() called\n", millis());
 
         // First, check the length
         size_t stored_len = pOtaReleaseMetadataCharacteristic->getValue().length();
