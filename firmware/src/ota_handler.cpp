@@ -138,8 +138,8 @@ void OtaHandler::startUpdate() {
     Serial.println("[OTA] Start update sequence initiated.");
     Serial.printf("[OTA_HANDLER] Condition at start of update: %d\n", latest_update_details.condition);
 
-    if (latest_update_details.condition != OTA::NEW_DIFFERENT && latest_update_details.condition != OTA::NEW_SAME) {
-        Serial.println("[OTA_ERROR] No update details available or no new update. Run 'check for update' first.");
+    if (latest_update_details.condition != OTA::NEW_DIFFERENT && latest_update_details.condition != OTA::NEW_SAME && latest_update_details.condition != OTA::OLD_DIFFERENT) {
+        Serial.println("[OTA_ERROR] No suitable update available. Run 'check for update' first.");
         bleHandler.updateOtaStatus(5); // 5: Update failed
         delay(500); // Allow time for BLE notification to send
         return;

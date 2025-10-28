@@ -1348,10 +1348,12 @@ void loop()
     };
     bleHandler.updateTelemetry(telemetry_data);
 
-    // ALWAYS send the data via ESP-NOW
-    Serial.println("Mesh transmission: ready!");
-    espNowHandler.setAeSmartShuntStruct(ae_smart_shunt_struct);
-    espNowHandler.sendMessageAeSmartShunt();
+    // Only send ESP-NOW data if WiFi is not connected (OTA not in progress)
+    if (!WiFi.isConnected()) {
+        Serial.println("Mesh transmission: ready!");
+        espNowHandler.setAeSmartShuntStruct(ae_smart_shunt_struct);
+        espNowHandler.sendMessageAeSmartShunt();
+    }
 
     printShunt(&ae_smart_shunt_struct);
     if (ina226_adc.isOverflow())
