@@ -109,10 +109,9 @@ void OtaHandler::checkForUpdate() {
     } else {
         Serial.printf("Update available: %s\n", latest_update_details.tag_name.c_str());
 
-        // Create JSON for release metadata
-        StaticJsonDocument<2048> doc;
+        // Create a minimal JSON payload with only the version number
+        StaticJsonDocument<64> doc;
         doc["version"] = latest_update_details.tag_name;
-        doc["notes"] = latest_update_details.release_notes;
         String metadata;
         size_t written = serializeJson(doc, metadata);
         if (written == 0) {
