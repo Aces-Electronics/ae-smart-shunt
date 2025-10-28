@@ -2,7 +2,7 @@
 #define BLE_HANDLER_H
 
 #include <NimBLEDevice.h>
-
+#include <vector>
 #include <functional>
 
 // Define a struct to hold all the telemetry data
@@ -119,6 +119,7 @@ private:
     std::function<void(String)> wifiPassCallback;
     std::function<void(bool)> otaTriggerCallback;
     std::function<void(uint8_t)> otaControlCallback;
+    std::vector<uint8_t> _metadata_buffer;
 };
 
 #endif // BLE_HANDLER_H

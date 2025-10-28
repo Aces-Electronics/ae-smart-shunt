@@ -184,22 +184,21 @@ void BLEHandler::updateReleaseMetadata(const String& metadata) {
     if (pOtaReleaseMetadataCharacteristic) {
         Serial.printf("[%lu] [BLE_HANDLER] Metadata to be set (length %d): %s\n", millis(), metadata.length(), metadata.c_str());
 
-        // Clear the existing value first
-        pOtaReleaseMetadataCharacteristic->setValue("");
+        // Use the persistent buffer to store the metadata
+        _metadata_buffer.assign(metadata.c_str(), metadata.c_str() + metadata.length());
 
-        pOtaReleaseMetadataCharacteristic->setValue((uint8_t*)metadata.c_str(), metadata.length());
-        Serial.printf("[%lu] [BLE_HANDLER] setValue() called\n", millis());
+        // Set the characteristic value using the persistent buffer's data
+        pOtaReleaseMetadataCharacteristic->setValue(_metadata_buffer.data(), _metadata_buffer.size());
+        Serial.printf("[%lu] [BLE_HANDLER] setValue() called with persistent buffer\n", millis());
 
-        // First, check the length
-        size_t stored_len = pOtaReleaseMetadataCharacteristic->getValue().length();
-        Serial.printf("[%lu] [BLE_HANDLER] Read metadata length back immediately: %d\n", millis(), stored_len);
+        // Notify the client that the characteristic has been updated
+        pOtaReleaseMetadataCharacteristic->notify();
 
-        // Then, retrieve and print the full value
-        delay(100); // Wait a bit for the value to settle
+        // For debugging, immediately read back the value
         NimBLEAttValue value = pOtaReleaseMetadataCharacteristic->getValue();
         size_t actual_len = value.length();
         const char* actual_data = value.c_str();
-        Serial.printf("[%lu] [BLE_HANDLER] Read metadata back after delay (length %d): %s\n", millis(), actual_len, actual_data);
+        Serial.printf("[%lu] [BLE_HANDLER] Read metadata back (length %d): %s\n", millis(), actual_len, actual_data);
     }
 }
 
