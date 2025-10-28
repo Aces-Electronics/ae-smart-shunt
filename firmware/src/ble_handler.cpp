@@ -196,14 +196,6 @@ void BLEHandler::updateReleaseMetadata(const String& metadata) {
 
         // Notify the client that the characteristic has been updated
         pOtaReleaseMetadataCharacteristic->notify();
-
-        // For debugging, wait a moment to see if the value updates asynchronously
-        delay(200);
-
-        NimBLEAttValue value = pOtaReleaseMetadataCharacteristic->getValue();
-        size_t actual_len = value.length();
-        const char* actual_data = value.c_str();
-        Serial.printf("[%lu] [BLE_HANDLER] Read metadata back after 200ms delay (length %d): %s\n", millis(), actual_len, actual_data);
     }
 }
 
