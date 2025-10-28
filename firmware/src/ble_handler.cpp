@@ -185,16 +185,10 @@ void BLEHandler::updateReleaseMetadata(const String& metadata) {
         Serial.printf("[%lu] [BLE_HANDLER] Setting metadata (length %d)\n", millis(), metadata.length());
         pOtaReleaseMetadataCharacteristic->setValue((uint8_t*)metadata.c_str(), metadata.length());
         Serial.printf("[%lu] [BLE_HANDLER] setValue() returned\n", millis());
-        size_t actual_len = pOtaReleaseMetadataCharacteristic->getLength();
-        const uint8_t* actual_data = pOtaReleaseMetadataCharacteristic->getData();
-        Serial.printf("[%lu] [BLE_HANDLER] Read metadata back (raw length %d)\n", millis(), actual_len);
-        if (actual_len > 0) {
-            Serial.print("[BLE_HANDLER] Data: ");
-            for (size_t i = 0; i < actual_len; i++) {
-                Serial.print((char)actual_data[i]);
-            }
-            Serial.println();
-        }
+        NimBLEAttValue value = pOtaReleaseMetadataCharacteristic->getValue();
+        size_t actual_len = value.length();
+        const char* actual_data = value.c_str();
+        Serial.printf("[%lu] [BLE_HANDLER] Read metadata back (length %d): %s\n", millis(), actual_len, actual_data);
     }
 }
 
