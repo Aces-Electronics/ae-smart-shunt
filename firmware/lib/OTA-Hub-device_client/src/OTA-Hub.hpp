@@ -197,7 +197,7 @@ namespace OTA
         if (response.success())
         {
             // The releases endpoint returns an array, so we need to process it as such.
-            StaticJsonDocument<4096> doc; // GitHub API response can be large
+            StaticJsonDocument<2048> doc; // GitHub API response can be large
             DeserializationError error = deserializeJson(doc, response.body);
 
             if (error) {
@@ -248,9 +248,9 @@ namespace OTA
 
             return_object.name = release_response["name"].as<String>();
             return_object.tag_name = release_response["tag_name"].as<String>();
-            if (!release_response["body"].isNull()) {
-                return_object.release_notes = release_response["body"].as<String>();
-            }
+            // if (!release_response["body"].isNull()) {
+            //     return_object.release_notes = release_response["body"].as<String>();
+            // }
             return_object.published_at = http_ota->formatTimeFromISO8601(release_response["published_at"].as<String>());
 
             // Compare OTA_VERSION against tag_name, not name

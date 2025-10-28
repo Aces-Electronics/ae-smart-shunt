@@ -19,6 +19,8 @@ SET_LOOP_TASK_STACK_SIZE(16 * 1024); // 16KB, GitHub responses are heavy
 #include <WiFiClientSecure.h>
 #include <Update.h>
 
+volatile bool ota_command_pending = false;
+volatile uint8_t ota_command = 0;
 bool ota_success_notification_pending = false;
 
 // The firmware version is defined by the build system via the version.py script.
@@ -110,7 +112,8 @@ void wifiPassCallback(String pass) {
 }
 
 void otaControlCallback(uint8_t command) {
-    otaHandler.handleOtaControl(command);
+    ota_command = command;
+    ota_command_pending = true;
 }
 
 class MainServerCallbacks: public BLEServerCallbacks {
@@ -1105,6 +1108,11 @@ void loop()
   if (ina226_adc.isAlertTriggered())
   {
     ina226_adc.processAlert();
+  }
+
+  if (ota_command_pending) {
+      ota_command_pending = false;
+      otaHandler.handleOtaControl(ota_command);
   }
 
   otaHandler.loop();
