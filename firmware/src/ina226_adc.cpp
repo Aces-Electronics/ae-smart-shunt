@@ -28,7 +28,7 @@ const std::vector<CalPoint> factory_cal_200A = {
 
 // Initialize the static map of factory default shunt resistances.
 const std::map<uint16_t, float> INA226_ADC::factory_shunt_resistances = {
-    {100, 0.003286742f}, {150, 0.003450000f}, {200, 0.003794600f},
+    {100, 0.000750000f}, {150, 0.000500000f}, {200, 0.000375000f},
     {250, 0.000300000f}, {300, 0.000250000f}, {350, 0.000214286f},
     {400, 0.000187500f}, {450, 0.000166667f}, {500, 0.000150000f}};
 
@@ -47,7 +47,7 @@ INA226_ADC::INA226_ADC(uint8_t address, float shuntResistorOhms,
       lastUpdateTime(0), shuntVoltage_mV(-1), loadVoltage_V(-1),
       busVoltage_V(-1), current_mA(-1), power_mW(-1), calibrationGain(1.0f),
       calibrationOffset_mA(0.0f), lowVoltageCutoff(11.6f), hysteresis(0.2f),
-      overcurrentThreshold(50.0f), // Default 50A
+      overcurrentThreshold(50.0f), compensationResistance(0.0f), // Default 0.0 ohms (no compensation)
       lowVoltageDelayMs(10000),    // Default to 10 seconds
       lowVoltageStartTime(0), deviceNameSuffix(""), loadConnected(true),
       alertTriggered(false), m_isConfigured(false),
@@ -472,16 +472,10 @@ void INA226_ADC::applyShuntConfiguration() {
   // Typical shunts here are ~0.2–5.0 mΩ
   float shunt = calibratedOhms;
 
-  if (!(shunt > 0.0002f && shunt < 0.005f)) {
+  if (!(shunt > 0.00001f && shunt < 0.010f)) {
     Serial.printf(
         "WARN: Rejected invalid shunt resistance %.9f Ohm; falling back.\n",
         shunt);
-    shunt = defaultOhms;
-  }
-  if (!(shunt > 0.0002f && shunt < 0.005f)) {
-    Serial.printf("WARN: Rejected invalid shunt resistance %.9f Ω; falling "
-                  "back to defaults.\n",
-                  shunt);
     shunt = defaultOhms;
   }
 
@@ -928,11 +922,20 @@ void INA226_ADC::loadProtectionSettings() {
   lowVoltageDelayMs =
       prefs.getUInt(NVS_KEY_LOW_VOLTAGE_DELAY, 10000); // Default 10s
   deviceNameSuffix = prefs.getString(NVS_KEY_DEVICE_NAME_SUFFIX, "");
+  
+  float loaded_comp_res = prefs.getFloat(NVS_KEY_COMPENSATION_RESISTANCE, 0.0f);
+  if (loaded_comp_res < 0.0f || loaded_comp_res > 1.0f) {
+      compensationResistance = 0.0f;
+  } else {
+      compensationResistance = loaded_comp_res;
+  }
+
   prefs.end();
   Serial.println("Loaded protection settings:");
   Serial.printf("  LV Cutoff: %.2fV\n", lowVoltageCutoff);
   Serial.printf("  Hysteresis: %.2fV\n", hysteresis);
   Serial.printf("  OC Threshold: %.2fA\n", overcurrentThreshold);
+  Serial.printf("  Comp Res: %.3f Ohm\n", compensationResistance);
 }
 
 void INA226_ADC::saveProtectionSettings() {
@@ -941,6 +944,7 @@ void INA226_ADC::saveProtectionSettings() {
   prefs.putFloat(NVS_KEY_LOW_VOLTAGE_CUTOFF, lowVoltageCutoff);
   prefs.putFloat(NVS_KEY_HYSTERESIS, hysteresis);
   prefs.putFloat(NVS_KEY_OVERCURRENT, overcurrentThreshold);
+  prefs.putFloat(NVS_KEY_COMPENSATION_RESISTANCE, compensationResistance);
   prefs.putUInt(NVS_KEY_LOW_VOLTAGE_DELAY, lowVoltageDelayMs);
   prefs.putString(NVS_KEY_DEVICE_NAME_SUFFIX, deviceNameSuffix);
   prefs.end();
@@ -1042,9 +1046,28 @@ float INA226_ADC::getCalibratedShuntResistance() const {
   return calibratedOhms;
 }
 
+void INA226_ADC::setCompensationResistance(float ohms) {
+    if (ohms < 0.0f) ohms = 0.0f;
+    compensationResistance = ohms;
+    saveProtectionSettings();
+}
+
+float INA226_ADC::getCompensationResistance() const {
+    return compensationResistance;
+}
+
 void INA226_ADC::checkAndHandleProtection() {
   float voltage = getBusVoltage_V();
   float current = getCurrent_mA() / 1000.0f;
+
+  // Calculate compensated voltage (estimating Open Circuit Voltage)
+  // Voltage drops under load (discharge). 
+  // V_term = V_ocv - I * R_int
+  // V_ocv = V_term + I * R_int
+  // Since our 'current' is negative for discharge, we subtract (current * R) to add the positive magnitude.
+  // Example: V_term = 11.5V, I = -10A, R = 0.02 Ohm.
+  // Comp = 11.5 - (-10 * 0.02) = 11.5 + 0.2 = 11.7V.
+  float compensatedVoltage = voltage - (current * compensationResistance);
 
   // If the voltage is very low, it's likely that we are powered via USB
   // for configuration and don't have a battery connected. In this case,
@@ -1055,13 +1078,14 @@ void INA226_ADC::checkAndHandleProtection() {
 
   if (isLoadConnected()) {
     // Low voltage protection
-    if (voltage < lowVoltageCutoff) {
+    // Use compensated voltage to avoid premature cutoff under heavy load
+    if (compensatedVoltage < lowVoltageCutoff) {
       if (lowVoltageStartTime == 0) {
         // Low voltage detected for the first time, start the timer
         lowVoltageStartTime = millis();
         Serial.printf(
-            "Low voltage detected (%.2fV < %.2fV). Starting %lus timer.\n",
-            voltage, lowVoltageCutoff, lowVoltageDelayMs / 1000);
+            "Low voltage detected (%.2fV [msg:%.2fV] < %.2fV). Starting %lus timer.\n",
+            compensatedVoltage, voltage, lowVoltageCutoff, lowVoltageDelayMs / 1000);
       } else {
         // Timer is already running, check if it has expired
         if (millis() - lowVoltageStartTime >= lowVoltageDelayMs) {
@@ -1075,7 +1099,7 @@ void INA226_ADC::checkAndHandleProtection() {
     } else {
       // Voltage has recovered, reset the timer
       if (lowVoltageStartTime > 0) {
-        Serial.println("Voltage recovered. Cancelling disconnect timer.");
+        Serial.printf("Voltage recovered (%.2fV). Cancelling disconnect timer.\n", compensatedVoltage);
         lowVoltageStartTime = 0;
       }
     }
@@ -1089,6 +1113,8 @@ void INA226_ADC::checkAndHandleProtection() {
     }
   } else {
     // If load is disconnected, only auto-reconnect if it was for low voltage
+    // For reconnect, we use the raw voltage because the load is disconnected (Current ~ 0).
+    // So compensatedVoltage ~= voltage anyway.
     if (m_disconnectReason == LOW_VOLTAGE &&
         voltage > (lowVoltageCutoff + hysteresis)) {
       Serial.printf("Voltage recovered (%.2fV > %.2fV). Reconnecting load.\n",

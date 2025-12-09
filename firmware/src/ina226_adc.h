@@ -19,7 +19,7 @@ struct CalPoint {
 
 class INA226_ADC {
 public:
-  static constexpr float MCU_IDLE_CURRENT_A = 0.05f;
+  static constexpr float MCU_IDLE_CURRENT_A = 0.052f;
 
   INA226_ADC(uint8_t address, float shuntResistorOhms, float batteryCapacityAh);
   void begin(int sdaPin, int sclPin);
@@ -60,6 +60,8 @@ public:
   uint32_t getLowVoltageDelay() const;
   void setDeviceNameSuffix(String suffix);
   String getDeviceNameSuffix() const;
+  void setCompensationResistance(float ohms);
+  float getCompensationResistance() const;
   void checkAndHandleProtection();
   void setLoadConnected(bool connected, DisconnectReason reason = MANUAL);
   bool isLoadConnected() const;
@@ -117,6 +119,7 @@ private:
   float lowVoltageCutoff;
   float hysteresis;
   float overcurrentThreshold;
+  float compensationResistance;
   uint32_t lowVoltageDelayMs;
   unsigned long lowVoltageStartTime;
   String deviceNameSuffix;

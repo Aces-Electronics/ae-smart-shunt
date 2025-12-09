@@ -47,8 +47,9 @@ The smart shunt is configured via a simple serial command-line interface. When c
 | `c` | **Current Calibration Menu** | Enters the menu for current shunt calibration. From here you can run a detailed calibration (`T`) or restore factory defaults (`F`). |
 | `f` | **Factory Reset** | Clears all settings and wipes all data - fresh like a daisy. |
 | `r` | **Shunt Resistance Calibration** | Runs a routine to calculate the precise resistance of your shunt. **This must be run before first use.** |
+| `q` | **Quick Calibration** | A fast version of Shunt Resistance Calibration using fixed 1A and 5A load points. |
 | `v` | **Voltage Calibration** | Runs the guided 8-point calibration routine for the starter battery voltage input. |
-| `p` | **Protection Settings** | Allows you to configure the thresholds for Low-Voltage Cutoff, Hysteresis, and Overcurrent Protection. |
+| `p` | **Protection Settings** | Allows you to configure the thresholds for Low-Voltage Cutoff, Hysteresis, Overcurrent Protection, and Voltage Compensation Resistance. |
 | `l` | **Load Toggle** | Manually toggles the load disconnect MOSFET ON or OFF. Useful for testing the hardware circuit. |
 | `a` | **Alert Toggle** | Toggles the hardware overcurrent alert ON or OFF. Useful for debugging. |
 | `s` | **Status Display** | Displays the current protection settings, including the actual hardware alert threshold read from the INA226. |
