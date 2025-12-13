@@ -190,6 +190,19 @@ float INA226_ADC::getCurrent_mA() const {
 }
 
 void INA226_ADC::setInitialSOC() {
+  // Check RTC first for restored capacity
+  if (rtcData.magic == RTC_MAGIC && rtcData.hasCapacity) {
+    batteryCapacity = rtcData.batteryCapacity;
+    if (batteryCapacity < 0) batteryCapacity = 0;
+    if (batteryCapacity > maxBatteryCapacity) batteryCapacity = maxBatteryCapacity;
+    
+    lastUpdateTime = millis();
+    Serial.printf("Restored battery capacity from RTC: %.2f Ah\n", batteryCapacity);
+    // Don't return early; we still want to log the would-be SOC based on voltage for debug?
+    // Actually, we should return early to avoid overwriting with voltage estimate.
+    return; 
+  }
+
   readSensors();
   float voltage = getBusVoltage_V();
   float current = getCurrent_mA() / 1000.0f; // Convert to Amps
@@ -235,6 +248,16 @@ void INA226_ADC::setInitialSOC() {
   // Set the battery capacity based on the calculated SOC
   batteryCapacity = maxBatteryCapacity * (soc_percent / 100.0f);
   lastUpdateTime = millis();
+
+  // Initialize RTC data if invalid
+  if (rtcData.magic != RTC_MAGIC) {
+      memset(&rtcData, 0, sizeof(rtcData));
+      rtcData.magic = RTC_MAGIC;
+  }
+  // Save initial estimate to RTC
+  rtcData.batteryCapacity = batteryCapacity;
+  rtcData.hasCapacity = true;
+
   Serial.printf("Initial SOC set to %.2f%% based on adjusted voltage of %.2fV. "
                 "Initial capacity: %.2fAh\n",
                 soc_percent, voltage, batteryCapacity);
@@ -293,6 +316,10 @@ float INA226_ADC::getLoadVoltage_V() const { return loadVoltage_V; }
 float INA226_ADC::getBatteryCapacity() const { return batteryCapacity; }
 void INA226_ADC::setBatteryCapacity(float capacity) {
   batteryCapacity = capacity;
+  if (rtcData.magic == RTC_MAGIC) {
+      rtcData.batteryCapacity = batteryCapacity;
+      rtcData.hasCapacity = true;
+  }
 }
 
 void INA226_ADC::setSOC_percent(float percent) {
@@ -302,6 +329,10 @@ void INA226_ADC::setSOC_percent(float percent) {
     percent = 100.0f;
   }
   batteryCapacity = maxBatteryCapacity * (percent / 100.0f);
+  if (rtcData.magic == RTC_MAGIC) {
+      rtcData.batteryCapacity = batteryCapacity;
+      rtcData.hasCapacity = true;
+  }
   Serial.printf("SOC set to %.2f%%. New capacity: %.2fAh\n", percent,
                 batteryCapacity);
 }
@@ -706,6 +737,13 @@ void INA226_ADC::updateBatteryCapacity(float currentA) {
     batteryCapacity = 0.0f;
   if (batteryCapacity > maxBatteryCapacity)
     batteryCapacity = maxBatteryCapacity;
+
+  // Sync to RTC
+  if (rtcData.magic == RTC_MAGIC) {
+      rtcData.batteryCapacity = batteryCapacity;
+      rtcData.hasCapacity = true;
+  }
+
   lastUpdateTime = currentTime;
 }
 
@@ -1254,18 +1292,70 @@ void INA226_ADC::dumpRegisters() const {
 
 // ---------------- Energy Usage Tracking ----------------
 
+// ---------------- Energy Usage Tracking ----------------
+
+// Structure to hold state in RTC memory (survives deep sleep and soft reboots)
+struct RTC_Data {
+    uint32_t magic;
+    // Energy stats
+    float currentHour_Ws;
+    float currentDay_Ws;
+    float currentWeek_Ws;
+    unsigned long elapsedHour_ms;
+    unsigned long elapsedDay_ms;
+    unsigned long elapsedWeek_ms;
+    // Battery State
+    float batteryCapacity;
+    bool hasCapacity;
+};
+
+RTC_DATA_ATTR RTC_Data rtcData = {0};
+#define RTC_MAGIC 0xAE534854 // "AESHT"
+
 void INA226_ADC::updateEnergyUsage(float power_mW) {
   unsigned long now = millis();
   if (lastEnergyUpdateTime == 0) {
-    lastEnergyUpdateTime = now;
-    currentHourStartMillis = now;
-    currentDayStartMillis = now;
-    currentWeekStartMillis = now;
-    return;
+    // Try to restore from RTC first if this is the first call
+    if (rtcData.magic == RTC_MAGIC) {
+        Serial.println("Restoring energy stats from RTC memory...");
+        currentHourEnergy_Ws = rtcData.currentHour_Ws;
+        currentDayEnergy_Ws = rtcData.currentDay_Ws;
+        currentWeekEnergy_Ws = rtcData.currentWeek_Ws;
+        
+        if (now >= rtcData.elapsedHour_ms) currentHourStartMillis = now - rtcData.elapsedHour_ms;
+        else currentHourStartMillis = 0;
+
+        if (now >= rtcData.elapsedDay_ms) currentDayStartMillis = now - rtcData.elapsedDay_ms;
+        else currentDayStartMillis = 0;
+
+        if (now >= rtcData.elapsedWeek_ms) currentWeekStartMillis = now - rtcData.elapsedWeek_ms;
+        else currentWeekStartMillis = 0;
+        
+        lastEnergyUpdateTime = now;
+    } else {
+        // First clean boot
+        lastEnergyUpdateTime = now;
+        currentHourStartMillis = now;
+        currentDayStartMillis = now;
+        currentWeekStartMillis = now;
+        
+        // Initialize RTC if not valid (and setup magic)
+        if (rtcData.magic != RTC_MAGIC) {
+             memset(&rtcData, 0, sizeof(rtcData));
+             rtcData.magic = RTC_MAGIC;
+        }
+    }
   }
+
+  // Double check initialization if we just fell through
+  if (lastEnergyUpdateTime == 0) return; // Should not happen
 
   float power_W = power_mW / 1000.0f;
   float time_delta_s = (now - lastEnergyUpdateTime) / 1000.0f;
+  
+  // Handle case where millis() rolled over or time jumped backwards significantly
+  if (time_delta_s < 0) time_delta_s = 0;
+
   float energy_delta_Ws = power_W * time_delta_s;
 
   currentHourEnergy_Ws += energy_delta_Ws;
@@ -1279,21 +1369,36 @@ void INA226_ADC::updateEnergyUsage(float power_mW) {
   const unsigned long day_ms = 24 * hour_ms;
   const unsigned long week_ms = 7 * day_ms;
 
-  if (now - currentHourStartMillis >= hour_ms) {
+  unsigned long elapsedHour = now - currentHourStartMillis;
+  unsigned long elapsedDay = now - currentDayStartMillis;
+  unsigned long elapsedWeek = now - currentWeekStartMillis;
+
+  if (elapsedHour >= hour_ms) {
     lastHourEnergy_Wh = currentHourEnergy_Ws / 3600.0f;
     currentHourEnergy_Ws = 0.0f;
     currentHourStartMillis = now;
+    elapsedHour = 0;
   }
-  if (now - currentDayStartMillis >= day_ms) {
+  if (elapsedDay >= day_ms) {
     lastDayEnergy_Wh = currentDayEnergy_Ws / 3600.0f;
     currentDayEnergy_Ws = 0.0f;
     currentDayStartMillis = now;
+    elapsedDay = 0;
   }
-  if (now - currentWeekStartMillis >= week_ms) {
+  if (elapsedWeek >= week_ms) {
     lastWeekEnergy_Wh = currentWeekEnergy_Ws / 3600.0f;
     currentWeekEnergy_Ws = 0.0f;
     currentWeekStartMillis = now;
+    elapsedWeek = 0;
   }
+
+  // Update RTC mirror
+  rtcData.currentHour_Ws = currentHourEnergy_Ws;
+  rtcData.currentDay_Ws = currentDayEnergy_Ws;
+  rtcData.currentWeek_Ws = currentWeekEnergy_Ws;
+  rtcData.elapsedHour_ms = elapsedHour;
+  rtcData.elapsedDay_ms = elapsedDay;
+  rtcData.elapsedWeek_ms = elapsedWeek;
 }
 
 float INA226_ADC::getLastHourEnergy_Wh() const {
