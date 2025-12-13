@@ -27,7 +27,7 @@ bool ota_success_notification_pending = false;
 // It is passed as a compile-time macro OTA_VERSION (e.g., -DOTA_VERSION="1.0.0").
 #define USE_ADC // if defined, use ADC, else, victron BLE
 
-float batteryCapacity = 18.0f; // Default rated battery capacity in Ah (used for SOC calc)
+float batteryCapacity = 100.0f; // Default rated battery capacity in Ah (used for SOC calc)
 
 uint8_t broadcastAddress[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 
@@ -46,7 +46,8 @@ struct_message_ae_smart_shunt_1 ae_smart_shunt_struct;
 // custom calibrated value from NVS or the factory default for the active shunt.
 // Use the global `batteryCapacity` (rated Ah) so INA226_ADC::maxBatteryCapacity
 // matches the configured rated capacity used for SOC calculations.
-INA226_ADC ina226_adc(I2C_ADDRESS, 0.000750000f, batteryCapacity);
+// INA226_ADC ina226_adc(I2C_ADDRESS, 0.000750000f, batteryCapacity);
+INA226_ADC ina226_adc(I2C_ADDRESS, 0.003286742f, batteryCapacity);
 
 // ADC for the starter battery voltage on GPIO3
 GPIO_ADC starter_adc(3);
@@ -715,7 +716,6 @@ void runShuntResistanceCalibration(INA226_ADC &ina)
   }
   v_shunt_zero_mv = sum_v_zero / samples;
   Serial.printf("  -> Recorded avg shunt voltage: %.6f mV (for true current %.6f A)\n", v_shunt_zero_mv, true_a_zero);
-  if (abs(v_shunt_zero_mv) > 81.0f) Serial.println(F("\n[WARNING] Shunt voltage SATURATED (>81mV)! Check wiring/shunt sizing."));
 
   // --- Step 2: ~1A Load ---
   Serial.printf("\n--- Step 2 of 3: ~%.3fA External Load ---\n", step2TargetExternalA);
@@ -737,7 +737,6 @@ void runShuntResistanceCalibration(INA226_ADC &ina)
   }
   v_shunt_1_mv = sum_v_1a / samples;
   Serial.printf("  -> Recorded avg shunt voltage: %.6f mV (for true current %.6f A)\n", v_shunt_1_mv, true_a_1);
-  if (abs(v_shunt_1_mv) > 81.0f) Serial.println(F("\n[WARNING] Shunt voltage SATURATED (>81mV)! Check wiring/shunt sizing."));
 
   // --- Step 3: ~5A Load ---
   Serial.printf("\n--- Step 3 of 3: ~%.3fA External Load ---\n", step3TargetExternalA);
@@ -759,7 +758,6 @@ void runShuntResistanceCalibration(INA226_ADC &ina)
   }
   v_shunt_5_mv = sum_v_5a / samples;
   Serial.printf("  -> Recorded avg shunt voltage: %.6f mV (for true current %.6f A)\n", v_shunt_5_mv, true_a_5);
-  if (abs(v_shunt_5_mv) > 81.0f) Serial.println(F("\n[WARNING] Shunt voltage SATURATED (>81mV)! Check wiring/shunt sizing."));
 
   // --- Calculations ---
   Serial.println(F("\n--- Calculating Shunt Resistance ---"));
@@ -897,7 +895,6 @@ void runQuickCalibration(INA226_ADC &ina)
   }
   v_shunt_zero_mv = sum_v_zero / samples;
   Serial.printf("  -> Recorded avg shunt voltage: %.6f mV (for true current %.6f A)\n", v_shunt_zero_mv, true_a_zero);
-  if (abs(v_shunt_zero_mv) > 81.0f) Serial.println(F("\n[WARNING] Shunt voltage SATURATED (>81mV)! Check wiring/shunt sizing."));
 
   // --- Step 2: ~1A Load ---
   Serial.printf("\n--- Step 2 of 3: ~%.3fA External Load ---\n", step2TargetExternalA);
@@ -919,7 +916,6 @@ void runQuickCalibration(INA226_ADC &ina)
   }
   v_shunt_1_mv = sum_v_1a / samples;
   Serial.printf("  -> Recorded avg shunt voltage: %.6f mV (for true current %.6f A)\n", v_shunt_1_mv, true_a_1);
-  if (abs(v_shunt_1_mv) > 81.0f) Serial.println(F("\n[WARNING] Shunt voltage SATURATED (>81mV)! Check wiring/shunt sizing."));
 
   // --- Step 3: ~5A Load ---
   Serial.printf("\n--- Step 3 of 3: ~%.3fA External Load ---\n", step3TargetExternalA);
@@ -941,7 +937,6 @@ void runQuickCalibration(INA226_ADC &ina)
   }
   v_shunt_5_mv = sum_v_5a / samples;
   Serial.printf("  -> Recorded avg shunt voltage: %.6f mV (for true current %.6f A)\n", v_shunt_5_mv, true_a_5);
-  if (abs(v_shunt_5_mv) > 81.0f) Serial.println(F("\n[WARNING] Shunt voltage SATURATED (>81mV)! Check wiring/shunt sizing."));
 
   // --- Calculations ---
   Serial.println(F("\n--- Calculating Shunt Resistance ---"));
@@ -1000,17 +995,7 @@ void runQuickCalibration(INA226_ADC &ina)
 
   // Save the new resistance
   ina.saveShuntResistance(newShuntOhms);
-  
-  // CRITICAL: Clear any existing calibration table because the base resistance has changed.
-  // The old table points are no longer valid for the new resistance scaling.
-  ina.clearCalibrationTable(activeShuntA);
-
-  // Reload the table (which will now be empty) to ensure the INA226_ADC object knows it is empty
-  // and stops using the old values.
-  ina.loadCalibrationTable(activeShuntA);
-  
-  Serial.println("This value has been saved and the old calibration table has been cleared.");
-  Serial.println("The device will now use pure linear calculation based on this new resistance.");
+  Serial.println("This value has been saved and will be used for all future calculations.");
 }
 
 void runProtectionConfigMenu(INA226_ADC &ina)

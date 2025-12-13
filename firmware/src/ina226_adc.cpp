@@ -147,9 +147,26 @@ void INA226_ADC::begin(int sdaPin, int sclPin) {
 
 void INA226_ADC::readSensors() {
   ina226.readAndClearFlags();
-  shuntVoltage_mV = ina226.getShuntVoltage_mV();
-  busVoltage_V = ina226.getBusVoltage_V();
-  current_mA = ina226.getCurrent_mA(); // raw mA
+  float new_shuntVoltage_mV = ina226.getShuntVoltage_mV();
+  float new_busVoltage_V = ina226.getBusVoltage_V();
+  float new_current_mA = ina226.getCurrent_mA(); // raw mA
+
+  // Sanity check: Filter out insane current values
+  // Defined as values > 2x the rated active shunt capacity or NaN/Inf
+  float max_valid_mA = (float)m_activeShuntA * 1000.0f * 2.0f;
+
+  if (isnan(new_current_mA) || isinf(new_current_mA) ||
+      fabsf(new_current_mA) > max_valid_mA) {
+    Serial.printf("Ignored insane current reading: %.2f mA (Limit: %.2f mA)\n",
+                  new_current_mA, max_valid_mA);
+    // Keep old current_mA and shuntVoltage_mV
+  } else {
+    current_mA = new_current_mA;
+    shuntVoltage_mV = new_shuntVoltage_mV;
+  }
+
+  busVoltage_V = new_busVoltage_V;
+
   // Calculate power manually, as the chip's internal calculation seems to be
   // off. Use the calibrated current for this calculation.
   power_mW = getBusVoltage_V() * getCurrent_mA();
