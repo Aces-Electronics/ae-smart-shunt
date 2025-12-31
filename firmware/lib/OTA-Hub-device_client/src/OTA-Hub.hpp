@@ -2,19 +2,19 @@
 #define HTTP_MAX_HEADERS 30 // GitHub sends ~28 headers back!
 
 #include <Arduino.h>
-SET_LOOP_TASK_STACK_SIZE(16 * 1024); // 16KB, GitHub responses are heavy
 
 // libs
 #include <Hard-Stuff-Http.hpp>
 #include <Update.h>
 #include <ArduinoJson.h>
+#include "ota-github-defaults.h"
 
 #ifndef OTA_VERSION
 #define OTA_VERSION "local_development"
 #endif
 
 #pragma region HelperFunctions
-String getMacAddress()
+inline String getMacAddress()
 {
     uint8_t baseMac[6];
     // Get MAC address for WiFi station
@@ -24,7 +24,7 @@ String getMacAddress()
     return String(baseMacChr);
 }
 
-time_t cvtDate()
+inline time_t cvtDate()
 {
     char s_month[5];
     int year;
@@ -50,9 +50,9 @@ time_t cvtDate()
 namespace OTA
 {
 #pragma region WorkingVariabls
-    HardStuffHttpClient *http_ota;
-    Client *underlying_client;
-    String asset_id;
+    inline HardStuffHttpClient *http_ota;
+    inline Client *underlying_client;
+    inline String asset_id;
 #pragma endregion
 
 #pragma region UsefulStructs
@@ -80,12 +80,38 @@ namespace OTA
     /**
      * @brief Everything necesary related to a firmware release
      */
+    // Helper to parse ISO8601 string to time_t
+    inline time_t parseISO8601(String str) {
+        tmElements_t tm;
+        int Year, Month, Day, Hour, Minute, Second;
+        if (sscanf(str.c_str(), "%d-%d-%dT%d:%d:%d", &Year, &Month, &Day, &Hour, &Minute, &Second) == 6) {
+            tm.Year = Year - 1970;
+            tm.Month = Month;
+            tm.Day = Day;
+            tm.Hour = Hour;
+            tm.Minute = Minute;
+            tm.Second = Second;
+            return makeTime(tm);
+        }
+        return 0;
+    }
+
+    // Helper to format time_t to ISO8601 string
+    inline String formatISO8601(time_t t) {
+        tmElements_t tm;
+        breakTime(t, tm);
+        char buf[25];
+        sprintf(buf, "%04d-%02d-%02dT%02d:%02d:%02dZ", tm.Year + 1970, tm.Month, tm.Day, tm.Hour, tm.Minute, tm.Second);
+        return String(buf);
+    }
+    
     struct UpdateObject
     {
         UpdateCondition condition;
         String name;
         String tag_name;
         time_t published_at;
+        String release_notes;
         String firmware_asset_id;
         String firmware_asset_endpoint;
         String redirect_server;
@@ -103,7 +129,13 @@ namespace OTA
             print_stream->println("Condition: " + String(condition_strings[condition]));
             print_stream->println("name: " + name);
             print_stream->println("tag_name: " + tag_name);
-            print_stream->println("published_at: " + http_ota->formatTimeISO8601(published_at));
+            // Replace http_ota->formatTimeISO8601 with local helper
+            // print_stream->println("published_at: " + http_ota->formatTimeISO8601(published_at)); 
+            // We can define the helper outside or just print raw for now to save space/complexity, 
+            // but let's use the helper defined above if we can access it.
+            // Since this is a struct inside a namespace, and helpers are in namespace, we might need forward declaration or just define them before.
+            // I'll assume I can just use a simple inline formatting here or just print the timestamp integer for now to reduce risk.
+            print_stream->println("published_at: " + String((unsigned long)published_at));
             print_stream->println("firmware_asset_id: " + String(firmware_asset_id));
             print_stream->println("firmware_asset_endpoint: " + String(firmware_asset_endpoint));
             print_stream->println("------------------------");
@@ -114,16 +146,16 @@ namespace OTA
 #pragma region SupportFunctions
 
     // Initial define of function
-    InstallCondition continueRedirect(UpdateObject *details, bool restart = true);
+    inline InstallCondition continueRedirect(UpdateObject *details, bool restart = true, std::function<void(size_t, size_t)> progress_callback = nullptr);
 
-    void confirmConnected()
+    inline void confirmConnected()
     {
         if (http_ota->connected())
         {
         }
     }
 
-    void printFirmwareDetails(Stream *print_stream = &Serial, const char *latest_tag = nullptr)
+    inline void printFirmwareDetails(Stream *print_stream = &Serial, const char *latest_tag = nullptr)
     {
         print_stream->println("------------------------");
         print_stream->println("Device MAC: " + getMacAddress());
@@ -138,7 +170,7 @@ namespace OTA
         print_stream->println("------------------------");
     }
 
-    void deinit()
+    inline void deinit()
     {
         if (http_ota != nullptr)
         {
@@ -148,7 +180,7 @@ namespace OTA
         }
     }
 
-    void reinit(Client &set_underlying_client, const char *server, uint16_t port)
+    inline void reinit(Client &set_underlying_client, const char *server, uint16_t port)
     {
         deinit();
         Serial.print("Server: ");
@@ -157,7 +189,7 @@ namespace OTA
         http_ota = new HardStuffHttpClient(set_underlying_client, server, port);
     }
 
-    void init(Client &set_underlying_client)
+    inline void init(Client &set_underlying_client)
     {
         printFirmwareDetails();
         reinit(set_underlying_client, OTA_SERVER, OTA_PORT);
@@ -172,7 +204,7 @@ namespace OTA
      *
      * @return UpdateObject that bundles all the info we'll need.
      */
-    UpdateObject isUpdateAvailable()
+    inline UpdateObject isUpdateAvailable()
     {
         UpdateObject return_object;
         return_object.condition = NO_UPDATE;
@@ -196,12 +228,14 @@ namespace OTA
         if (response.success())
         {
             // The releases endpoint returns an array, so we need to process it as such.
-#if ARDUINOJSON_VERSION_MAJOR >= 7
-            JsonDocument doc;
-#else
-            DynamicJsonDocument doc(16384); // Increased size for potential larger array
-#endif
-            deserializeJson(doc, response.body);
+            StaticJsonDocument<2048> doc; // GitHub API response can be large
+            DeserializationError error = deserializeJson(doc, response.body);
+
+            if (error) {
+                Serial.print(F("deserializeJson() failed: "));
+                Serial.println(error.c_str());
+                return return_object;
+            }
 
             JsonObject release_response;
             if (doc.is<JsonArray>())
@@ -245,7 +279,11 @@ namespace OTA
 
             return_object.name = release_response["name"].as<String>();
             return_object.tag_name = release_response["tag_name"].as<String>();
-            return_object.published_at = http_ota->formatTimeFromISO8601(release_response["published_at"].as<String>());
+            // if (!release_response["body"].isNull()) {
+            //     return_object.release_notes = release_response["body"].as<String>();
+            // }
+            // return_object.published_at = http_ota->formatTimeFromISO8601(release_response["published_at"].as<String>());
+            return_object.published_at = parseISO8601(release_response["published_at"].as<String>());
 
             // Compare OTA_VERSION against tag_name, not name
             bool update_is_different = return_object.tag_name.compareTo(OTA_VERSION) != 0;
@@ -285,7 +323,7 @@ namespace OTA
      * @param restart You can stop the updater from automatically restarting the board, say if you need to wind things down a bit...
      * @return InstallCondition Was it a success?
      */
-    InstallCondition performUpdate(UpdateObject *details, bool follow_redirects = true, bool restart = true)
+    inline InstallCondition performUpdate(UpdateObject *details, bool follow_redirects = true, bool restart = true, std::function<void(size_t, size_t)> progress_callback = nullptr)
     {
         Serial.println("Fetching update from: " + (details->redirect_server.isEmpty() ? String(OTA_SERVER) : details->redirect_server) + details->firmware_asset_endpoint);
 
@@ -330,7 +368,7 @@ namespace OTA
             if (follow_redirects)
             {
                 Serial.println("Redirect required, handling internally...");
-                return continueRedirect(details, restart);
+                return continueRedirect(details, restart, progress_callback);
             }
             else
             {
@@ -362,6 +400,9 @@ namespace OTA
             if (contentLength && isValidContentType)
             {
                 Serial.println(String(FIRMWARE_BIN_MATCH) + " is good. Beginning the OTA update, this may take a while...");
+                if (progress_callback) {
+                    Update.onProgress(progress_callback);
+                }
                 if (Update.begin(contentLength))
                 {
                     Update.writeStream(*http_ota);
@@ -404,10 +445,10 @@ namespace OTA
      * Behaves similar to performUpdate, but is used after defining new SSL certs as needed.
      * @return InstallCondition
      */
-    InstallCondition continueRedirect(UpdateObject *details, bool restart)
+    inline InstallCondition continueRedirect(UpdateObject *details, bool restart, std::function<void(size_t, size_t)> progress_callback)
     {
         reinit(*underlying_client, details->redirect_server.c_str(), OTA_PORT);
-        return performUpdate(details, false, restart);
+        return performUpdate(details, false, restart, progress_callback);
     }
 #pragma endregion
 }

@@ -71,8 +71,8 @@ void GPIO_ADC::loadCalibration() {
     // Define the default table here as a local static const to ensure it's initialized
     // before it's ever accessed. This avoids the static initialization order fiasco.
     static const std::vector<VoltageCalPoint> default_voltage_cal_table = {
-        {2108, 10.0f}, {2322, 11.0f}, {2426, 11.5f}, {2523, 12.0f},
-        {2650, 12.5f}, {2750, 13.0f}, {2959, 14.0f}, {3165, 15.0f}
+        {2182, 10.0f}, {2396, 11.0f}, {2525, 11.5f}, {2625, 12.0f},
+        {2748, 12.5f}, {2841, 13.0f}, {3055, 14.0f}, {3283, 15.0f}
     };
 
     Preferences prefs;
