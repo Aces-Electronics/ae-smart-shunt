@@ -32,8 +32,13 @@ float batteryCapacity = 100.0f; // Default rated battery capacity in Ah (used fo
 uint8_t broadcastAddress[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 
 // Main loop interval
-const unsigned long loop_interval = 10000;
-unsigned long last_loop_millis = 0;
+// Main loop interval
+const unsigned long telemetry_interval = 10000;
+unsigned long last_telemetry_millis = 0;
+
+// Polling interval for accurate coulomb counting
+const unsigned long polling_interval = 100; // 100ms = 10Hz
+unsigned long last_polling_millis = 0;
 
 // LED Heartbeat
 unsigned long last_led_blink = 0;
@@ -47,7 +52,7 @@ struct_message_ae_smart_shunt_1 ae_smart_shunt_struct;
 // Use the global `batteryCapacity` (rated Ah) so INA226_ADC::maxBatteryCapacity
 // matches the configured rated capacity used for SOC calculations.
 // INA226_ADC ina226_adc(I2C_ADDRESS, 0.000750000f, batteryCapacity);
-INA226_ADC ina226_adc(I2C_ADDRESS, 0.003286742f, batteryCapacity);
+INA226_ADC ina226_adc(I2C_ADDRESS, 0.001730000f, batteryCapacity);
 
 // ADC for the starter battery voltage on GPIO3
 GPIO_ADC starter_adc(3);
@@ -106,6 +111,11 @@ void deviceNameSuffixCallback(String suffix) {
     ina226_adc.setDeviceNameSuffix(suffix);
 }
 
+void ratedCapacityCallback(float capacityAh) {
+    Serial.printf("BLE received new rated battery capacity: %.2f Ah\n", capacityAh);
+    ina226_adc.setMaxBatteryCapacity(capacityAh);
+}
+
 void wifiSsidCallback(String ssid) {
     otaHandler.setWifiSsid(ssid);
 }
@@ -156,6 +166,7 @@ static String SerialReadLineBlocking()
       if (c == '\r' || c == '\n') {
         Serial.println(); // Echo for neatness.
         // Consume any trailing newline characters (\r\n or \n\r).
+        delay(10); // Allow time for the second character of a pair to arrive
         while(Serial.available() && (Serial.peek() == '\r' || Serial.peek() == '\n')) {
           Serial.read();
         }
@@ -680,150 +691,126 @@ void runShuntResistanceCalibration(INA226_ADC &ina)
   ina.setLoadConnected(true, MANUAL);
   Serial.println(F("Load enabled for calibration."));
 
-  Serial.println(F("\n--- Shunt Resistance Calibration ---"));
-  Serial.println(F("This routine will calculate the actual shunt resistance based on a few measurements."));
-  Serial.println(F("You will need an external multimeter to measure the true current at each step."));
-  Serial.println(F("Press 'x' at any time to cancel."));
-  Serial.println(F("Note: Enter EXTERNAL load current only. Firmware adds ~0.052A MCU draw automatically."));
-
   const uint16_t activeShuntA = ina.getActiveShunt();
-  const float step2TargetExternalA = activeShuntA * 0.02f;  // ~2% of rated current
-  const float step3TargetExternalA = activeShuntA * 0.10f;  // ~10% of rated current
 
-  float true_a_zero = 0.0f, v_shunt_zero_mv = 0.0f;
-  float true_a_1 = 0.0f, v_shunt_1_mv = 0.0f;
-  float true_a_5 = 0.0f, v_shunt_5_mv = 0.0f;
-  String line;
+  Serial.println(F("\n--- 5-Point Calibration (0A to 4A) ---"));
+  Serial.println(F("This routine will calibrates the sensor by creating a correction curve."));
+  Serial.println(F("1. We will RESET the sensor to Factory Defaults."));
+  Serial.println(F("2. We will measure 5 points: 0A, 0.5A, 1A, 2A, 3A."));
+  Serial.println(F("   (Note: Max 3A chosen because your shunt saturates >3.5A)"));
+  Serial.println(F("3. You enter the TRUE current from your meter."));
+  Serial.println(F("Press 'x' at any time to cancel."));
 
-  // --- Step 1: No Load ---
-  Serial.println(F("\n--- Step 1 of 3: No External Load ---"));
-  Serial.println(F("1. Disconnect all external loads from the shunt."));
-  Serial.println(F("2. Measure the external load current (firmware adds ~0.052A MCU draw)."));
-  Serial.print(F("3. Enter the external load current in Amps (e.g., 0.000) and press Enter: "));
-
-  line = SerialReadLineBlocking();
-  if (line.equalsIgnoreCase("x")) { Serial.println(F("Canceled.")); return; }
-  true_a_zero = line.toFloat() + INA226_ADC::MCU_IDLE_CURRENT_A;
-  Serial.printf("  -> Total calibration current includes MCU draw: %.6f A (MCU %.3f A)\n",
-                true_a_zero, INA226_ADC::MCU_IDLE_CURRENT_A);
-
-  const int samples = 100;
-  float sum_v_zero = 0;
-  for (int s = 0; s < samples; ++s) {
-    ina.readSensors();
-    sum_v_zero += ina.getShuntVoltage_mV();
-    delay(20);
+  // Reset to factory defaults
+  Serial.println(F("\nResetting to factory default settings..."));
+  if (!ina.loadFactoryDefaultResistance(activeShuntA)) {
+      Serial.println(F("Warning: No factory default found. Using current settings."));
   }
-  v_shunt_zero_mv = sum_v_zero / samples;
-  Serial.printf("  -> Recorded avg shunt voltage: %.6f mV (for true current %.6f A)\n", v_shunt_zero_mv, true_a_zero);
+  // Clear any existing linear/table calibration
+  ina.setCalibration(1.0f, 0.0f);
+  ina.clearCalibrationTable(activeShuntA); // Though we are doing linear now
 
-  // --- Step 2: ~1A Load ---
-  Serial.printf("\n--- Step 2 of 3: ~%.3fA External Load ---\n", step2TargetExternalA);
-  Serial.printf("1. Apply a constant external load of approximately %.3fA.\n", step2TargetExternalA);
-  Serial.println(F("2. Measure the external load current (firmware adds ~0.052A MCU draw)."));
-  Serial.printf("3. Enter the external load current in Amps (e.g., %.3f) and press Enter: ", step2TargetExternalA);
+  // Calibration points
+  struct DataPoint {
+      float target;
+      float raw;
+      float true_val;
+  };
+  std::vector<DataPoint> points;
+  float targets[] = {0.0f, 0.5f, 1.0f, 2.0f, 3.0f};
 
-  line = SerialReadLineBlocking();
-  if (line.equalsIgnoreCase("x")) { Serial.println(F("Canceled.")); return; }
-  true_a_1 = line.toFloat() + INA226_ADC::MCU_IDLE_CURRENT_A;
-  Serial.printf("  -> Total calibration current includes MCU draw: %.6f A (MCU %.3f A)\n",
-                true_a_1, INA226_ADC::MCU_IDLE_CURRENT_A);
-
-  float sum_v_1a = 0;
-  for (int s = 0; s < samples; ++s) {
-    ina.readSensors();
-    sum_v_1a += ina.getShuntVoltage_mV();
-    delay(20);
+  // Ask about MCU current inclusion (for the USER input side)
+  Serial.print(F("\nAdd MCU idle current (~0.052A) to your entered value? (Y/n): "));
+  String mcuChoice = SerialReadLineBlocking();
+  bool addMcuCurrent = true;
+  if (mcuChoice.equalsIgnoreCase("n")) {
+      addMcuCurrent = false;
+      Serial.println(F("Not adding MCU current. Using your value as the TOTAL true current."));
+  } else {
+      Serial.println(F("Adding MCU current to your value (default)."));
   }
-  v_shunt_1_mv = sum_v_1a / samples;
-  Serial.printf("  -> Recorded avg shunt voltage: %.6f mV (for true current %.6f A)\n", v_shunt_1_mv, true_a_1);
+  float mcuCurrentOffset = addMcuCurrent ? INA226_ADC::MCU_IDLE_CURRENT_A : 0.0f;
 
-  // --- Step 3: ~5A Load ---
-  Serial.printf("\n--- Step 3 of 3: ~%.3fA External Load ---\n", step3TargetExternalA);
-  Serial.printf("1. Apply a constant external load of approximately %.3fA.\n", step3TargetExternalA);
-  Serial.println(F("2. Measure the external load current (firmware adds ~0.052A MCU draw)."));
-  Serial.printf("3. Enter the external load current in Amps (e.g., %.3f) and press Enter: ", step3TargetExternalA);
 
-  line = SerialReadLineBlocking();
-  if (line.equalsIgnoreCase("x")) { Serial.println(F("Canceled.")); return; }
-  true_a_5 = line.toFloat() + INA226_ADC::MCU_IDLE_CURRENT_A;
-  Serial.printf("  -> Total calibration current includes MCU draw: %.6f A (MCU %.3f A)\n",
-                true_a_5, INA226_ADC::MCU_IDLE_CURRENT_A);
+  for (float target : targets) {
+      Serial.printf("\n--- Step: %.1f A ---\n", target);
+      Serial.printf("1. Set your load to %.3f A.\n", target);
+      Serial.print(F("2. Enter the TRUE current from your meter: "));
 
-  float sum_v_5a = 0;
-  for (int s = 0; s < samples; ++s) {
-    ina.readSensors();
-    sum_v_5a += ina.getShuntVoltage_mV();
-    delay(20);
-  }
-  v_shunt_5_mv = sum_v_5a / samples;
-  Serial.printf("  -> Recorded avg shunt voltage: %.6f mV (for true current %.6f A)\n", v_shunt_5_mv, true_a_5);
-
-  // --- Calculations ---
-  Serial.println(F("\n--- Calculating Shunt Resistance ---"));
-
-  float delta_v_1 = v_shunt_1_mv - v_shunt_zero_mv;
-  float delta_i_1 = true_a_1 - true_a_zero;
-
-  float delta_v_5 = v_shunt_5_mv - v_shunt_zero_mv;
-  float delta_i_5 = true_a_5 - true_a_zero;
-
-  // Check for invalid input
-  if (delta_i_1 <= 0 || delta_i_5 <= 0) {
-    Serial.println(F("\n[ERROR] The current at load steps must be greater than the 'no load' current. Please try again."));
-    return;
-  }
-
-  // R = (delta_V_mV / 1000) / delta_I_A
-  float r_1a = (delta_v_1 / 1000.0f) / delta_i_1;
-  float r_5a = (delta_v_5 / 1000.0f) / delta_i_5;
-
-  Serial.printf("Resistance from ~%.3fA load: (%.6f mV / 1000) / %.6f A = %.9f Ohms\n",
-                step2TargetExternalA, delta_v_1, delta_i_1, r_1a);
-  Serial.printf("Resistance from ~%.3fA load: (%.6f mV / 1000) / %.6f A = %.9f Ohms\n",
-                step3TargetExternalA, delta_v_5, delta_i_5, r_5a);
-
-  if (r_1a <= 0 || r_5a <= 0) {
-    Serial.println(F("\n[ERROR] Calculated resistance is zero or negative. This can happen if the load was not applied correctly or if the 'no load' voltage was higher than the load voltage. Please try again."));
-    return;
-  }
-
-  float newShuntOhms = (r_1a + r_5a) / 2.0f;
-
-  float disagreement = std::fabs(r_1a - r_5a);
-  if (newShuntOhms <= 0.0f || disagreement > (newShuntOhms * 0.25f)) {
-    Serial.println(F("\n[ERROR] Measurements disagree by more than 25%. Please double-check the applied currents and try again."));
-    return;
-  }
-
-  float expectedOhms = 0.0f;
-  if (!ina.getFactoryDefaultResistance(activeShuntA, expectedOhms) || expectedOhms <= 0.0f) {
-    expectedOhms = ina.getCalibratedShuntResistance();
-  }
-
-  if (expectedOhms > 0.0f) {
-    const float minAllowed = expectedOhms * 0.3f;
-    const float maxAllowed = expectedOhms * 3.0f;
-    if (newShuntOhms < minAllowed || newShuntOhms > maxAllowed) {
-      Serial.printf("\n[WARNING] Calculated resistance %.9f Ohms is implausible for the %dA shunt (expected around %.9f Ohms).\n",
-                    newShuntOhms, activeShuntA, expectedOhms);
-      Serial.println(F("This may indicate an issue with your measurement setup."));
-      Serial.print(F("Do you want to accept this value anyway? (y/N): "));
-      String choice = SerialReadLineBlocking();
-      if (!choice.equalsIgnoreCase("y")) {
-        Serial.println(F("Calibration canceled. The old value has been retained."));
-        return;
+      String line = SerialReadLineBlocking();
+      if (line.equalsIgnoreCase("x")) { Serial.println(F("Canceled.")); return; }
+      
+      float user_input = 0.0f;
+      if (line.length() == 0) {
+          user_input = target; // Default to target if empty
+          Serial.printf("Using default: %.3f\n", user_input);
+      } else {
+          user_input = line.toFloat();
       }
-      Serial.println(F("Accepting implausible value based on user override."));
-    }
+
+      float true_current = user_input + mcuCurrentOffset;
+      if (addMcuCurrent) {
+           Serial.printf("  (Calculated True Total: %.3f A Input + %.3f A MCU = %.3f A)\n", 
+              user_input, INA226_ADC::MCU_IDLE_CURRENT_A, true_current);
+      }
+
+      // Read RAW current from sensor
+      Serial.print(F("Reading sensor..."));
+      const int samples = 50;
+      float sum_current = 0;
+      bool sat_error = false;
+      for (int s = 0; s < samples; ++s) {
+          ina.readSensors();
+          if (ina.isSaturated()) { sat_error = true; }
+          // We use getRawCurrent_mA() to get the uncorrected reading based on factory ohms
+          sum_current += ina.getRawCurrent_mA(); 
+          delay(20);
+      }
+      if (sat_error) {
+          Serial.println(F("\n[CRITICAL ERROR] Sensor Saturated! Voltage limit reached."));
+          Serial.println(F("Cannot calibrate at this current. Aborting."));
+          return;
+      }
+
+      float avg_raw_mA = sum_current / samples;
+      float avg_raw_A = avg_raw_mA / 1000.0f;
+      Serial.printf(" Done. Raw: %.4f A, True: %.4f A\n", avg_raw_A, true_current);
+      
+      points.push_back({target, avg_raw_A, true_current});
   }
 
-  Serial.printf("\nCalculated new average shunt resistance: %.9f Ohms.\n", newShuntOhms);
+  // Calculate Linear Regression (y = mx + c)
+  // x = Raw Reading, y = True Value
+  // We want to map Raw -> True
+  
+  float sum_x = 0, sum_y = 0, sum_xy = 0, sum_xx = 0;
+  int n = points.size();
 
-  // Save the new resistance
-  ina.saveShuntResistance(newShuntOhms);
-  Serial.println("This value has been saved and will be used for all future calculations.");
+  for (const auto &p : points) {
+      sum_x += p.raw;
+      sum_y += p.true_val;
+      sum_xy += p.raw * p.true_val;
+      sum_xx += p.raw * p.raw;
+  }
 
+  float slope = (n * sum_xy - sum_x * sum_y) / (n * sum_xx - sum_x * sum_x);
+  float intercept = (sum_y - slope * sum_x) / n;
+
+  // Convert intercept to mA for storage
+  float offset_mA = intercept * 1000.0f;
+
+  Serial.println(F("\n--- Calculation Results ---"));
+  Serial.printf("Gain (Slope): %.6f\n", slope);
+  Serial.printf("Offset: %.6f mA\n", offset_mA);
+
+  Serial.print(F("Save this calibration? (Y/n): "));
+  String save = SerialReadLineBlocking();
+  if (!save.equalsIgnoreCase("n")) {
+      ina.saveCalibration(activeShuntA, slope, offset_mA);
+      Serial.println(F("Saved! Calibration active."));
+  } else {
+      Serial.println(F("Discarded."));
+  }
 }
 
 void runQuickCalibration(INA226_ADC &ina)
@@ -836,7 +823,19 @@ void runQuickCalibration(INA226_ADC &ina)
   Serial.println(F("This routine will calculate the actual shunt resistance using fixed 1A and 5A load steps."));
   Serial.println(F("You will need an external multimeter to measure the true current at each step."));
   Serial.println(F("Press 'x' at any time to cancel."));
-  Serial.println(F("Note: Enter EXTERNAL load current only. Firmware adds ~0.052A MCU draw automatically."));
+  Serial.println(F("Note: Enter EXTERNAL load current only. Firmware adds ~0.052A MCU draw automatically (optional)."));
+
+  // Ask about MCU current inclusion
+  Serial.print(F("\nInclude MCU idle current (~0.052A) in calculation? (Y/n): "));
+  String mcuChoice = SerialReadLineBlocking();
+  bool includeMcuCurrent = true;
+  if (mcuChoice.equalsIgnoreCase("n")) {
+      includeMcuCurrent = false;
+      Serial.println(F("Excluding MCU current from total."));
+  } else {
+      Serial.println(F("Including MCU current in total (default)."));
+  }
+  float mcuCurrentOffset = includeMcuCurrent ? INA226_ADC::MCU_IDLE_CURRENT_A : 0.0f;
 
   // Select Shunt Rating
   Serial.println(F("\nSelect installed shunt rating (100-500 A in 50A steps) or 'x' to cancel:"));
@@ -877,14 +876,14 @@ void runQuickCalibration(INA226_ADC &ina)
   // --- Step 1: No Load ---
   Serial.println(F("\n--- Step 1 of 3: No External Load ---"));
   Serial.println(F("1. Disconnect all external loads from the shunt."));
-  Serial.println(F("2. Measure the external load current (firmware adds ~0.052A MCU draw)."));
+  Serial.printf("2. Measure the external load current (firmware adds ~%.3fA MCU draw if enabled).\n", mcuCurrentOffset);
   Serial.print(F("3. Enter the external load current in Amps (e.g., 0.000) and press Enter: "));
 
   line = SerialReadLineBlocking();
   if (line.equalsIgnoreCase("x")) { Serial.println(F("Canceled.")); return; }
-  true_a_zero = line.toFloat() + INA226_ADC::MCU_IDLE_CURRENT_A;
-  Serial.printf("  -> Total calibration current includes MCU draw: %.6f A (MCU %.3f A)\n",
-                true_a_zero, INA226_ADC::MCU_IDLE_CURRENT_A);
+  true_a_zero = line.toFloat() + mcuCurrentOffset;
+  Serial.printf("  -> Total calibration current: %.6f A (External + %.3f A MCU)\n",
+                true_a_zero, mcuCurrentOffset);
 
   const int samples = 100;
   float sum_v_zero = 0;
@@ -899,14 +898,23 @@ void runQuickCalibration(INA226_ADC &ina)
   // --- Step 2: ~1A Load ---
   Serial.printf("\n--- Step 2 of 3: ~%.3fA External Load ---\n", step2TargetExternalA);
   Serial.printf("1. Apply a constant external load of approximately %.3fA.\n", step2TargetExternalA);
-  Serial.println(F("2. Measure the external load current (firmware adds ~0.052A MCU draw)."));
+  Serial.printf("2. Measure the external load current (firmware adds ~%.3fA MCU draw if enabled).\n", mcuCurrentOffset);
   Serial.printf("3. Enter the external load current in Amps (e.g., %.3f) and press Enter: ", step2TargetExternalA);
 
   line = SerialReadLineBlocking();
   if (line.equalsIgnoreCase("x")) { Serial.println(F("Canceled.")); return; }
-  true_a_1 = line.toFloat() + INA226_ADC::MCU_IDLE_CURRENT_A;
-  Serial.printf("  -> Total calibration current includes MCU draw: %.6f A (MCU %.3f A)\n",
-                true_a_1, INA226_ADC::MCU_IDLE_CURRENT_A);
+  
+  float val_1 = 0.0f;
+  if (line.length() == 0) {
+      val_1 = step2TargetExternalA;
+      Serial.printf("  -> Using default: %.3f A\n", val_1);
+  } else {
+      val_1 = line.toFloat();
+  }
+  true_a_1 = val_1 + mcuCurrentOffset;
+
+  Serial.printf("  -> Total calibration current: %.6f A (External + %.3f A MCU)\n",
+                true_a_1, mcuCurrentOffset);
 
   float sum_v_1a = 0;
   for (int s = 0; s < samples; ++s) {
@@ -920,14 +928,23 @@ void runQuickCalibration(INA226_ADC &ina)
   // --- Step 3: ~5A Load ---
   Serial.printf("\n--- Step 3 of 3: ~%.3fA External Load ---\n", step3TargetExternalA);
   Serial.printf("1. Apply a constant external load of approximately %.3fA.\n", step3TargetExternalA);
-  Serial.println(F("2. Measure the external load current (firmware adds ~0.052A MCU draw)."));
+  Serial.printf("2. Measure the external load current (firmware adds ~%.3fA MCU draw if enabled).\n", mcuCurrentOffset);
   Serial.printf("3. Enter the external load current in Amps (e.g., %.3f) and press Enter: ", step3TargetExternalA);
 
   line = SerialReadLineBlocking();
   if (line.equalsIgnoreCase("x")) { Serial.println(F("Canceled.")); return; }
-  true_a_5 = line.toFloat() + INA226_ADC::MCU_IDLE_CURRENT_A;
-  Serial.printf("  -> Total calibration current includes MCU draw: %.6f A (MCU %.3f A)\n",
-                true_a_5, INA226_ADC::MCU_IDLE_CURRENT_A);
+
+  float val_5 = 0.0f;
+  if (line.length() == 0) {
+      val_5 = step3TargetExternalA;
+      Serial.printf("  -> Using default: %.3f A\n", val_5);
+  } else {
+      val_5 = line.toFloat();
+  }
+  true_a_5 = val_5 + mcuCurrentOffset;
+
+  Serial.printf("  -> Total calibration current: %.6f A (External + %.3f A MCU)\n",
+                true_a_5, mcuCurrentOffset);
 
   float sum_v_5a = 0;
   for (int s = 0; s < samples; ++s) {
@@ -1093,48 +1110,7 @@ void runProtectionConfigMenu(INA226_ADC &ina)
   Serial.println(F("Protection settings updated."));
 }
 
-void runExportCalibrationMenu(INA226_ADC &ina)
-{
-  Serial.println(F("\n--- Export Calibration Data ---"));
-  Serial.println(F("Choose shunt rating to export (100-500 A):"));
-  Serial.print(F("> "));
 
-  String sel = SerialReadLineBlocking();
-  if (sel.equalsIgnoreCase("x"))
-  {
-    Serial.println(F("Export canceled."));
-    return;
-  }
-
-  int shuntA = sel.toInt();
-  if (shuntA < 100 || shuntA > 500 || (shuntA % 50) != 0)
-  {
-    Serial.println(F("Invalid shunt rating. Aborting export."));
-    return;
-  }
-
-  if (!ina.loadCalibrationTable(shuntA))
-  {
-    Serial.printf("No calibration table found for %dA shunt. Cannot export.\n", shuntA);
-    return;
-  }
-
-  const std::vector<CalPoint> &table = ina.getCalibrationTable();
-  if (table.empty())
-  {
-    Serial.printf("Calibration table for %dA shunt is empty. Nothing to export.\n", shuntA);
-    return;
-  }
-
-  Serial.println(F("\n--- Copy the following C++ code ---"));
-  Serial.printf("std::vector<CalPoint> preCalibratedPoints_%d = {\n", shuntA);
-  for (const auto &point : table)
-  {
-    Serial.printf("    {%.6f, %.6f},\n", point.raw_mA, point.true_mA);
-  }
-  Serial.println("};");
-  Serial.println(F("--- End of C++ code ---"));
-}
 
 void onDataSent(const uint8_t *mac_addr, esp_now_send_status_t status)
 {
@@ -1257,7 +1233,9 @@ void setup()
   bleHandler.setSOCCallback(socCallback);
   bleHandler.setVoltageProtectionCallback(voltageProtectionCallback);
   bleHandler.setLowVoltageDelayCallback(lowVoltageDelayCallback);
+  bleHandler.setLowVoltageDelayCallback(lowVoltageDelayCallback);
   bleHandler.setDeviceNameSuffixCallback(deviceNameSuffixCallback);
+  bleHandler.setRatedCapacityCallback(ratedCapacityCallback);
   bleHandler.setWifiSsidCallback(wifiSsidCallback);
   bleHandler.setWifiPassCallback(wifiPassCallback);
   bleHandler.setOtaControlCallback(otaControlCallback);
@@ -1281,7 +1259,8 @@ void setup()
         .lastDayWh = 0.0f,
         .lastWeekWh = 0.0f,
         .lowVoltageDelayS = ina226_adc.getLowVoltageDelay(),
-        .deviceNameSuffix = ina226_adc.getDeviceNameSuffix()
+        .deviceNameSuffix = ina226_adc.getDeviceNameSuffix(),
+        .ratedCapacity = ina226_adc.getMaxBatteryCapacity()
   };
   bleHandler.begin(initial_telemetry);
 
@@ -1318,20 +1297,10 @@ void loop()
   {
     String s = Serial.readStringUntil('\n');
     s.trim();
-    if (s.equalsIgnoreCase("c"))
-    {
-      // run the current calibration menu
-      runCurrentCalibrationMenu(ina226_adc);
-    }
-    else if (s.equalsIgnoreCase("r"))
+    if (s.equalsIgnoreCase("r"))
     {
       // run the new shunt resistance calibration
       runShuntResistanceCalibration(ina226_adc);
-    }
-    else if (s.equalsIgnoreCase("q"))
-    {
-      // run the quick shunt resistance calibration (1A / 5A)
-      runQuickCalibration(ina226_adc);
     }
     else if (s.equalsIgnoreCase("v"))
     {
@@ -1401,11 +1370,7 @@ void loop()
         Serial.println("Load manually toggled ON");
       }
     }
-    else if (s.equalsIgnoreCase("e"))
-    {
-      // export calibration data
-      runExportCalibrationMenu(ina226_adc);
-    }
+
     else if (s.equalsIgnoreCase("a"))
     {
       // toggle hardware alert
@@ -1451,11 +1416,26 @@ void loop()
     // else ignore — keep running
   }
 
-  if (millis() - last_loop_millis > loop_interval)
+  // --- HIGH FREQUENCY POLLING (100ms) ---
+  if (millis() - last_polling_millis > polling_interval)
   {
-    // Always read sensors
-    ina226_adc.readSensors();
+      ina226_adc.readSensors();
+      ina226_adc.checkAndHandleProtection(); // Fast protection check
+      
+      if (ina226_adc.isConfigured()) {
+          // Update coulomb counting integration at 10Hz
+          ina226_adc.updateBatteryCapacity(ina226_adc.getCurrent_mA() / 1000.0f);
+          
+          // Update energy usage stats
+          ina226_adc.updateEnergyUsage(ina226_adc.getPower_mW());
+      }
+      
+      last_polling_millis = millis();
+  }
 
+  // --- TELEMETRY BROADCAST (10s) ---
+  if (millis() - last_telemetry_millis > telemetry_interval)
+  {
     // Populate struct fields based on configuration status
     ae_smart_shunt_struct.messageID = 11;
     ae_smart_shunt_struct.dataChanged = true;
@@ -1464,7 +1444,7 @@ void loop()
     {
       // --- CONFIGURED ---
       ae_smart_shunt_struct.isCalibrated = true;
-      ina226_adc.checkAndHandleProtection();
+      // Note: We don't need to call checkAndHandleProtection here as it's done in the fast loop
 
       ae_smart_shunt_struct.batteryVoltage = ina226_adc.getBusVoltage_V();
       ae_smart_shunt_struct.batteryCurrent = ina226_adc.getCurrent_mA() / 1000.0f;
@@ -1476,16 +1456,15 @@ void loop()
 
       ae_smart_shunt_struct.batteryState = 0; // 0 = Normal, 1 = Warning, 2 = Critical
 
-      // Update remaining capacity in the INA226 helper (expects current in A)
-      ina226_adc.updateBatteryCapacity(ina226_adc.getCurrent_mA() / 1000.0f);
-
       // Get remaining Ah from INA helper
       float remainingAh = ina226_adc.getBatteryCapacity();
       ae_smart_shunt_struct.batteryCapacity = remainingAh; // remaining capacity in Ah
-      // batteryCapacity global holds the rated capacity in Ah for SOC calculation
-      if (batteryCapacity > 0.0f)
+      
+      // Use the dynamic max capacity for SOC calc
+      float maxCap = ina226_adc.getMaxBatteryCapacity();
+      if (maxCap > 0.0f)
       {
-        ae_smart_shunt_struct.batterySOC = remainingAh / batteryCapacity; // fraction 0..1
+        ae_smart_shunt_struct.batterySOC = remainingAh / maxCap; // fraction 0..1
       }
       else
       {
@@ -1525,16 +1504,13 @@ void loop()
     }
     ae_smart_shunt_struct.runFlatTime[sizeof(ae_smart_shunt_struct.runFlatTime) - 1] = '\0'; // ensure null termination
 
-    // Update energy usage stats
-    ina226_adc.updateEnergyUsage(ina226_adc.getPower_mW());
-
     // Update BLE characteristics
     Telemetry telemetry_data = {
         .batteryVoltage = ae_smart_shunt_struct.batteryVoltage,
         .batteryCurrent = ae_smart_shunt_struct.batteryCurrent,
         .batteryPower = ae_smart_shunt_struct.batteryPower,
         .batterySOC = ae_smart_shunt_struct.batterySOC,
-        .batteryCapacity = ae_smart_shunt_struct.batteryCapacity,
+        .batteryCapacity = ae_smart_shunt_struct.batteryCapacity, // Remaining capacity
         .starterBatteryVoltage = ae_smart_shunt_struct.starterBatteryVoltage,
         .isCalibrated = ae_smart_shunt_struct.isCalibrated,
         .errorState = ae_smart_shunt_struct.batteryState,
@@ -1545,7 +1521,8 @@ void loop()
         .lastDayWh = ina226_adc.getLastDayEnergy_Wh(),
         .lastWeekWh = ina226_adc.getLastWeekEnergy_Wh(),
         .lowVoltageDelayS = ina226_adc.getLowVoltageDelay(),
-        .deviceNameSuffix = ina226_adc.getDeviceNameSuffix()
+        .deviceNameSuffix = ina226_adc.getDeviceNameSuffix(),
+        .ratedCapacity = ina226_adc.getMaxBatteryCapacity()
     };
     bleHandler.updateTelemetry(telemetry_data);
 
@@ -1563,6 +1540,6 @@ void loop()
     }
 
     Serial.println();
-    last_loop_millis = millis();
+    last_telemetry_millis = millis();
   }
 }

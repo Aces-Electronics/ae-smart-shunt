@@ -11,13 +11,38 @@ RTC_DATA_ATTR uint32_t g_low_power_sleep_flag = 0;
 #define LOW_POWER_SLEEP_MAGIC                                                  \
   0x12345678 // A magic number to indicate low power sleep
 
-namespace {
-// Factory-calibrated table for the 100A shunt, based on user-provided data
-const std::vector<CalPoint> factory_cal_100A = {
-    {27.161f, 50.000f},       {2021.088f, 2050.000f},
-    {4019.657f, 4050.000f},   {10002.939f, 10050.000f},
-    {19962.066f, 20050.000f}, {99592.500f, 100050.000f},
+struct RTC_Data {
+    uint32_t magic;
+    
+    // Energy Usage Stats - Rolled Buffers
+    float currentMinute_Ws;
+    unsigned long lastUpdate_ms;
+    unsigned long lastMinMark_ms;
+    
+    // Buffers (Flat arrays for storage)
+    float minBuf[60];
+    size_t minHead;
+    size_t minCount;
+    
+    float hourBuf[24];
+    size_t hourHead;
+    size_t hourCount;
+    
+    float dayBuf[7];
+    size_t dayHead;
+    size_t dayCount;
+    
+    // Battery State
+    float batteryCapacity;
+    bool hasCapacity;
 };
+
+RTC_DATA_ATTR RTC_Data rtcData = {0};
+#define RTC_MAGIC 0xAE534855 // "AESHU" - Increment for new struct layout
+
+namespace {
+// Factory tables removed in favor of linear calibration
+
 // Factory-calibrated table for the 100A shunt, based on user-provided data
 const std::vector<CalPoint> factory_cal_200A = {
     {28.015135f, 50.000000f},         {4031.613037f, 4050.000244f},
@@ -28,9 +53,14 @@ const std::vector<CalPoint> factory_cal_200A = {
 
 // Initialize the static map of factory default shunt resistances.
 const std::map<uint16_t, float> INA226_ADC::factory_shunt_resistances = {
-    {100, 0.000750000f}, {150, 0.000500000f}, {200, 0.000375000f},
+    {100, 0.001730000f}, {150, 0.000500000f}, {200, 0.000375000f},
     {250, 0.000300000f}, {300, 0.000250000f}, {350, 0.000214286f},
     {400, 0.000187500f}, {450, 0.000166667f}, {500, 0.000150000f}};
+
+bool INA226_ADC::isSaturated() const {
+    // Limit is +/- 81.92 mV. Check for >= 81.90mV to be safe.
+    return (fabsf(shuntVoltage_mV) >= 81.90f);
+}
 
 const std::map<float, float> INA226_ADC::soc_voltage_map = {
     {14.60, 100.0}, {14.45, 99.0}, {13.87, 95.0}, {13.30, 90.0}, {13.25, 80.0},
@@ -54,11 +84,8 @@ INA226_ADC::INA226_ADC(uint8_t address, float shuntResistorOhms,
       m_activeShuntA(100), // Default to 100A
       m_disconnectReason(NONE), m_hardwareAlertsDisabled(false), sampleIndex(0),
       sampleCount(0), lastSampleTime(0), sampleIntervalSeconds(10),
-      lastEnergyUpdateTime(0), currentHourEnergy_Ws(0.0f),
-      currentDayEnergy_Ws(0.0f), currentWeekEnergy_Ws(0.0f),
-      lastHourEnergy_Wh(0.0f), lastDayEnergy_Wh(0.0f), lastWeekEnergy_Wh(0.0f),
-      currentHourStartMillis(0), currentDayStartMillis(0),
-      currentWeekStartMillis(0), averagingState(STATE_UNKNOWN) {
+      lastEnergyUpdateTime(0), lastMinuteMark(0), currentMinuteEnergy_Ws(0.0f),
+      averagingState(STATE_UNKNOWN) {
   for (int i = 0; i < maxSamples; ++i)
     currentSamples[i] = 0.0f;
 }
@@ -88,6 +115,13 @@ void INA226_ADC::begin(int sdaPin, int sclPin) {
   Preferences prefs;
   prefs.begin(NVS_CAL_NAMESPACE, true);
   m_activeShuntA = prefs.getUShort(NVS_KEY_ACTIVE_SHUNT, 100); // Default 100A
+  m_activeShuntA = prefs.getUShort(NVS_KEY_ACTIVE_SHUNT, 100); // Default 100A
+  
+  // Load max battery capacity if it exists
+  if (prefs.isKey("max_cap")) {
+      maxBatteryCapacity = prefs.getFloat("max_cap", 100.0f);
+      Serial.printf("Loaded max battery capacity from NVS: %.2f Ah\n", maxBatteryCapacity);
+  }
   prefs.end();
   Serial.printf("Using active shunt rating: %dA\n", m_activeShuntA);
 
@@ -107,12 +141,16 @@ void INA226_ADC::begin(int sdaPin, int sclPin) {
       Serial.printf("No custom calibrated shunt resistance found. Using "
                     "factory default for %dA shunt: %.9f Ohms.\n",
                     m_activeShuntA, calibratedOhms);
+      // Treat factory defaults as a valid configuration
+      this->m_isConfigured = true;
     } else {
       calibratedOhms = defaultOhms; // Fallback to the single firmware default
       Serial.printf(
           "No custom calibrated shunt resistance AND no factory default for "
           "%dA shunt found. Using firmware default: %.9f Ohms.\n",
           m_activeShuntA, calibratedOhms);
+       // Even firmware default counts as configured
+       this->m_isConfigured = true;
     }
   }
 
@@ -322,6 +360,22 @@ void INA226_ADC::setBatteryCapacity(float capacity) {
   }
 }
 
+void INA226_ADC::setMaxBatteryCapacity(float capacityAh) {
+  if (capacityAh <= 0.0f) return;
+  
+  maxBatteryCapacity = capacityAh;
+  Serial.printf("New max battery capacity set: %.2f Ah\n", maxBatteryCapacity);
+  
+  Preferences prefs;
+  prefs.begin(NVS_CAL_NAMESPACE, false);
+  prefs.putFloat("max_cap", maxBatteryCapacity);
+  prefs.end();
+}
+
+float INA226_ADC::getMaxBatteryCapacity() const {
+  return maxBatteryCapacity;
+}
+
 void INA226_ADC::setSOC_percent(float percent) {
   if (percent < 0.0f) {
     percent = 0.0f;
@@ -517,10 +571,10 @@ bool INA226_ADC::getFactoryDefaultResistance(uint16_t shuntRatedA,
 
 void INA226_ADC::applyShuntConfiguration() {
   // Sanity-check the stored/calculated shunt value; reject obviously-bad values
-  // Typical shunts here are ~0.2–5.0 mΩ
+  // Typical shunts here are ~0.2–5.0 mΩ, but user has ~23mΩ
   float shunt = calibratedOhms;
 
-  if (!(shunt > 0.00001f && shunt < 0.010f)) {
+  if (!(shunt > 0.00001f && shunt < 0.100f)) {
     Serial.printf(
         "WARN: Rejected invalid shunt resistance %.9f Ohm; falling back.\n",
         shunt);
@@ -690,16 +744,8 @@ bool INA226_ADC::clearCalibrationTable(uint16_t shuntRatedA) {
 bool INA226_ADC::loadFactoryCalibrationTable(uint16_t shuntRatedA) {
   const std::vector<CalPoint> *factory_table = nullptr;
 
-  switch (shuntRatedA) {
-  case 100:
-    factory_table = &factory_cal_100A;
-    break;
-  // Future pre-calibrated tables can be added here
-  default:
-    Serial.printf("No factory calibration table available for %dA shunt.\\n",
-                  shuntRatedA);
-    return false;
-  }
+  // Factory tables are deprecated. Always return false to use linear calculation.
+  return false;
 
   if (factory_table) {
     // saveCalibrationTable persists to NVS and loads into RAM
@@ -758,22 +804,27 @@ void INA226_ADC::checkSoCSync() {
 
   // Sync to 100%
   // If voltage is high (Absorption/Float) and current has dropped off.
-  // We use 14.2V as a general "Charging" voltage threshold for 12V LiFePO4/Lead
-  // AND current is positive but low.
-  if (busVoltage_V > 14.2f && currentA > 0.0f && currentA < tailCurrentA) {
-    // Debounce could be added here, but for now we sync immediately
-    // Only upwards sync if we are close to full? No, drift can be large.
-    if (batteryCapacity < maxBatteryCapacity) {
-      // Only log seldomly to avoid spam?
-      // Serial.println("SOC Synced to 100%");
-      batteryCapacity = maxBatteryCapacity;
-    }
+  // We use 14.2V as the "Charging" voltage threshold.
+  if (busVoltage_V >= 14.2f && currentA > 0.0f) {
+      if (currentA <= 1.0f) {
+          // Fully charged (Voltage high + tail current low)
+          if (batteryCapacity < maxBatteryCapacity) {
+             batteryCapacity = maxBatteryCapacity;
+             Serial.println("SOC Synced to 100% (High Voltage + Low Current)");
+          }
+      } else {
+          // Charging but high current -> not full yet.
+          // Cap at 99% to prevent premature 100%
+          if (batteryCapacity > maxBatteryCapacity * 0.99f) {
+              batteryCapacity = maxBatteryCapacity * 0.99f;
+          }
+      }
   }
 
-  // Hard Sync on Over-Voltage (14.6V is usually absolute max for 12V LFP)
-  // If we hit this, we are definitely full.
-  if (busVoltage_V >= 14.0f) {
-    batteryCapacity = maxBatteryCapacity;
+  // Sync to 0%
+  // If voltage drops below absolute functional minimum.
+  if (busVoltage_V < 10.5f) {
+    batteryCapacity = 0.0f;
   }
 
   // Sync to 0%
@@ -1291,131 +1342,157 @@ void INA226_ADC::dumpRegisters() const {
 }
 
 // ---------------- Energy Usage Tracking ----------------
-
 // ---------------- Energy Usage Tracking ----------------
-
-// Structure to hold state in RTC memory (survives deep sleep and soft reboots)
-struct RTC_Data {
-    uint32_t magic;
-    // Energy stats
-    float currentHour_Ws;
-    float currentDay_Ws;
-    float currentWeek_Ws;
-    unsigned long elapsedHour_ms;
-    unsigned long elapsedDay_ms;
-    unsigned long elapsedWeek_ms;
-    // Battery State
-    float batteryCapacity;
-    bool hasCapacity;
-};
-
-RTC_DATA_ATTR RTC_Data rtcData = {0};
-#define RTC_MAGIC 0xAE534854 // "AESHT"
-
 void INA226_ADC::updateEnergyUsage(float power_mW) {
   unsigned long now = millis();
+  
+  // Initialization / Restore check
   if (lastEnergyUpdateTime == 0) {
-    // Try to restore from RTC first if this is the first call
     if (rtcData.magic == RTC_MAGIC) {
         Serial.println("Restoring energy stats from RTC memory...");
-        currentHourEnergy_Ws = rtcData.currentHour_Ws;
-        currentDayEnergy_Ws = rtcData.currentDay_Ws;
-        currentWeekEnergy_Ws = rtcData.currentWeek_Ws;
+        currentMinuteEnergy_Ws = rtcData.currentMinute_Ws;
         
-        if (now >= rtcData.elapsedHour_ms) currentHourStartMillis = now - rtcData.elapsedHour_ms;
-        else currentHourStartMillis = 0;
-
-        if (now >= rtcData.elapsedDay_ms) currentDayStartMillis = now - rtcData.elapsedDay_ms;
-        else currentDayStartMillis = 0;
-
-        if (now >= rtcData.elapsedWeek_ms) currentWeekStartMillis = now - rtcData.elapsedWeek_ms;
-        else currentWeekStartMillis = 0;
+        // Restore buffers
+        minuteBuffer.restore(rtcData.minBuf, rtcData.minHead, rtcData.minCount);
+        hourBuffer.restore(rtcData.hourBuf, rtcData.hourHead, rtcData.hourCount);
+        dayBuffer.restore(rtcData.dayBuf, rtcData.dayHead, rtcData.dayCount);
+        
+        // Attempt to sync time if possible, or just reset "last seen" to now to avoid massive jumps
+        // If we saved lastUpdate_ms, we could check elapsed time, but for simpler logic we'll just continue from "now"
         
         lastEnergyUpdateTime = now;
+        lastMinuteMark = now; 
     } else {
         // First clean boot
         lastEnergyUpdateTime = now;
-        currentHourStartMillis = now;
-        currentDayStartMillis = now;
-        currentWeekStartMillis = now;
+        lastMinuteMark = now;
+        currentMinuteEnergy_Ws = 0.0f;
+        minuteBuffer.clear();
+        hourBuffer.clear();
+        dayBuffer.clear();
         
-        // Initialize RTC if not valid (and setup magic)
-        if (rtcData.magic != RTC_MAGIC) {
-             memset(&rtcData, 0, sizeof(rtcData));
-             rtcData.magic = RTC_MAGIC;
-        }
+        // Initialize RTC
+        memset(&rtcData, 0, sizeof(rtcData));
+        rtcData.magic = RTC_MAGIC;
     }
   }
 
-  // Double check initialization if we just fell through
-  if (lastEnergyUpdateTime == 0) return; // Should not happen
-
-  float power_W = power_mW / 1000.0f;
+  // Calculate energy since last update
   float time_delta_s = (now - lastEnergyUpdateTime) / 1000.0f;
+  if (time_delta_s < 0) time_delta_s = 0; // Guard overflow
   
-  // Handle case where millis() rolled over or time jumped backwards significantly
-  if (time_delta_s < 0) time_delta_s = 0;
-
-  float energy_delta_Ws = power_W * time_delta_s;
-
-  currentHourEnergy_Ws += energy_delta_Ws;
-  currentDayEnergy_Ws += energy_delta_Ws;
-  currentWeekEnergy_Ws += energy_delta_Ws;
-
+  float energy_Ws = (power_mW / 1000.0f) * time_delta_s;
+  currentMinuteEnergy_Ws += energy_Ws;
   lastEnergyUpdateTime = now;
-
-  // Rollover logic
-  const unsigned long hour_ms = 3600000;
-  const unsigned long day_ms = 24 * hour_ms;
-  const unsigned long week_ms = 7 * day_ms;
-
-  unsigned long elapsedHour = now - currentHourStartMillis;
-  unsigned long elapsedDay = now - currentDayStartMillis;
-  unsigned long elapsedWeek = now - currentWeekStartMillis;
-
-  if (elapsedHour >= hour_ms) {
-    lastHourEnergy_Wh = currentHourEnergy_Ws / 3600.0f;
-    currentHourEnergy_Ws = 0.0f;
-    currentHourStartMillis = now;
-    elapsedHour = 0;
+  
+  // Check for Minute Boundary (every 60 seconds)
+  if (now - lastMinuteMark >= 60000) {
+      // 1 Minute passed. 
+      // Push accumulated Ws (converted to Wh?) or keep Ws?
+      // Let's keep Ws in minute buffer for precision, convert to Wh when summing or pushing to hour.
+      // Actually standardizing on Wh usually makes sense at hour level. 
+      // Let's store Ws in minute buffer.
+      minuteBuffer.push(currentMinuteEnergy_Ws);
+      
+      // Check if we have completed an Hour (60 minutes)
+      // The minuteBuffer holds the last 60 minutes.
+      // Every time we push a minute, do we push to hour?
+      // No, "Hour Buffer" holds "Last 24 Hours".
+      // We should push to Hour Buffer once every 60 minutes.
+      // How to track? `minuteBuffer.getCount()` isn't enough because it caps at 60.
+      // We can use the buffer head or a counter.
+      // Or simply: When minuteBuffer wraps or every 60th push?
+      // Better: Keep a separate counter or simpler logic:
+      // "Rolling Window": The sum of minuteBuffer IS the "Last Hour".
+      // But for "Last Day", we need 24 chunks of "Hours".
+      // An "Hour Chunk" is the sum of the *just processed* 60 minutes.
+      // If we clear minute buffer, we lose "Last Hour" rolling ability.
+      // We need "Last Hour" to be a sliding window of 60 mins.
+      // We need "Last Day" to be a sliding window of 24 hours.
+      // This implies we need to accumulate minutes into an "Hour Accumulator" separate from the sliding window?
+      // No, we can just sample the minute buffer?
+      // Actually, standard approach:
+      // Minute Buffer receives data every minute.
+      // When 60 minutes have passed (track count), take the SUM of those 60 minutes and push to Hour Buffer.
+      // But if we use a sliding Minute Buffer, the "last 60 minutes" changes every minute.
+      // The "Hour Buffer" usually represents specific monotonic hours or just "chunks of 60 mins".
+      // Let's implement:
+      // Every 60 minutes (tracked by a counter), sum the last 60 entries (which corresponds to the full buffer if size 60) and push to Hour Buffer.
+      // Wait, if we push to Hour Buffer every 60 mins, "Last Day" updates only once an hour. That's acceptable.
+      
+      static int minutesSinceLastHourPush = 0;
+      minutesSinceLastHourPush++;
+      
+      if (minutesSinceLastHourPush >= 60) {
+          // Push to Hour Buffer (Store as Wh now for larger scale)
+          // Sum of minute buffer (Ws) / 3600
+          float lastHour_Wh = minuteBuffer.sum() / 3600.0f;
+          hourBuffer.push(lastHour_Wh);
+          minutesSinceLastHourPush = 0;
+          
+          static int hoursSinceLastDayPush = 0;
+          hoursSinceLastDayPush++;
+          
+          if (hoursSinceLastDayPush >= 24) {
+              // Push to Day Buffer (Wh)
+              float lastDay_Wh = hourBuffer.sum(); // Sum(hourBuffer) is sum of 24x 1-hour blocks = last 24h
+              dayBuffer.push(lastDay_Wh); 
+              hoursSinceLastDayPush = 0;
+          }
+      }
+      
+      currentMinuteEnergy_Ws = 0.0f;
+      lastMinuteMark = now;
+      
+      // Update RTC Mirror
+      rtcData.currentMinute_Ws = currentMinuteEnergy_Ws;
+      rtcData.lastUpdate_ms = lastEnergyUpdateTime;
+      rtcData.lastMinMark_ms = lastMinuteMark;
+      
+      // Copy buffers to RTC
+      // Note: This happens once a minute. Tolerable for RTC write? YES.
+      // Using direct memcpy for speed
+      memcpy(rtcData.minBuf, minuteBuffer.getBuffer(), sizeof(rtcData.minBuf));
+      rtcData.minHead = minuteBuffer.getHead();
+      rtcData.minCount = minuteBuffer.getCount();
+      
+      memcpy(rtcData.hourBuf, hourBuffer.getBuffer(), sizeof(rtcData.hourBuf));
+      rtcData.hourHead = hourBuffer.getHead();
+      rtcData.hourCount = hourBuffer.getCount();
+      
+      memcpy(rtcData.dayBuf, dayBuffer.getBuffer(), sizeof(rtcData.dayBuf));
+      rtcData.dayHead = dayBuffer.getHead();
+      rtcData.dayCount = dayBuffer.getCount();
+      
+      // We also need to persist the counters (minutesSince..., hoursSince...)
+      // For now, if we reboot, these reset, meaning we might delay the next Hour push up to 59 mins.
+      // Acceptable for this MVP iteration.
   }
-  if (elapsedDay >= day_ms) {
-    lastDayEnergy_Wh = currentDayEnergy_Ws / 3600.0f;
-    currentDayEnergy_Ws = 0.0f;
-    currentDayStartMillis = now;
-    elapsedDay = 0;
-  }
-  if (elapsedWeek >= week_ms) {
-    lastWeekEnergy_Wh = currentWeekEnergy_Ws / 3600.0f;
-    currentWeekEnergy_Ws = 0.0f;
-    currentWeekStartMillis = now;
-    elapsedWeek = 0;
-  }
-
-  // Update RTC mirror
-  rtcData.currentHour_Ws = currentHourEnergy_Ws;
-  rtcData.currentDay_Ws = currentDayEnergy_Ws;
-  rtcData.currentWeek_Ws = currentWeekEnergy_Ws;
-  rtcData.elapsedHour_ms = elapsedHour;
-  rtcData.elapsedDay_ms = elapsedDay;
-  rtcData.elapsedWeek_ms = elapsedWeek;
 }
 
 float INA226_ADC::getLastHourEnergy_Wh() const {
-  // Return the energy usage for the current (incomplete) hour.
-  // This provides a continuously updating value, rather than waiting for the
-  // hour to be over.
-  return currentHourEnergy_Ws / 3600.0f;
+  // Sum of minute buffer (Ws) + current accumulating minute (Ws)
+  return (minuteBuffer.sum() + currentMinuteEnergy_Ws) / 3600.0f;
 }
 
 float INA226_ADC::getLastDayEnergy_Wh() const {
-  // Return the energy usage for the current (incomplete) day.
-  return currentDayEnergy_Ws / 3600.0f;
+  // Sum of hour buffer (Wh) + Current partial hour (from minute buffer)
+  // "Last Day" = Rolling 24h.
+  // hourBuffer has last 0..23 FULL hours.
+  // The "current" hour is represented by the minute buffer.
+  // So Sum(hourBuffer) + Sum(minuteBuffer) is roughly [24h window + 0..59min].
+  // Actually CircularBuffer<24> stores last 24 *completed* hours.
+  // Ideally "Last 24h" = Sum(HourBuffer) is "Last 24 completed hours".
+  // If we want "Energy used in the last 24h period relative to NOW":
+  // It is Sum(HourBuffer) + Sum(MinuteBuffer) - (Oldest Hour Partial that is falling off?).
+  // Simpler approximation: Sum(HourBuffer) + Sum(MinuteBuffer)/3600.
+  // This is effectively "Energy used in valid history".
+  return hourBuffer.sum() + (minuteBuffer.sum() + currentMinuteEnergy_Ws) / 3600.0f;
 }
 
 float INA226_ADC::getLastWeekEnergy_Wh() const {
-  // Return the energy usage for the current (incomplete) week.
-  return currentWeekEnergy_Ws / 3600.0f;
+    // Sum(DayBuffer) + Partial Day (HourBuffer + MinuteBuffer)
+    return dayBuffer.sum() + hourBuffer.sum() + (minuteBuffer.sum() + currentMinuteEnergy_Ws) / 3600.0f;
 }
 
 void INA226_ADC::setLowVoltageDelay(uint32_t delay_s) {

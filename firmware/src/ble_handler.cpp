@@ -23,6 +23,7 @@ const char* BLEHandler::LAST_DAY_WH_CHAR_UUID = "1A1B2C3D-4E5F-6A7B-8C9D-0E1F2A3
 const char* BLEHandler::LAST_WEEK_WH_CHAR_UUID = "2A1B2C3D-4E5F-6A7B-8C9D-0E1F2A3B4C5F";
 const char* BLEHandler::LOW_VOLTAGE_DELAY_CHAR_UUID = "3A1B2C3D-4E5F-6A7B-8C9D-0E1F2A3B4C60";
 const char* BLEHandler::DEVICE_NAME_SUFFIX_CHAR_UUID = "4A1B2C3D-4E5F-6A7B-8C9D-0E1F2A3B4C61";
+const char* BLEHandler::SET_RATED_CAPACITY_CHAR_UUID = "5A1B2C3D-4E5F-6A7B-8C9D-0E1F2A3B4C64";
 
 // --- New OTA Service UUIDs ---
 const char* BLEHandler::OTA_SERVICE_UUID = "1a89b148-b4e8-43d7-952b-a0b4b01e43b3";
@@ -148,6 +149,10 @@ void BLEHandler::setLowVoltageDelayCallback(std::function<void(uint32_t)> callba
 
 void BLEHandler::setDeviceNameSuffixCallback(std::function<void(String)> callback) {
     this->deviceNameSuffixCallback = callback;
+}
+
+void BLEHandler::setRatedCapacityCallback(std::function<void(float)> callback) {
+    this->ratedCapacityCallback = callback;
 }
 
 void BLEHandler::setWifiSsidCallback(std::function<void(String)> callback) {
@@ -296,6 +301,12 @@ void BLEHandler::begin(const Telemetry& initial_telemetry) {
     );
     pDeviceNameSuffixCharacteristic->setCallbacks(new StringCharacteristicCallbacks(this->deviceNameSuffixCallback));
 
+    pSetRatedCapacityCharacteristic = pService->createCharacteristic(
+        SET_RATED_CAPACITY_CHAR_UUID,
+        NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::NOTIFY
+    );
+    pSetRatedCapacityCharacteristic->setCallbacks(new FloatCharacteristicCallbacks(this->ratedCapacityCallback));
+
     pWifiSsidCharacteristic = pService->createCharacteristic(
         WIFI_SSID_CHAR_UUID,
         NIMBLE_PROPERTY::WRITE
@@ -391,6 +402,9 @@ void BLEHandler::updateTelemetry(const Telemetry& telemetry) {
 
     pDeviceNameSuffixCharacteristic->setValue(telemetry.deviceNameSuffix);
     pDeviceNameSuffixCharacteristic->notify();
+
+    pSetRatedCapacityCharacteristic->setValue(telemetry.ratedCapacity);
+    pSetRatedCapacityCharacteristic->notify();
 
     // Update advertising data
     startAdvertising(telemetry);

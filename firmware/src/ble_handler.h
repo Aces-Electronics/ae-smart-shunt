@@ -23,6 +23,7 @@ struct Telemetry {
     float lastWeekWh;
     uint32_t lowVoltageDelayS;
     String deviceNameSuffix;
+    float ratedCapacity;
 };
 
 class BLEHandler {
@@ -37,6 +38,7 @@ public:
     void setVoltageProtectionCallback(std::function<void(String)> callback);
     void setLowVoltageDelayCallback(std::function<void(uint32_t)> callback);
     void setDeviceNameSuffixCallback(std::function<void(String)> callback);
+    void setRatedCapacityCallback(std::function<void(float)> callback);
     void setWifiSsidCallback(std::function<void(String)> callback);
     void setWifiPassCallback(std::function<void(String)> callback);
     void setOtaTriggerCallback(std::function<void(bool)> callback);
@@ -71,6 +73,7 @@ public:
     static const char* LAST_WEEK_WH_CHAR_UUID;
     static const char* LOW_VOLTAGE_DELAY_CHAR_UUID;
     static const char* DEVICE_NAME_SUFFIX_CHAR_UUID;
+    static const char* SET_RATED_CAPACITY_CHAR_UUID;
 
     // --- New OTA Service ---
     static const char* OTA_SERVICE_UUID;
@@ -99,6 +102,7 @@ private:
     BLECharacteristic* pLastWeekWhCharacteristic;
     BLECharacteristic* pLowVoltageDelayCharacteristic;
     BLECharacteristic* pDeviceNameSuffixCharacteristic;
+    BLECharacteristic* pSetRatedCapacityCharacteristic;
     BLECharacteristic* pWifiSsidCharacteristic;
     BLECharacteristic* pWifiPassCharacteristic;
     BLECharacteristic* pFirmwareVersionCharacteristic;
@@ -115,6 +119,7 @@ private:
     std::function<void(String)> voltageProtectionCallback;
     std::function<void(uint32_t)> lowVoltageDelayCallback;
     std::function<void(String)> deviceNameSuffixCallback;
+    std::function<void(float)> ratedCapacityCallback;
     std::function<void(String)> wifiSsidCallback;
     std::function<void(String)> wifiPassCallback;
     std::function<void(bool)> otaTriggerCallback;

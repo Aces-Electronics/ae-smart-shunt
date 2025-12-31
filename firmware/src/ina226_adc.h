@@ -9,6 +9,7 @@
 #include <Wire.h>
 #include <map>
 #include <vector>
+#include "CircularBuffer.h"
 
 enum DisconnectReason { NONE, LOW_VOLTAGE, OVERCURRENT, MANUAL };
 
@@ -34,6 +35,7 @@ public:
   void setBatteryCapacity(float capacity);
   void updateBatteryCapacity(float currentA); // current in A (positive = charge)
   bool isOverflow() const;
+  bool isSaturated() const; // New saturation check
   bool clearCalibrationTable(uint16_t shuntRatedA);
   String getAveragedRunFlatTime(float currentA, float warningThresholdHours, bool &warningTriggered);
   String calculateRunFlatTimeFormatted(float currentA, float warningThresholdHours, bool &warningTriggered);
@@ -80,6 +82,9 @@ public:
   void dumpRegisters() const;
 
   float getCalibratedShuntResistance() const;
+  
+  void setMaxBatteryCapacity(float capacityAh);
+  float getMaxBatteryCapacity() const;
 
   // ---------- Linear calibration (legacy / fallback) ----------
   bool loadCalibration(uint16_t shuntRatedA); // apply stored linear (gain/offset)
@@ -158,15 +163,17 @@ private:
   void checkSoCSync();
 
   // Energy usage tracking
+  // Energy usage tracking
   unsigned long lastEnergyUpdateTime;
-  float currentHourEnergy_Ws;
-  float currentDayEnergy_Ws;
-  float currentWeekEnergy_Ws;
-  float lastHourEnergy_Wh;
-  float lastDayEnergy_Wh;
-  float lastWeekEnergy_Wh;
-  unsigned long currentHourStartMillis;
-  unsigned long currentDayStartMillis;
-  unsigned long currentWeekStartMillis;
+  unsigned long lastMinuteMark; // Track when the last minute bucket was finalized
+  float currentMinuteEnergy_Ws; // Accumulator for the current minute
+  
+  CircularBuffer<float, 60> minuteBuffer; // Last 60 minutes (stores Ws or Wh? Let's store Ws for precision then convert)
+                                          // Actually Wh is fine if we convert before pushing. 
+                                          // Let's store Ws in minute buffer to avoid dividing small numbers too early? 
+                                          // No, Wh is standard. 1Ws = 1/3600 Wh.
+                                          // Let's store Ws for consistency with accumulator.
+  CircularBuffer<float, 24> hourBuffer;   // Last 24 hours (stores Wh)
+  CircularBuffer<float, 7> dayBuffer;     // Last 7 days (stores Wh)
 };
 #endif

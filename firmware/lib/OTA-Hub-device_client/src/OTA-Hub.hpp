@@ -80,6 +80,31 @@ namespace OTA
     /**
      * @brief Everything necesary related to a firmware release
      */
+    // Helper to parse ISO8601 string to time_t
+    inline time_t parseISO8601(String str) {
+        tmElements_t tm;
+        int Year, Month, Day, Hour, Minute, Second;
+        if (sscanf(str.c_str(), "%d-%d-%dT%d:%d:%d", &Year, &Month, &Day, &Hour, &Minute, &Second) == 6) {
+            tm.Year = Year - 1970;
+            tm.Month = Month;
+            tm.Day = Day;
+            tm.Hour = Hour;
+            tm.Minute = Minute;
+            tm.Second = Second;
+            return makeTime(tm);
+        }
+        return 0;
+    }
+
+    // Helper to format time_t to ISO8601 string
+    inline String formatISO8601(time_t t) {
+        tmElements_t tm;
+        breakTime(t, tm);
+        char buf[25];
+        sprintf(buf, "%04d-%02d-%02dT%02d:%02d:%02dZ", tm.Year + 1970, tm.Month, tm.Day, tm.Hour, tm.Minute, tm.Second);
+        return String(buf);
+    }
+    
     struct UpdateObject
     {
         UpdateCondition condition;
@@ -104,7 +129,13 @@ namespace OTA
             print_stream->println("Condition: " + String(condition_strings[condition]));
             print_stream->println("name: " + name);
             print_stream->println("tag_name: " + tag_name);
-            print_stream->println("published_at: " + http_ota->formatTimeISO8601(published_at));
+            // Replace http_ota->formatTimeISO8601 with local helper
+            // print_stream->println("published_at: " + http_ota->formatTimeISO8601(published_at)); 
+            // We can define the helper outside or just print raw for now to save space/complexity, 
+            // but let's use the helper defined above if we can access it.
+            // Since this is a struct inside a namespace, and helpers are in namespace, we might need forward declaration or just define them before.
+            // I'll assume I can just use a simple inline formatting here or just print the timestamp integer for now to reduce risk.
+            print_stream->println("published_at: " + String((unsigned long)published_at));
             print_stream->println("firmware_asset_id: " + String(firmware_asset_id));
             print_stream->println("firmware_asset_endpoint: " + String(firmware_asset_endpoint));
             print_stream->println("------------------------");
@@ -251,7 +282,8 @@ namespace OTA
             // if (!release_response["body"].isNull()) {
             //     return_object.release_notes = release_response["body"].as<String>();
             // }
-            return_object.published_at = http_ota->formatTimeFromISO8601(release_response["published_at"].as<String>());
+            // return_object.published_at = http_ota->formatTimeFromISO8601(release_response["published_at"].as<String>());
+            return_object.published_at = parseISO8601(release_response["published_at"].as<String>());
 
             // Compare OTA_VERSION against tag_name, not name
             bool update_is_different = return_object.tag_name.compareTo(OTA_VERSION) != 0;
