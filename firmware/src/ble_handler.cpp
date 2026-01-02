@@ -46,6 +46,7 @@ public:
         std::string value = pCharacteristic->getValue();
         if (value.length() > 0 && _callback) {
             _callback(value[0] != 0);
+            pCharacteristic->notify();
         }
     }
 };
@@ -59,6 +60,7 @@ public:
         std::string value = pCharacteristic->getValue();
         if (value.length() > 0 && _callback) {
             _callback(value[0]);
+            pCharacteristic->notify();
         }
     }
 };
@@ -74,6 +76,7 @@ public:
             uint32_t val;
             memcpy(&val, value.data(), sizeof(val));
             _callback(val);
+            pCharacteristic->notify();
         }
     }
 };
@@ -126,6 +129,7 @@ public:
         std::string value = pCharacteristic->getValue();
         if (value.length() > 0 && _callback) {
             _callback(String(value.c_str()));
+            pCharacteristic->notify();
         }
     }
 };

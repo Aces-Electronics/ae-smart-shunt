@@ -53,7 +53,7 @@ const std::vector<CalPoint> factory_cal_200A = {
 
 // Initialize the static map of factory default shunt resistances.
 const std::map<uint16_t, float> INA226_ADC::factory_shunt_resistances = {
-    {100, 0.001730000f}, {150, 0.000500000f}, {200, 0.000375000f},
+    {100, 0.001730000f}, {150, 0.000500000f}, {200, 0.005518110f},
     {250, 0.000300000f}, {300, 0.000250000f}, {350, 0.000214286f},
     {400, 0.000187500f}, {450, 0.000166667f}, {500, 0.000150000f}};
 
@@ -87,7 +87,7 @@ INA226_ADC::INA226_ADC(uint8_t address, float shuntResistorOhms,
       overcurrentThreshold(50.0f),
       efuseLimit(0.0f), // Default disabled
       compensationResistance(0.0f), // Default 0.0 ohms (no compensation)
-      lowVoltageDelayMs(10000), // Default to 10 seconds
+      lowVoltageDelayMs(30000), // Default to 30 seconds
       lowVoltageStartTime(0),
       deviceNameSuffix(""),
       loadConnected(true),
@@ -191,7 +191,12 @@ void INA226_ADC::begin(int sdaPin, int sclPin) {
   }
 
   loadProtectionSettings();
-  configureAlert(overcurrentThreshold);
+  // Sync hardware alert with eFuse limit (prefer efuseLimit over overcurrentThreshold)
+  if (efuseLimit > 0.0f) {
+      configureAlert(efuseLimit);
+  } else {
+      configureAlert(overcurrentThreshold);
+  }
   setInitialSOC();
 }
 
@@ -243,25 +248,49 @@ void INA226_ADC::setInitialSOC() {
   // Check RTC first for restored capacity
   if (rtcData.magic == RTC_MAGIC && rtcData.hasCapacity) {
     batteryCapacity = rtcData.batteryCapacity;
-    if (batteryCapacity < 0) batteryCapacity = 0;
-    if (batteryCapacity > maxBatteryCapacity) batteryCapacity = maxBatteryCapacity;
-    
+    if (batteryCapacity < 0)
+      batteryCapacity = 0;
+    if (batteryCapacity > maxBatteryCapacity)
+      batteryCapacity = maxBatteryCapacity;
+
     lastUpdateTime = millis();
-    Serial.printf("Restored battery capacity from RTC: %.2f Ah\n", batteryCapacity);
-    // Don't return early; we still want to log the would-be SOC based on voltage for debug?
-    // Actually, we should return early to avoid overwriting with voltage estimate.
-    return; 
+    Serial.printf("Restored battery capacity from RTC: %.2f Ah\n",
+                  batteryCapacity);
+    return;
   }
 
-  readSensors();
-  float voltage = getBusVoltage_V();
-  float current = getCurrent_mA() / 1000.0f; // Convert to Amps
+  Serial.println("Calculating initial SOC. Turning load OFF for stable measure...");
+  
+  // 1. Save and temporarily disable load
+  bool originalLoadState = loadConnected;
+  DisconnectReason originalReason = m_disconnectReason;
+  setLoadConnected(false, MANUAL);
+  delay(100); // Wait for transients to settle
 
-  // Adjust voltage based on load/charge
-  if (current < -0.1f) { // Discharging (under load)
-    voltage += 0.4f;
-  } else if (current > 0.1f) { // Charging
-    voltage -= 0.4f;
+  // 2. Average 50 samples over ~1 second
+  const int initSamples = 50;
+  float sumVoltage = 0;
+  float sumCurrentmA = 0;
+  
+  for (int i = 0; i < initSamples; i++) {
+    readSensors();
+    sumVoltage += getBusVoltage_V();
+    sumCurrentmA += getCurrent_mA();
+    delay(20);
+  }
+  
+  float voltage = sumVoltage / initSamples;
+  float current = (sumCurrentmA / initSamples) / 1000.0f; // Amps
+
+  // 3. Restore load state
+  setLoadConnected(originalLoadState, originalReason);
+
+  // Adjust voltage based on residual current (e.g. external charger)
+  // Use a softer compensation factor (0.1V/A) and a higher threshold
+  if (current < -0.5f) { // Significant discharge
+    voltage += 0.2f;
+  } else if (current > 0.5f) { // Significant charge
+    voltage -= 0.2f;
   }
 
   float soc_percent = 50.0; // Default SOC
@@ -287,8 +316,8 @@ void INA226_ADC::setInitialSOC() {
       float soc_low = it->second;
 
       if (v_high > v_low) {
-        soc_percent = soc_low + ((voltage - v_low) * (soc_high - soc_low)) /
-                                    (v_high - v_low);
+        soc_percent =
+            soc_low + ((voltage - v_low) * (soc_high - soc_low)) / (v_high - v_low);
       } else {
         soc_percent = soc_low;
       }
@@ -301,14 +330,14 @@ void INA226_ADC::setInitialSOC() {
 
   // Initialize RTC data if invalid
   if (rtcData.magic != RTC_MAGIC) {
-      memset(&rtcData, 0, sizeof(rtcData));
-      rtcData.magic = RTC_MAGIC;
+    memset(&rtcData, 0, sizeof(rtcData));
+    rtcData.magic = RTC_MAGIC;
   }
   // Save initial estimate to RTC
   rtcData.batteryCapacity = batteryCapacity;
   rtcData.hasCapacity = true;
 
-  Serial.printf("Initial SOC set to %.2f%% based on adjusted voltage of %.2fV. "
+  Serial.printf("Initial SOC set to %.2f%% based on averaged voltage of %.2fV. "
                 "Initial capacity: %.2fAh\n",
                 soc_percent, voltage, batteryCapacity);
 }
@@ -1066,7 +1095,7 @@ void INA226_ADC::loadProtectionSettings() {
          efuseLimit = 0.0f;
      }
   }
-  lowVoltageDelayMs = prefs.getUInt(NVS_KEY_LOW_VOLTAGE_DELAY, 10000); // Default 10s
+  lowVoltageDelayMs = prefs.getUInt(NVS_KEY_LOW_VOLTAGE_DELAY, 30000); // Default 30s
   deviceNameSuffix = prefs.getString(NVS_KEY_DEVICE_NAME_SUFFIX, "");
   
   float loaded_comp_res = prefs.getFloat(NVS_KEY_COMPENSATION_RESISTANCE, 0.0f);

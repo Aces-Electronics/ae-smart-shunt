@@ -180,18 +180,24 @@ void pairingCallback(String payload) {
 
     if (payload == "FACTORY_RESET") {
         Serial.println("Received FACTORY RESET command via BLE.");
-        Serial.println("Wiping NVS (except Calibration) and rebooting...");
+        Serial.println("PERFORMING FULL HARDWARE WIPE of NVS partition...");
         
-        // Selective Wipe
-        Preferences p;
-        p.begin("storage", false); p.clear(); p.end();
-        p.begin("pairing", false); p.clear(); p.end();
-        p.begin("protection", false); p.clear(); p.end();
-        
-        // Clear WiFi credentials
+        // Clear WiFi credentials first to be safe
         WiFi.disconnect(true, true);
         
-        delay(100);
+        // Perform low-level NVS erase
+        // This is much more robust than clearing individual namespaces
+        esp_err_t err = nvs_flash_erase();
+        if (err != ESP_OK) {
+            Serial.printf("Error: nvs_flash_erase failed (0x%x)\n", err);
+        }
+        err = nvs_flash_init();
+        if (err != ESP_OK) {
+             Serial.printf("Error: nvs_flash_init failed (0x%x)\n", err);
+        }
+
+        Serial.println("NVS wiped. Rebooting in 1s...");
+        delay(1000);
         ESP.restart();
         return;
     }
@@ -792,6 +798,31 @@ void printShunt(const struct_message_ae_smart_shunt_1 *p)
       ina226_adc.isLoadConnected() ? "ON" : "OFF");
 }
 
+// Helper to prompt for shunt selection via Serial
+int promptForShuntSelection(INA226_ADC &ina) {
+    Serial.println(F("\nSelect installed shunt rating (100-500 A in 50A steps) or 'x' to cancel:"));
+    Serial.printf("(Current active shunt: %dA)\n", ina.getActiveShunt());
+    Serial.print(F("> "));
+
+    String sel = SerialReadLineBlocking();
+    if (sel.equalsIgnoreCase("x")) {
+        return -1;
+    }
+
+    // If user just presses Enter, keep current
+    int shuntInput = ina.getActiveShunt();
+    if (sel.length() > 0) {
+        shuntInput = sel.toInt();
+    }
+
+    if (shuntInput < 100 || shuntInput > 500 || (shuntInput % 50) != 0) {
+        Serial.println(F("Invalid shunt rating. Must be 100-500 in 50A steps."));
+        return -2;
+    }
+
+    return shuntInput;
+}
+
 // New function to handle shunt resistance calibration
 void runShuntResistanceCalibration(INA226_ADC &ina)
 {
@@ -799,20 +830,29 @@ void runShuntResistanceCalibration(INA226_ADC &ina)
   ina.setLoadConnected(true, MANUAL);
   Serial.println(F("Load enabled for calibration."));
 
+  // 1. Shunt Selection
+  int shuntInput = promptForShuntSelection(ina);
+  if (shuntInput < 0) return; // Canceled or Invalid
+
+  if (shuntInput != (int)ina.getActiveShunt()) {
+      ina.setActiveShunt(shuntInput);
+  }
+  // Set E-Fuse limit to 50% of the selected shunt rating as a safety baseline
+  ina.setEfuseLimit((float)shuntInput * 0.5f);
   const uint16_t activeShuntA = ina.getActiveShunt();
 
-  Serial.println(F("\n--- 5-Point Calibration (0A to 4A) ---"));
-  Serial.println(F("This routine will calibrates the sensor by creating a correction curve."));
-  Serial.println(F("1. We will RESET the sensor to Factory Defaults."));
+  Serial.println(F("\n--- 5-Point Calibration (0A to 3A) ---"));
+  Serial.println(F("This routine calibrates the sensor by creating a correction curve."));
+  Serial.println(F("1. We will RESET the sensor to Factory Defaults for your selected shunt."));
   Serial.println(F("2. We will measure 5 points: 0A, 0.5A, 1A, 2A, 3A."));
   Serial.println(F("   (Note: Max 3A chosen because your shunt saturates >3.5A)"));
   Serial.println(F("3. You enter the TRUE current from your meter."));
   Serial.println(F("Press 'x' at any time to cancel."));
 
   // Reset to factory defaults
-  Serial.println(F("\nResetting to factory default settings..."));
+  Serial.printf("\nResetting to factory default settings for %dA shunt...\n", activeShuntA);
   if (!ina.loadFactoryDefaultResistance(activeShuntA)) {
-      Serial.println(F("Warning: No factory default found. Using current settings."));
+      Serial.println(F("Warning: No factory default found for this shunt rating. Using current settings."));
   }
   // Clear any existing linear/table calibration
   ina.setCalibration(1.0f, 0.0f);
@@ -946,31 +986,15 @@ void runQuickCalibration(INA226_ADC &ina)
   float mcuCurrentOffset = includeMcuCurrent ? INA226_ADC::MCU_IDLE_CURRENT_A : 0.0f;
 
   // Select Shunt Rating
-  Serial.println(F("\nSelect installed shunt rating (100-500 A in 50A steps) or 'x' to cancel:"));
-  Serial.printf("(Current active shunt: %dA)\n", ina.getActiveShunt());
-  Serial.print(F("> "));
+  int shuntInput = promptForShuntSelection(ina);
+  if (shuntInput < 0) return; // Canceled or Invalid
 
-  String sel = SerialReadLineBlocking();
-  if (sel.equalsIgnoreCase("x")) {
-    Serial.println(F("Calibration canceled."));
-    return;
-  }
-
-  // If user just presses Enter, keep current
-  int shuntInput = ina.getActiveShunt();
-  if (sel.length() > 0) {
-      shuntInput = sel.toInt();
-  }
-
-  if (shuntInput < 100 || shuntInput > 500 || (shuntInput % 50) != 0) {
-    Serial.println(F("Invalid shunt rating. Must be 100-500 in 50A steps."));
-    return;
-  }
-  
   // Set the new active shunt (this saves to NVS and reloads defaults if needed)
-  if (shuntInput != ina.getActiveShunt()) {
+  if (shuntInput != (int)ina.getActiveShunt()) {
       ina.setActiveShunt(shuntInput);
   }
+  // Set E-Fuse limit to 50% of the selected shunt rating as a safety baseline
+  ina.setEfuseLimit((float)shuntInput * 0.5f);
   
   const float step2TargetExternalA = 1.0f;
   const float step3TargetExternalA = 5.0f;
@@ -1392,13 +1416,15 @@ void setup()
       .errorState = 0,
       .loadState = ina226_adc.isLoadConnected(),
       .cutoffVoltage = ina226_adc.getLowVoltageCutoff(),
-        .reconnectVoltage = (ina226_adc.getLowVoltageCutoff() + ina226_adc.getHysteresis()),
-        .lastHourWh = 0.0f,
-        .lastDayWh = 0.0f,
-        .lastWeekWh = 0.0f,
-        .lowVoltageDelayS = ina226_adc.getLowVoltageDelay(),
-        .deviceNameSuffix = ina226_adc.getDeviceNameSuffix(),
-        .ratedCapacity = ina226_adc.getMaxBatteryCapacity()
+      .reconnectVoltage = (ina226_adc.getLowVoltageCutoff() + ina226_adc.getHysteresis()),
+      .lastHourWh = 0.0f,
+      .lastDayWh = 0.0f,
+      .lastWeekWh = 0.0f,
+      .lowVoltageDelayS = ina226_adc.getLowVoltageDelay(),
+      .deviceNameSuffix = ina226_adc.getDeviceNameSuffix(),
+      .eFuseLimit = ina226_adc.getEfuseLimit(),
+      .activeShuntRating = ina226_adc.getActiveShunt(),
+      .ratedCapacity = ina226_adc.getMaxBatteryCapacity()
   };
   bleHandler.begin(initial_telemetry);
 
@@ -1460,39 +1486,33 @@ void loop()
     {
       // FACTORY RESET: erase saved settings and reboot
       Serial.println(F("\n*** FACTORY RESET ***"));
-      Serial.println(F("This will erase saved settings (protection, capacity, pairing) BUT KEEP CALIBRATION and reboot."));
+      Serial.println(F("This will PERMANENTLY ERASE ALL SETTINGS, CALIBRATION, and pairing info."));
       Serial.println(F("Type YES to confirm:"));
       String conf = SerialReadLineBlocking();
       if (conf == "YES") {
+        Serial.println(F("PERFORMING FULL HARDWARE WIPE of NVS partition..."));
+        
         // Best-effort: put hardware into a safe state first
         ina226_adc.setLoadConnected(false, MANUAL);
 
-        // Ensure hardware alerts are enabled (toggle if they were disabled)
-        if (ina226_adc.areHardwareAlertsDisabled()) {
-          ina226_adc.toggleHardwareAlerts();
+        // Clear WiFi credentials
+        WiFi.disconnect(true, true);
+        
+        // Perform low-level NVS erase
+        esp_err_t err = nvs_flash_erase();
+        if (err != ESP_OK) {
+            Serial.printf("Error: nvs_flash_erase failed (0x%x)\n", err);
+        }
+        err = nvs_flash_init();
+        if (err != ESP_OK) {
+             Serial.printf("Error: nvs_flash_init failed (0x%x)\n", err);
         }
 
-        Preferences p;
-
-        // Known namespaces (clear all keys)
-        p.begin("storage", false);            // battery capacity, etc.
-        p.clear();
-        p.end();
-
-        // SKIP NVS_CAL_NAMESPACE to preserve calibration
-        // p.begin(NVS_CAL_NAMESPACE, false);    // "ina_cal" (shunt, tables, suffix if stored here)
-        // p.clear();
-        // p.end();
-
-        p.begin(NVS_PROTECTION_NAMESPACE, false); // "protection" (LV cutoff, hysteresis, OC)
-        p.clear();
-        p.end();
-
-        Serial.println(F("Factory reset complete. Rebooting..."));
-        delay(500);
-        ESP.restart();   // Arduino-style restart
+        Serial.println(F("Factory reset complete. Rebooting in 1s..."));
+        delay(1000);
+        ESP.restart();
       } else {
-        Serial.println(F("Factory reset cancelled."));
+        Serial.println(F("Canceled."));
       }
     }
     else if (s.equalsIgnoreCase("l"))
