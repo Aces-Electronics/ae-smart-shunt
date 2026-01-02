@@ -18,6 +18,7 @@
 #define NVS_KEY_LOW_VOLTAGE_DELAY "lv_delay"
 #define NVS_KEY_DEVICE_NAME_SUFFIX "name_suffix"
 #define NVS_KEY_COMPENSATION_RESISTANCE "comp_res"
+#define NVS_KEY_EFUSE_LIMIT "efuse_limit"
 
 #define I2C_ADDRESS 0x40
 const int scanTime = 5;

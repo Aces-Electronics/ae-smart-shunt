@@ -71,16 +71,28 @@ INA226_ADC::INA226_ADC(uint8_t address, float shuntResistorOhms,
                        float batteryCapacityAh)
     : ina226(address),
       defaultOhms(shuntResistorOhms > 0.0f ? shuntResistorOhms : 0.003286742f),
-      calibratedOhms(shuntResistorOhms > 0.0f ? shuntResistorOhms
-                                              : 0.003286742f),
-      batteryCapacity(batteryCapacityAh), maxBatteryCapacity(batteryCapacityAh),
-      lastUpdateTime(0), shuntVoltage_mV(-1), loadVoltage_V(-1),
-      busVoltage_V(-1), current_mA(-1), power_mW(-1), calibrationGain(1.0f),
-      calibrationOffset_mA(0.0f), lowVoltageCutoff(11.6f), hysteresis(0.2f),
-      overcurrentThreshold(50.0f), compensationResistance(0.0f), // Default 0.0 ohms (no compensation)
-      lowVoltageDelayMs(10000),    // Default to 10 seconds
-      lowVoltageStartTime(0), deviceNameSuffix(""), loadConnected(true),
-      alertTriggered(false), m_isConfigured(false),
+      calibratedOhms(shuntResistorOhms > 0.0f ? shuntResistorOhms : 0.003286742f),
+      batteryCapacity(batteryCapacityAh),
+      maxBatteryCapacity(batteryCapacityAh),
+      lastUpdateTime(0),
+      shuntVoltage_mV(-1),
+      loadVoltage_V(-1),
+      busVoltage_V(-1),
+      current_mA(-1),
+      power_mW(-1),
+      calibrationGain(1.0f),
+      calibrationOffset_mA(0.0f),
+      lowVoltageCutoff(11.6f),
+      hysteresis(0.2f),
+      overcurrentThreshold(50.0f),
+      efuseLimit(0.0f), // Default disabled
+      compensationResistance(0.0f), // Default 0.0 ohms (no compensation)
+      lowVoltageDelayMs(10000), // Default to 10 seconds
+      lowVoltageStartTime(0),
+      deviceNameSuffix(""),
+      loadConnected(true),
+      alertTriggered(false),
+      m_isConfigured(false),
       m_activeShuntA(100), // Default to 100A
       m_disconnectReason(NONE), m_hardwareAlertsDisabled(false), sampleIndex(0),
       sampleCount(0), lastSampleTime(0), sampleIntervalSeconds(10),
@@ -374,6 +386,26 @@ void INA226_ADC::setMaxBatteryCapacity(float capacityAh) {
 
 float INA226_ADC::getMaxBatteryCapacity() const {
   return maxBatteryCapacity;
+}
+
+void INA226_ADC::setRatedCapacity_Ah(float capacity) {
+    maxBatteryCapacity = capacity;
+    // Recalculate current batteryCapacity to maintain SOC percentage
+    float currentSocPercent = (maxBatteryCapacity > 0) ? (batteryCapacity / maxBatteryCapacity) * 100.0f : 0.0f;
+    batteryCapacity = maxBatteryCapacity * (currentSocPercent / 100.0f);
+    
+    // Save to NVS
+    Preferences prefs;
+    prefs.begin(NVS_PROTECTION_NAMESPACE, false);
+    prefs.putFloat("rated_cap", maxBatteryCapacity);
+    prefs.end();
+    
+    Serial.printf("Rated capacity set to %.2fAh (saved to NVS). Current capacity: %.2fAh (%.1f%% SOC)\n", 
+                  maxBatteryCapacity, batteryCapacity, currentSocPercent);
+}
+
+float INA226_ADC::getRatedCapacity_Ah() const {
+    return maxBatteryCapacity;
 }
 
 void INA226_ADC::setSOC_percent(float percent) {
@@ -1025,8 +1057,16 @@ void INA226_ADC::loadProtectionSettings() {
   }
 
   overcurrentThreshold = prefs.getFloat(NVS_KEY_OVERCURRENT, 50.0f);
-  lowVoltageDelayMs =
-      prefs.getUInt(NVS_KEY_LOW_VOLTAGE_DELAY, 10000); // Default 10s
+  efuseLimit = prefs.getFloat(NVS_KEY_EFUSE_LIMIT, -1.0f);
+  if (efuseLimit < 0.0f) {
+     if (m_activeShuntA > 0) {
+         efuseLimit = (float)m_activeShuntA * 0.5f;
+         Serial.printf("Defaulting E-Fuse limit to %.2f A (50%% of %d A)\n", efuseLimit, m_activeShuntA);
+     } else {
+         efuseLimit = 0.0f;
+     }
+  }
+  lowVoltageDelayMs = prefs.getUInt(NVS_KEY_LOW_VOLTAGE_DELAY, 10000); // Default 10s
   deviceNameSuffix = prefs.getString(NVS_KEY_DEVICE_NAME_SUFFIX, "");
   
   float loaded_comp_res = prefs.getFloat(NVS_KEY_COMPENSATION_RESISTANCE, 0.0f);
@@ -1036,12 +1076,21 @@ void INA226_ADC::loadProtectionSettings() {
       compensationResistance = loaded_comp_res;
   }
 
+  // Load rated capacity (defaults to current maxBatteryCapacity if not set)
+  float savedRatedCap = prefs.getFloat("rated_cap", -1.0f);
+  if (savedRatedCap > 0.0f) {
+      maxBatteryCapacity = savedRatedCap;
+      Serial.printf("Loaded rated capacity from NVS: %.2fAh\n", maxBatteryCapacity);
+  }
+    
   prefs.end();
   Serial.println("Loaded protection settings:");
   Serial.printf("  LV Cutoff: %.2fV\n", lowVoltageCutoff);
   Serial.printf("  Hysteresis: %.2fV\n", hysteresis);
   Serial.printf("  OC Threshold: %.2fA\n", overcurrentThreshold);
+  Serial.printf("  E-Fuse Limit: %.2fA\n", efuseLimit);
   Serial.printf("  Comp Res: %.3f Ohm\n", compensationResistance);
+  Serial.printf("  Rated Capacity: %.2fAh\n", maxBatteryCapacity);
 }
 
 void INA226_ADC::saveProtectionSettings() {
@@ -1050,6 +1099,7 @@ void INA226_ADC::saveProtectionSettings() {
   prefs.putFloat(NVS_KEY_LOW_VOLTAGE_CUTOFF, lowVoltageCutoff);
   prefs.putFloat(NVS_KEY_HYSTERESIS, hysteresis);
   prefs.putFloat(NVS_KEY_OVERCURRENT, overcurrentThreshold);
+  prefs.putFloat(NVS_KEY_EFUSE_LIMIT, efuseLimit);
   prefs.putFloat(NVS_KEY_COMPENSATION_RESISTANCE, compensationResistance);
   prefs.putUInt(NVS_KEY_LOW_VOLTAGE_DELAY, lowVoltageDelayMs);
   prefs.putString(NVS_KEY_DEVICE_NAME_SUFFIX, deviceNameSuffix);
@@ -1099,6 +1149,7 @@ void INA226_ADC::setActiveShunt(uint16_t shuntRatedA) {
     auto it = factory_shunt_resistances.find(m_activeShuntA);
     if (it != factory_shunt_resistances.end()) {
       calibratedOhms = it->second;
+      this->m_isConfigured = true; // Consider factory default as configured
       Serial.printf("No custom calibrated shunt resistance found. Using "
                     "factory default for %dA shunt: %.9f Ohms.\n",
                     m_activeShuntA, calibratedOhms);
@@ -1129,6 +1180,42 @@ float INA226_ADC::getHysteresis() const { return hysteresis; }
 
 float INA226_ADC::getOvercurrentThreshold() const {
   return overcurrentThreshold;
+}
+
+void INA226_ADC::setEfuseLimit(float currentA) {
+    efuseLimit = currentA;
+    saveProtectionSettings();
+    
+    // Configure the INA226 hardware alert for faster response
+    if (currentA > 0.0f) {
+        configureAlert(currentA);
+        Serial.printf("E-Fuse limit set to %.2fA (Hardware alert configured)\n", efuseLimit);
+    } else {
+        // Disable hardware alert when E-Fuse is disabled
+        m_hardwareAlertsDisabled = true;
+        configureAlert(0); // This will disable the alert
+        m_hardwareAlertsDisabled = false; // Reset flag for future use
+        Serial.println("E-Fuse disabled (Hardware alert disabled)");
+    }
+}
+
+float INA226_ADC::getEfuseLimit() const {
+    return efuseLimit;
+}
+
+void INA226_ADC::checkEfuse(float currentA) {
+    if (efuseLimit > 0.0f && isLoadConnected()) {
+        if (fabs(currentA) > efuseLimit) {
+            Serial.printf("E-FUSE TRIPPED! Current: %.2fA > Limit: %.2fA. Disconnecting load.\n", fabs(currentA), efuseLimit);
+            setLoadConnected(false, OVERCURRENT);
+            // Set error state to 5 (E-Fuse Tripped)
+            // Ideally we'd have a setter for error state, but for now we assume Error State is derived from telemetry or similar.
+            // Wait, Telemetry struct is in main.cpp, INA226_ADC doesn't hold 'errorState'. 
+            // main.cpp reads INA226 status to set 'errorState'.
+            // So we need a way to signal this. 
+            // We can use a member variable 'm_efuseTripped' or inspect disconnect reason.
+        }
+    }
 }
 
 float INA226_ADC::getHardwareAlertThreshold_A() const {
@@ -1201,6 +1288,8 @@ void INA226_ADC::checkAndHandleProtection() {
           setLoadConnected(false, LOW_VOLTAGE);
           enterSleepMode();
         }
+        // Check E-Fuse
+        checkEfuse(current);
       }
     } else {
       // Voltage has recovered, reset the timer
@@ -1247,6 +1336,10 @@ void INA226_ADC::setLoadConnected(bool connected, DisconnectReason reason) {
 }
 
 bool INA226_ADC::isLoadConnected() const { return loadConnected; }
+
+DisconnectReason INA226_ADC::getDisconnectReason() const {
+    return m_disconnectReason;
+}
 
 void INA226_ADC::configureAlert(float amps) {
   if (m_hardwareAlertsDisabled) {

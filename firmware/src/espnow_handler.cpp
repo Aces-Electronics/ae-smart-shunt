@@ -14,6 +14,7 @@ ESPNowHandler::ESPNowHandler(const uint8_t *broadcastAddr)
     memset(&peerInfo, 0, sizeof(peerInfo));
     // Optionally zero the local struct
     memset(&localAeSmartShuntStruct, 0, sizeof(localAeSmartShuntStruct));
+    memset(targetPeer, 0, 6);
 }
 
 void ESPNowHandler::setAeSmartShuntStruct(const struct_message_ae_smart_shunt_1 &shuntStruct)
@@ -45,6 +46,25 @@ void ESPNowHandler::sendMessageAeSmartShunt()
     // {
     //     Serial.printf("%02X ", data[i]);
     // }
+    
+    if (isSecure) {
+        // 1. Send Encrypted Unicast to Target
+        Serial.print("Sending Encrypted to: ");
+        printMacAddress(targetPeer);
+        esp_err_t res = esp_now_send(targetPeer, data, len);
+        if (res != ESP_OK) Serial.println("Encrypted Send Failed");
+
+        // 2. Disable Beacon in Secure Mode
+        // User requested strict unicast only.
+        // To re-pair, user must use App -> Factory Reset Shunt.
+        // Serial.println("Secure Mode: Beacon Disabled.");
+        
+        return; // Done
+    }
+    // Else fallthrough to original Broadcast logic
+    
+    // Explicitly set ID to 33 (Discovery Beacon) for unencrypted broadcasts
+    localAeSmartShuntStruct.messageID = 33;
 
     // Serial.print(" | ASCII: ");
     // for (size_t i = 0; i < len; i++)
@@ -64,6 +84,35 @@ void ESPNowHandler::sendMessageAeSmartShunt()
         Serial.print("Error sending AeSmartShunt data: ");
         Serial.println(esp_err_to_name(result));
     }
+}
+
+bool ESPNowHandler::addEncryptedPeer(const uint8_t* mac, const uint8_t* key)
+{
+    esp_now_peer_info_t securePeer;
+    memset(&securePeer, 0, sizeof(securePeer));
+    memcpy(securePeer.peer_addr, mac, 6);
+    securePeer.channel = 0;
+    securePeer.encrypt = true;
+    memcpy(securePeer.lmk, key, 16);
+
+    // Remove if exists
+    if (esp_now_is_peer_exist(mac)) {
+        esp_now_del_peer(mac);
+    }
+
+    if (esp_now_add_peer(&securePeer) != ESP_OK) {
+        Serial.println("Failed to add secure peer");
+        return false;
+    }
+    Serial.println("Secure peer added");
+    return true;
+}
+
+void ESPNowHandler::switchToSecureMode(const uint8_t* gaugeMac)
+{
+    memcpy(targetPeer, gaugeMac, 6);
+    isSecure = true;
+    Serial.println("Switched to Secure Mode");
 }
 
 bool ESPNowHandler::begin()

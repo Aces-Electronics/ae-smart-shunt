@@ -1,5 +1,6 @@
 #include "ble_handler.h"
 #include <NimBLEDevice.h>
+#include <WiFi.h>
 
 // UUIDs generated from https://www.uuidgenerator.net/
 const char* BLEHandler::SERVICE_UUID = "4fafc201-1fb5-459e-8fcc-c5c9c331914b";
@@ -24,6 +25,9 @@ const char* BLEHandler::LAST_WEEK_WH_CHAR_UUID = "2A1B2C3D-4E5F-6A7B-8C9D-0E1F2A
 const char* BLEHandler::LOW_VOLTAGE_DELAY_CHAR_UUID = "3A1B2C3D-4E5F-6A7B-8C9D-0E1F2A3B4C60";
 const char* BLEHandler::DEVICE_NAME_SUFFIX_CHAR_UUID = "4A1B2C3D-4E5F-6A7B-8C9D-0E1F2A3B4C61";
 const char* BLEHandler::SET_RATED_CAPACITY_CHAR_UUID = "5A1B2C3D-4E5F-6A7B-8C9D-0E1F2A3B4C64";
+const char* BLEHandler::PAIRING_CHAR_UUID = "ACDC1234-5678-90AB-CDEF-1234567890CB";
+const char* BLEHandler::EFUSE_LIMIT_CHAR_UUID = "BB1B2C3D-4E5F-6A7B-8C9D-0E1F2A3B4C68";
+const char* BLEHandler::ACTIVE_SHUNT_CHAR_UUID = "CB1B2C3D-4E5F-6A7B-8C9D-0E1F2A3B4C69";
 
 // --- New OTA Service UUIDs ---
 const char* BLEHandler::OTA_SERVICE_UUID = "1a89b148-b4e8-43d7-952b-a0b4b01e43b3";
@@ -106,6 +110,9 @@ public:
             Serial.printf(" | Converted to float: %f\n", float_val);
 
             _callback(float_val);
+            
+            // Notify immediately so the app sees the new value
+            pCharacteristic->notify();
         }
     }
 };
@@ -171,10 +178,29 @@ void BLEHandler::setOtaControlCallback(std::function<void(uint8_t)> callback) {
     this->otaControlCallback = callback;
 }
 
+void BLEHandler::setPairingCallback(std::function<void(String)> callback) {
+    this->pairingCallback = callback;
+}
+
+void BLEHandler::setEfuseLimitCallback(std::function<void(float)> callback) {
+    this->efuseLimitCallback = callback;
+}
+
+// Helper to generate PIN from MAC
+uint32_t generatePinFromMac() {
+    uint8_t mac[6];
+    WiFi.macAddress(mac);
+    // Use last 3 bytes to generate a unique 6-digit PIN
+    uint32_t val = (mac[3] << 16) | (mac[4] << 8) | mac[5];
+    uint32_t pin = val % 1000000;
+    Serial.printf("[BLE SEC] PIN Code: %06d\n", pin);
+    return pin;
+}
+
 void BLEHandler::updateFirmwareVersion(const String& version) {
     if (pFirmwareVersionCharacteristic) {
         pFirmwareVersionCharacteristic->setValue(version);
-        pFirmwareVersionCharacteristic->notify();
+        // pFirmwareVersionCharacteristic->notify();
     }
 }
 
@@ -214,6 +240,13 @@ void BLEHandler::updateOtaProgress(uint8_t progress) {
 void BLEHandler::begin(const Telemetry& initial_telemetry) {
     BLEDevice::init("AE Smart Shunt");
     BLEDevice::setMTU(517);
+    
+    // Security & Speed Configuration
+    uint32_t passkey = generatePinFromMac();
+    BLEDevice::setSecurityAuth(true, true, true); // Bonding, MITM, Secure Connection
+    BLEDevice::setSecurityPasskey(passkey);
+    BLEDevice::setSecurityIOCap(BLE_HS_IO_DISPLAY_ONLY); // Forces user to enter PIN on phone
+
     pServer = BLEDevice::createServer();
     pServer->setCallbacks(new ServerCallbacks());
     pService = pServer->createService(SERVICE_UUID);
@@ -260,19 +293,21 @@ void BLEHandler::begin(const Telemetry& initial_telemetry) {
 
     pLoadControlCharacteristic = pService->createCharacteristic(
         LOAD_CONTROL_CHAR_UUID,
-        NIMBLE_PROPERTY::WRITE
+        NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::WRITE_ENC
     );
     pLoadControlCharacteristic->setCallbacks(new BoolCharacteristicCallbacks(this->loadSwitchCallback));
 
     pSetSocCharacteristic = pService->createCharacteristic(
         SET_SOC_CHAR_UUID,
-        NIMBLE_PROPERTY::WRITE
+        NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::WRITE_ENC
     );
     pSetSocCharacteristic->setCallbacks(new FloatCharacteristicCallbacks(this->socCallback));
 
     pSetVoltageProtectionCharacteristic = pService->createCharacteristic(
         SET_VOLTAGE_PROTECTION_CHAR_UUID,
-        NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY
+        NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::WRITE_ENC | 
+        NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::READ_ENC | 
+        NIMBLE_PROPERTY::NOTIFY
     );
     pSetVoltageProtectionCharacteristic->setCallbacks(new StringCharacteristicCallbacks(this->voltageProtectionCallback));
 
@@ -291,13 +326,16 @@ void BLEHandler::begin(const Telemetry& initial_telemetry) {
 
     pLowVoltageDelayCharacteristic = pService->createCharacteristic(
         LOW_VOLTAGE_DELAY_CHAR_UUID,
-        NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::NOTIFY
+        NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::READ_ENC | 
+        NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::WRITE_ENC | 
+        NIMBLE_PROPERTY::NOTIFY
     );
     pLowVoltageDelayCharacteristic->setCallbacks(new Uint32CharacteristicCallbacks(this->lowVoltageDelayCallback));
 
     pDeviceNameSuffixCharacteristic = pService->createCharacteristic(
         DEVICE_NAME_SUFFIX_CHAR_UUID,
-        NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::NOTIFY
+        NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::READ_ENC | 
+        NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::WRITE_ENC
     );
     pDeviceNameSuffixCharacteristic->setCallbacks(new StringCharacteristicCallbacks(this->deviceNameSuffixCallback));
 
@@ -309,20 +347,49 @@ void BLEHandler::begin(const Telemetry& initial_telemetry) {
 
     pWifiSsidCharacteristic = pService->createCharacteristic(
         WIFI_SSID_CHAR_UUID,
-        NIMBLE_PROPERTY::WRITE
+        NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::WRITE_ENC
     );
     pWifiSsidCharacteristic->setCallbacks(new StringCharacteristicCallbacks(this->wifiSsidCallback));
 
     pWifiPassCharacteristic = pService->createCharacteristic(
         WIFI_PASS_CHAR_UUID,
-        NIMBLE_PROPERTY::WRITE
+        NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::WRITE_ENC
     );
     pWifiPassCharacteristic->setCallbacks(new StringCharacteristicCallbacks(this->wifiPassCallback));
 
+
     pFirmwareVersionCharacteristic = pService->createCharacteristic(
         FIRMWARE_VERSION_CHAR_UUID,
+        NIMBLE_PROPERTY::READ
+    );
+
+
+    pPairingCharacteristic = pService->createCharacteristic(
+        PAIRING_CHAR_UUID,
+        NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::WRITE_ENC | 
+        NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::READ_ENC
+    );
+    pPairingCharacteristic->setCallbacks(new StringCharacteristicCallbacks(this->pairingCallback));
+    
+    // E-Fuse Limit Characteristic
+    pEfuseLimitCharacteristic = pService->createCharacteristic(
+        EFUSE_LIMIT_CHAR_UUID,
+        NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::READ_ENC | 
+        NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::WRITE_ENC
+    );
+    pEfuseLimitCharacteristic->setCallbacks(new FloatCharacteristicCallbacks(this->efuseLimitCallback));
+
+    // Active Shunt Rating Characteristic (Read-only)
+    pActiveShuntCharacteristic = pService->createCharacteristic(
+        ACTIVE_SHUNT_CHAR_UUID,
         NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY
     );
+
+    // Set the value to the Wi-Fi MAC address (for verification by the App)
+    String macAddr = WiFi.macAddress();
+    Serial.printf("BLE: Pairing Char UUID: %s\n", PAIRING_CHAR_UUID);
+    Serial.printf("Setting Pairing Characteristic Value to: %s\n", macAddr.c_str());
+    pPairingCharacteristic->setValue(std::string(macAddr.c_str()));
 
     pService->start();
 
@@ -403,6 +470,12 @@ void BLEHandler::updateTelemetry(const Telemetry& telemetry) {
     pDeviceNameSuffixCharacteristic->setValue(telemetry.deviceNameSuffix);
     pDeviceNameSuffixCharacteristic->notify();
 
+    pEfuseLimitCharacteristic->setValue(telemetry.eFuseLimit);
+    pEfuseLimitCharacteristic->notify();
+
+    pActiveShuntCharacteristic->setValue(telemetry.activeShuntRating);
+    pActiveShuntCharacteristic->notify();
+
     pSetRatedCapacityCharacteristic->setValue(telemetry.ratedCapacity);
     pSetRatedCapacityCharacteristic->notify();
 
@@ -451,9 +524,13 @@ void BLEHandler::startAdvertising(const Telemetry& telemetry) {
     pAdvertising->addServiceUUID(SERVICE_UUID);
     pAdvertising->setScanResponse(true);
 
-    // Restore connection interval hints
+    // Speed Optimization: Request preferred connection params
+    // Min Interval: 6 * 1.25ms = 7.5ms
+    // Max Interval: 12 * 1.25ms = 15ms
+    // Latency: 0
+    // Timeout: 100 * 10ms = 1000ms
     pAdvertising->setMinPreferred(0x06);
-    pAdvertising->setMinPreferred(0x12);
+    pAdvertising->setMaxPreferred(0x0C); 
 
     pAdvertising->start();
 }

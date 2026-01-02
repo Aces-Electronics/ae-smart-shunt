@@ -17,13 +17,21 @@ public:
     // Copy the struct into the handler for later sending
     void setAeSmartShuntStruct(const struct_message_ae_smart_shunt_1 &shuntStruct);
 
-    // Send the currently stored struct using ESP-NOW (broadcast addr by default)
+    // Send the currently stored struct using ESP-NOW
+    // If secure mode is active, sends encrypted unicast to targetPeer + insecure beacon (optional)
+    // Else broadcasts insecurely.
     void sendMessageAeSmartShunt();
+
+    bool addEncryptedPeer(const uint8_t* mac, const uint8_t* key);
+    void switchToSecureMode(const uint8_t* gaugeMac);
 
 private:
     uint8_t broadcastAddress[6];
     esp_now_peer_info_t peerInfo;
     struct_message_ae_smart_shunt_1 localAeSmartShuntStruct;
+
+    bool isSecure = false;
+    uint8_t targetPeer[6];
 
     void printMacAddress(const uint8_t* mac);
 };

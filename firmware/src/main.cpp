@@ -13,6 +13,8 @@ SET_LOOP_TASK_STACK_SIZE(16 * 1024); // 16KB, GitHub responses are heavy
 #include <esp_now.h>
 #include <esp_err.h>
 #include "driver/gpio.h"
+#include <ArduinoJson.h>
+#include <nvs_flash.h>
 
 // WiFi and OTA
 #include <WiFi.h>
@@ -39,6 +41,16 @@ unsigned long last_telemetry_millis = 0;
 // Polling interval for accurate coulomb counting
 const unsigned long polling_interval = 100; // 100ms = 10Hz
 unsigned long last_polling_millis = 0;
+
+// Async Restart Management
+bool g_pendingRestart = false;
+unsigned long g_restartTs = 0;
+
+void scheduleRestart(uint32_t delay_ms) {
+    g_pendingRestart = true;
+    g_restartTs = millis() + delay_ms;
+    Serial.printf("Restart scheduled in %u ms...\n", delay_ms);
+}
 
 // LED Heartbeat
 unsigned long last_led_blink = 0;
@@ -75,20 +87,20 @@ void preOtaUpdate() {
 void loadSwitchCallback(bool enabled) {
     if (enabled) {
         ina226_adc.setLoadConnected(true, NONE);
-        Serial.println("Load manually toggled ON via BLE");
+        Serial.println("[BLE WRITE] Load Control: ON");
     } else {
         ina226_adc.setLoadConnected(false, MANUAL);
-        Serial.println("Load manually toggled OFF via BLE");
+        Serial.println("[BLE WRITE] Load Control: OFF");
     }
 }
 
 void socCallback(float percent) {
-    Serial.printf("BLE received new SOC: %.2f%%\n", percent);
+    Serial.printf("[BLE WRITE] SOC: %.2f%%\n", percent);
     ina226_adc.setSOC_percent(percent);
 }
 
 void voltageProtectionCallback(String value) {
-    Serial.printf("BLE received new voltage protection settings: %s\n", value.c_str());
+    Serial.printf("[BLE WRITE] Voltage Protection: %s\n", value.c_str());
     int commaIndex = value.indexOf(',');
     if (commaIndex > 0) {
         String cutoff_str = value.substring(0, commaIndex);
@@ -97,17 +109,17 @@ void voltageProtectionCallback(String value) {
         float reconnect = reconnect_str.toFloat();
         ina226_adc.setVoltageProtection(cutoff, reconnect);
     } else {
-        Serial.println("Invalid format for voltage protection setting.");
+        Serial.println("[BLE WRITE] Invalid format for voltage protection setting.");
     }
 }
 
 void lowVoltageDelayCallback(uint32_t seconds) {
-    Serial.printf("BLE received new low voltage delay: %u seconds\n", seconds);
+    Serial.printf("[BLE WRITE] Low Voltage Delay: %u seconds\n", seconds);
     ina226_adc.setLowVoltageDelay(seconds);
 }
 
 void deviceNameSuffixCallback(String suffix) {
-    Serial.printf("BLE received new device name suffix: %s\n", suffix.c_str());
+    Serial.printf("[BLE WRITE] Device Name Suffix: '%s'\n", suffix.c_str());
     ina226_adc.setDeviceNameSuffix(suffix);
 }
 
@@ -117,16 +129,112 @@ void ratedCapacityCallback(float capacityAh) {
 }
 
 void wifiSsidCallback(String ssid) {
+    Serial.printf("[BLE WRITE] WiFi SSID: '%s'\n", ssid.c_str());
     otaHandler.setWifiSsid(ssid);
 }
 
 void wifiPassCallback(String pass) {
+    Serial.println("[BLE WRITE] WiFi Password: ****");
     otaHandler.setWifiPass(pass);
 }
 
 void otaControlCallback(uint8_t command) {
     ota_command = command;
     ota_command_pending = true;
+}
+
+void otaTriggerCallback(bool triggered) {
+    if (triggered) {
+        Serial.println("[BLE WRITE] OTA Trigger: Starting update");
+        // Use the existing OTA control mechanism - command 1 starts check for update
+        ota_command = 1;
+        ota_command_pending = true;
+    }
+}
+
+void hexStringToBytes(String hex, uint8_t* bytes, int len) {
+    for (int i=0; i<len; i++) {
+        char buf[3] = { hex[i*2], hex[i*2+1], '\0' };
+        bytes[i] = (uint8_t)strtoul(buf, NULL, 16);
+    }
+}
+
+void performUnpair() {
+    Serial.println("Unpairing Device...");
+    Preferences prefs;
+    prefs.begin("pairing", false);
+    prefs.clear();
+    prefs.end();
+    
+    Serial.println("Pairing Data wiped.");
+    scheduleRestart(1000); // Give BLE 1s to Ack
+}
+
+void pairingCallback(String payload) {
+    Serial.println("Received Pairing Payload: " + payload);
+    
+    if (payload == "RESET") {
+        performUnpair();
+        return;
+    }
+
+    if (payload == "FACTORY_RESET") {
+        Serial.println("Received FACTORY RESET command via BLE.");
+        Serial.println("Wiping NVS (except Calibration) and rebooting...");
+        
+        // Selective Wipe
+        Preferences p;
+        p.begin("storage", false); p.clear(); p.end();
+        p.begin("pairing", false); p.clear(); p.end();
+        p.begin("protection", false); p.clear(); p.end();
+        
+        // Clear WiFi credentials
+        WiFi.disconnect(true, true);
+        
+        delay(100);
+        ESP.restart();
+        return;
+    }
+    
+    JsonDocument doc;
+    DeserializationError error = deserializeJson(doc, payload);
+    if (error) {
+        Serial.print("deserializeJson() failed: ");
+        Serial.println(error.c_str());
+        return;
+    }
+
+    String gaugeMac = doc["gauge_mac"];
+    String keyHex = doc["key"];
+    
+    if (gaugeMac.length() == 0 || keyHex.length() != 32) {
+        Serial.println("Invalid Pairing Data");
+        return;
+    }
+    
+    uint8_t macBytes[6];
+    uint8_t keyBytes[16];
+    
+    // Parse MAC (assuming colon separated)
+    int p = 0;
+    for (int i=0; i<6; i++) {
+        String byteStr = gaugeMac.substring(p, p+2);
+        macBytes[i] = (uint8_t)strtoul(byteStr.c_str(), NULL, 16);
+        p += 3; // skip byte and colon
+    }
+    
+    hexStringToBytes(keyHex, keyBytes, 16);
+    
+    // Save to Prefs
+    Preferences prefs;
+    prefs.begin("pairing", false);
+    prefs.putString("p_gauge_mac", gaugeMac);
+    prefs.putString("p_key", keyHex);
+    prefs.end();
+    
+    // Restart to apply new secured state cleanly
+    Serial.println("Pairing Data Saved.");
+    scheduleRestart(1000); // Give BLE 1s to Ack
 }
 
 class MainServerCallbacks: public BLEServerCallbacks {
@@ -1239,7 +1347,37 @@ void setup()
   bleHandler.setWifiSsidCallback(wifiSsidCallback);
   bleHandler.setWifiPassCallback(wifiPassCallback);
   bleHandler.setOtaControlCallback(otaControlCallback);
+  bleHandler.setOtaTriggerCallback(otaTriggerCallback);
+  bleHandler.setPairingCallback(pairingCallback);
+  bleHandler.setEfuseLimitCallback([](float current){
+      Serial.printf("[BLE WRITE] E-Fuse Limit set to: %.2f A\n", current);
+      ina226_adc.setEfuseLimit(current);
+  });
   bleHandler.setServerCallbacks(new MainServerCallbacks());
+
+  // Load Pairing Info if exists
+  Preferences prefs;
+  prefs.begin("pairing", true); // read-only check first
+  String storedMac = prefs.getString("p_gauge_mac", "");
+  String storedKey = prefs.getString("p_key", "");
+  prefs.end();
+  
+  if (storedMac != "" && storedKey != "") {
+      Serial.println("Restoring Encrypted Peer from NVS...");
+      uint8_t macBytes[6];
+      uint8_t keyBytes[16];
+      
+      int p = 0;
+      for (int i=0; i<6; i++) {
+          String byteStr = storedMac.substring(p, p+2);
+          macBytes[i] = (uint8_t)strtoul(byteStr.c_str(), NULL, 16);
+          p += 3;
+      }
+      hexStringToBytes(storedKey, keyBytes, 16);
+      
+      espNowHandler.addEncryptedPeer(macBytes, keyBytes);
+      espNowHandler.switchToSecureMode(macBytes);
+  }
 
   // Create initial telemetry data for the first advertisement
   ina226_adc.readSensors(); // Read sensors to get initial values
@@ -1322,7 +1460,7 @@ void loop()
     {
       // FACTORY RESET: erase saved settings and reboot
       Serial.println(F("\n*** FACTORY RESET ***"));
-      Serial.println(F("This will erase ALL saved settings (calibration, protection, capacity, names) and reboot."));
+      Serial.println(F("This will erase saved settings (protection, capacity, pairing) BUT KEEP CALIBRATION and reboot."));
       Serial.println(F("Type YES to confirm:"));
       String conf = SerialReadLineBlocking();
       if (conf == "YES") {
@@ -1341,9 +1479,10 @@ void loop()
         p.clear();
         p.end();
 
-        p.begin(NVS_CAL_NAMESPACE, false);    // "ina_cal" (shunt, tables, suffix if stored here)
-        p.clear();
-        p.end();
+        // SKIP NVS_CAL_NAMESPACE to preserve calibration
+        // p.begin(NVS_CAL_NAMESPACE, false);    // "ina_cal" (shunt, tables, suffix if stored here)
+        // p.clear();
+        // p.end();
 
         p.begin(NVS_PROTECTION_NAMESPACE, false); // "protection" (LV cutoff, hysteresis, OC)
         p.clear();
@@ -1455,6 +1594,10 @@ void loop()
       ae_smart_shunt_struct.lastWeekWh = ina226_adc.getLastWeekEnergy_Wh();
 
       ae_smart_shunt_struct.batteryState = 0; // 0 = Normal, 1 = Warning, 2 = Critical
+      
+      if (!ina226_adc.isLoadConnected() && ina226_adc.getDisconnectReason() == OVERCURRENT) {
+          ae_smart_shunt_struct.batteryState = 5; // 5 = E-Fuse Tripped
+      }
 
       // Get remaining Ah from INA helper
       float remainingAh = ina226_adc.getBatteryCapacity();
@@ -1522,6 +1665,8 @@ void loop()
         .lastWeekWh = ina226_adc.getLastWeekEnergy_Wh(),
         .lowVoltageDelayS = ina226_adc.getLowVoltageDelay(),
         .deviceNameSuffix = ina226_adc.getDeviceNameSuffix(),
+        .eFuseLimit = ina226_adc.getEfuseLimit(),
+        .activeShuntRating = ina226_adc.getActiveShunt(),
         .ratedCapacity = ina226_adc.getMaxBatteryCapacity()
     };
     bleHandler.updateTelemetry(telemetry_data);
@@ -1541,5 +1686,12 @@ void loop()
 
     Serial.println();
     last_telemetry_millis = millis();
+  }
+
+  // Handle Async Restart
+  if (g_pendingRestart && millis() > g_restartTs) {
+      Serial.println("Executing Scheduled Restart...");
+      delay(100);
+      ESP.restart();
   }
 }

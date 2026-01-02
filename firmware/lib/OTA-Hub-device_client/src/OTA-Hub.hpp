@@ -129,12 +129,7 @@ namespace OTA
             print_stream->println("Condition: " + String(condition_strings[condition]));
             print_stream->println("name: " + name);
             print_stream->println("tag_name: " + tag_name);
-            // Replace http_ota->formatTimeISO8601 with local helper
-            // print_stream->println("published_at: " + http_ota->formatTimeISO8601(published_at)); 
-            // We can define the helper outside or just print raw for now to save space/complexity, 
-            // but let's use the helper defined above if we can access it.
-            // Since this is a struct inside a namespace, and helpers are in namespace, we might need forward declaration or just define them before.
-            // I'll assume I can just use a simple inline formatting here or just print the timestamp integer for now to reduce risk.
+            // print_stream->println("published_at: " + http_ota->formatTimeISO8601(published_at));
             print_stream->println("published_at: " + String((unsigned long)published_at));
             print_stream->println("firmware_asset_id: " + String(firmware_asset_id));
             print_stream->println("firmware_asset_endpoint: " + String(firmware_asset_endpoint));

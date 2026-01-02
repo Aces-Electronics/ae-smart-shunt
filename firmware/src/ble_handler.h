@@ -23,6 +23,8 @@ struct Telemetry {
     float lastWeekWh;
     uint32_t lowVoltageDelayS;
     String deviceNameSuffix;
+    float eFuseLimit;
+    uint16_t activeShuntRating;
     float ratedCapacity;
 };
 
@@ -47,7 +49,8 @@ public:
     void updateOtaStatus(uint8_t status);
     void updateReleaseMetadata(const String& metadata);
     void updateOtaProgress(uint8_t progress);
-
+    void setPairingCallback(std::function<void(String)> callback);
+    void setEfuseLimitCallback(std::function<void(float)> callback);
 
 public:
     // Service and Characteristic UUIDs
@@ -74,6 +77,9 @@ public:
     static const char* LOW_VOLTAGE_DELAY_CHAR_UUID;
     static const char* DEVICE_NAME_SUFFIX_CHAR_UUID;
     static const char* SET_RATED_CAPACITY_CHAR_UUID;
+    static const char* PAIRING_CHAR_UUID;
+    static const char* EFUSE_LIMIT_CHAR_UUID;
+    static const char* ACTIVE_SHUNT_CHAR_UUID;
 
     // --- New OTA Service ---
     static const char* OTA_SERVICE_UUID;
@@ -85,6 +91,8 @@ public:
 private:
     BLEServer* pServer;
     BLEService* pService;
+    BLECharacteristic* pEfuseLimitCharacteristic;
+    BLECharacteristic* pActiveShuntCharacteristic;
     BLECharacteristic* pVoltageCharacteristic;
     BLECharacteristic* pCurrentCharacteristic;
     BLECharacteristic* pPowerCharacteristic;
@@ -106,6 +114,7 @@ private:
     BLECharacteristic* pWifiSsidCharacteristic;
     BLECharacteristic* pWifiPassCharacteristic;
     BLECharacteristic* pFirmwareVersionCharacteristic;
+    BLECharacteristic* pPairingCharacteristic;
 
     // --- New OTA service and characteristics ---
     BLEService* pOtaService;
@@ -125,6 +134,8 @@ private:
     std::function<void(bool)> otaTriggerCallback;
     std::function<void(uint8_t)> otaControlCallback;
     std::vector<uint8_t> _metadata_buffer;
+    std::function<void(String)> pairingCallback;
+    std::function<void(float)> efuseLimitCallback;
 };
 
 #endif // BLE_HANDLER_H

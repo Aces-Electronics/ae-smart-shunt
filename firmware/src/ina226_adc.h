@@ -33,6 +33,8 @@ public:
   float getLoadVoltage_V() const;
   float getBatteryCapacity() const;
   void setBatteryCapacity(float capacity);
+  void setRatedCapacity_Ah(float capacity);
+  float getRatedCapacity_Ah() const;
   void updateBatteryCapacity(float currentA); // current in A (positive = charge)
   bool isOverflow() const;
   bool isSaturated() const; // New saturation check
@@ -60,6 +62,9 @@ public:
   float getOvercurrentThreshold() const;
   void setLowVoltageDelay(uint32_t delay_s);
   uint32_t getLowVoltageDelay() const;
+  void setEfuseLimit(float currentA);
+  float getEfuseLimit() const;
+  void checkEfuse(float currentA);
   void setDeviceNameSuffix(String suffix);
   String getDeviceNameSuffix() const;
   void setCompensationResistance(float ohms);
@@ -67,6 +72,7 @@ public:
   void checkAndHandleProtection();
   void setLoadConnected(bool connected, DisconnectReason reason = MANUAL);
   bool isLoadConnected() const;
+  DisconnectReason getDisconnectReason() const;
   void configureAlert(float amps);
   void setTempOvercurrentAlert(float amps);
   void restoreOvercurrentAlert();
@@ -124,6 +130,7 @@ private:
   float lowVoltageCutoff;
   float hysteresis;
   float overcurrentThreshold;
+  float efuseLimit;
   float compensationResistance;
   uint32_t lowVoltageDelayMs;
   unsigned long lowVoltageStartTime;
