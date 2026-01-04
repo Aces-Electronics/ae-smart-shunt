@@ -223,7 +223,7 @@ namespace OTA
         if (response.success())
         {
             // The releases endpoint returns an array, so we need to process it as such.
-            StaticJsonDocument<2048> doc; // GitHub API response can be large
+            JsonDocument doc; // ArduinoJson v7 uses dynamic memory automatically
             DeserializationError error = deserializeJson(doc, response.body);
 
             if (error) {

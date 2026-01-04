@@ -65,5 +65,21 @@ Version 0.0.1 has been prototyped. I will hand assemble some test boards and do 
 # Where to Buy:
 TBA, but most likely will be vvailable to purchase in Australia or New Zealand via <a href="https://d1b959-f7.myshopify.com/">The AE Store</a>
 
+# Simulation Mode & Testing
+For developers and testing purposes, a **Simulation Mode** is available. This overrides actual sensor readings with generated waveforms to verify the firmware logic and gauge UI responsiveness.
+
+**Features in Simulation Mode:**
+- **Voltage**: Sine wave from 10V to 15V (10s period).
+- **Current**: Sine wave from -200A to +200A (20s period).
+- **Error Cycling**: Automatically cycles through error states every 5 seconds:
+    - Normal -> E-Fuse -> Load Off -> Over Current
+- **Gauge Behavior**: The connected Gauge should display sweeping values and trigger a **Red Heartbeat** LED animation during error states.
+
+**How to Run:**
+Use the `simulation` environment in PlatformIO:
+```bash
+pio run -e simulation -t upload
+```
+
 ## Support:
 Contact me direct via ace<@>aceselectronics.com.au, just make it look like a normal email address. (hiding from the bots ;)

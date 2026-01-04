@@ -178,25 +178,53 @@ void pairingCallback(String payload) {
         return;
     }
 
+    if (payload == "RESET_ENERGY") {
+        Serial.println("Received RESET_ENERGY command via BLE.");
+        ina226_adc.resetEnergyStats();
+        return;
+    }
+
     if (payload == "FACTORY_RESET") {
         Serial.println("Received FACTORY RESET command via BLE.");
-        Serial.println("PERFORMING FULL HARDWARE WIPE of NVS partition...");
         
-        // Clear WiFi credentials first to be safe
+        // 1. Backup Calibration Data
+        // Active Shunt Rating
+        uint16_t backup_activeShunt = ina226_adc.getActiveShunt();
+        // Resistance Logic
+        float backup_resistance = ina226_adc.getCalibratedShuntResistance();
+        bool backup_configured = ina226_adc.isConfigured();
+        // Linear Calibration (Gain/Offset)
+        float backup_gain = 1.0f;
+        float backup_offset = 0.0f;
+        ina226_adc.getCalibration(backup_gain, backup_offset);
+        
+        Serial.printf("Backing up: Shunt=%dA, Res=%.9f, Gain=%.6f, Off=%.3f\n", 
+                      backup_activeShunt, backup_resistance, backup_gain, backup_offset);
+
+
+        Serial.println("PERFORMING FULL HARDWARE WIPE of NVS partition...");
         WiFi.disconnect(true, true);
         
-        // Perform low-level NVS erase
-        // This is much more robust than clearing individual namespaces
         esp_err_t err = nvs_flash_erase();
-        if (err != ESP_OK) {
-            Serial.printf("Error: nvs_flash_erase failed (0x%x)\n", err);
-        }
+        if (err != ESP_OK) Serial.printf("Error: nvs_flash_erase failed (0x%x)\n", err);
         err = nvs_flash_init();
-        if (err != ESP_OK) {
-             Serial.printf("Error: nvs_flash_init failed (0x%x)\n", err);
+        if (err != ESP_OK) Serial.printf("Error: nvs_flash_init failed (0x%x)\n", err);
+
+        // 2. Restore Calibration Data
+        Serial.println("Restoring Shunt Calibration...");
+        ina226_adc.setActiveShunt(backup_activeShunt);
+        
+        if (backup_configured) {
+            // Restore Resistance
+            ina226_adc.saveShuntResistance(backup_resistance);
+            // Restore Linear Calibration (Gain/Offset)
+            if (backup_gain != 1.0f || backup_offset != 0.0f) {
+                ina226_adc.saveCalibration(backup_activeShunt, backup_gain, backup_offset);
+                Serial.println("Restored Linear Calibration (Gain/Offset).");
+            }
         }
 
-        Serial.println("NVS wiped. Rebooting in 1s...");
+        Serial.println("NVS wiped and Calibration Restored. Rebooting in 1s...");
         delay(1000);
         ESP.restart();
         return;
@@ -783,6 +811,9 @@ void printShunt(const struct_message_ae_smart_shunt_1 *p)
       "Starter Voltage: %.2f V\n"
       "Error          : %d\n"
       "Run Flat Time  : %s\n"
+      "Last Hour      : %.2f Wh\n"
+      "Last Day       : %.2f Wh\n"
+      "Last Week      : %.2f Wh\n"
       "Load Output    : %s\n"
       "===================\n",
       p->messageID,
@@ -795,7 +826,11 @@ void printShunt(const struct_message_ae_smart_shunt_1 *p)
       p->starterBatteryVoltage,
       p->batteryState,
       p->runFlatTime,
-      ina226_adc.isLoadConnected() ? "ON" : "OFF");
+      p->lastHourWh,
+      p->lastDayWh,
+      p->lastWeekWh,
+      ina226_adc.isLoadConnected() ? "ON" : "OFF"
+  );
 }
 
 // Helper to prompt for shunt selection via Serial
@@ -826,13 +861,27 @@ int promptForShuntSelection(INA226_ADC &ina) {
 // New function to handle shunt resistance calibration
 void runShuntResistanceCalibration(INA226_ADC &ina)
 {
-  // Ensure load is enabled for calibration
+  Serial.println(F("Preparing for calibration..."));
+  
+  // 1. Ensure Load is Enabled (so user can draw current)
+  // We use MANUAL mode to prevent auto-disconnect logic from interfering
   ina.setLoadConnected(true, MANUAL);
-  Serial.println(F("Load enabled for calibration."));
+  Serial.println(F("Load enabled (MANUAL mode)."));
 
-  // 1. Shunt Selection
+  // 2. Disable Hardware Alert Interrupts
+  // Prevents the ISR from checking protection/safety limits during calibration
+  detachInterrupt(digitalPinToInterrupt(INA_ALERT_PIN));
+  Serial.println(F("Alert Pin Interrupt DISABLED for calibration safety."));
+
+  // 3. Shunt Selection
   int shuntInput = promptForShuntSelection(ina);
-  if (shuntInput < 0) return; // Canceled or Invalid
+  if (shuntInput < 0) {
+      // Restore Interrupt before returning
+      ina.clearAlerts(); // clear any stale status
+      attachInterrupt(digitalPinToInterrupt(INA_ALERT_PIN), alertISR, FALLING);
+      Serial.println(F("Alert Pin Interrupt RESTORED."));
+      return; 
+  }
 
   if (shuntInput != (int)ina.getActiveShunt()) {
       ina.setActiveShunt(shuntInput);
@@ -886,7 +935,13 @@ void runShuntResistanceCalibration(INA226_ADC &ina)
       Serial.print(F("2. Enter the TRUE current from your meter: "));
 
       String line = SerialReadLineBlocking();
-      if (line.equalsIgnoreCase("x")) { Serial.println(F("Canceled.")); return; }
+      if (line.equalsIgnoreCase("x")) { 
+          Serial.println(F("Canceled.")); 
+          ina.clearAlerts();
+          attachInterrupt(digitalPinToInterrupt(INA_ALERT_PIN), alertISR, FALLING);
+          Serial.println(F("Alert Pin Interrupt RESTORED."));
+          return; 
+      }
       
       float user_input = 0.0f;
       if (line.length() == 0) {
@@ -1612,6 +1667,17 @@ void loop()
       ae_smart_shunt_struct.lastHourWh = ina226_adc.getLastHourEnergy_Wh();
       ae_smart_shunt_struct.lastDayWh = ina226_adc.getLastDayEnergy_Wh();
       ae_smart_shunt_struct.lastWeekWh = ina226_adc.getLastWeekEnergy_Wh();
+
+#ifdef SIMULATION_MODE
+      // Mock Daily/Weekly Energy for UI Testing
+      // Sweep +/- 1200Wh (Daily) and +/- 5000Wh (Weekly)
+      unsigned long sim_t = millis();
+      float day_angle = (sim_t % 30000) / 30000.0f * 2 * PI;
+      float week_angle = (sim_t % 60000) / 60000.0f * 2 * PI;
+      
+      ae_smart_shunt_struct.lastDayWh = 1200.0f * sin(day_angle);
+      ae_smart_shunt_struct.lastWeekWh = 5000.0f * sin(week_angle);
+#endif
 
       ae_smart_shunt_struct.batteryState = 0; // 0 = Normal, 1 = Warning, 2 = Critical
       

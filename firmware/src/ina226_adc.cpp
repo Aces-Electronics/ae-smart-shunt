@@ -94,7 +94,7 @@ INA226_ADC::INA226_ADC(uint8_t address, float shuntResistorOhms,
       alertTriggered(false),
       m_isConfigured(false),
       m_activeShuntA(100), // Default to 100A
-      m_disconnectReason(NONE), m_hardwareAlertsDisabled(false), sampleIndex(0),
+      m_disconnectReason(NONE), m_hardwareAlertsDisabled(false), m_batteryState(0), sampleIndex(0),
       sampleCount(0), lastSampleTime(0), sampleIntervalSeconds(10),
       lastEnergyUpdateTime(0), lastMinuteMark(0), currentMinuteEnergy_Ws(0.0f),
       averagingState(STATE_UNKNOWN) {
@@ -226,6 +226,54 @@ void INA226_ADC::readSensors() {
   // off. Use the calibrated current for this calculation.
   power_mW = getBusVoltage_V() * getCurrent_mA();
   loadVoltage_V = busVoltage_V + (shuntVoltage_mV / 1000.0f);
+
+#ifdef SIMULATION_MODE
+  unsigned long sim_now = millis();
+  
+  // Voltage Sine Wave: 10V to 15V, Period 10s
+  float v_angle = (sim_now % 10000) / 10000.0f * 2 * PI;
+  busVoltage_V = 12.5f + 2.5f * sin(v_angle);
+
+  // Current Sine Wave: -200A to +100A (Net -50A Discharge)
+  // We offset it so that Energy Usage (Wh) accumulates over time for verifying bars.
+  float i_angle = (sim_now % 20000) / 20000.0f * 2 * PI;
+  current_mA = 150000.0f * sin(i_angle) - 50000.0f;
+  
+  // Power
+  power_mW = busVoltage_V * current_mA;
+
+  // Cycle batteryState errors
+  // 0: Normal, 5: E-Fuse, 6: Load Off, 7: Over Current
+  int cycle_stage = (sim_now / 5000) % 4;
+  switch (cycle_stage) {
+      case 0: m_batteryState = 0; break;
+      case 1: m_batteryState = 5; break; // E-Fuse
+      case 2: m_batteryState = 6; break; // Load Off
+      case 3: m_batteryState = 7; break; // High Current
+  }
+#else
+    // Reset simulated state if not in sim mode (though this code isn't compiled in normal mode)
+    // But we need to update m_batteryState based on REAL conditions if we want "Load Off" detection.
+    
+    // Default to 0
+    m_batteryState = 0;  // 0 = Normal
+    
+    // Check Load Disconnect
+    if (!isLoadConnected()) {
+        if (getDisconnectReason() == OVERCURRENT) {
+             m_batteryState = 5; // E-Fuse / Overcurrent Trip
+        } else {
+             m_batteryState = 6; // Manual Load Off
+        }
+    }
+    
+    // Check Overcurrent (Warning/Protection) - handled in checkAndHandleProtection usually updates state?
+    // Actually checkAndHandleProtection might trigger disconnect.
+    // If not disconnected but high current? Use alertTriggered?
+    if (isAlertTriggered()) {
+        m_batteryState = 7; // High Current Warning
+    }
+#endif
 }
 
 float INA226_ADC::getShuntVoltage_mV() const { return shuntVoltage_mV; }
@@ -942,14 +990,14 @@ String INA226_ADC::calculateRunFlatTimeFormatted(float currentA,
   String result;
 
   if (days > 0) {
-    result += String(days) + (days == 1 ? " day" : " days");
+    result += String(days) + "d";
     if (hours > 0) {
-      result += " " + String(hours) + (hours == 1 ? " hour" : " hours");
+      result += " " + String(hours) + "h";
     }
   } else if (hours > 0) {
-    result += String(hours) + (hours == 1 ? " hour" : " hours");
+    result += String(hours) + "h";
     if (minutes > 0) {
-      result += " " + String(minutes) + (minutes == 1 ? " min" : " mins");
+      result += " " + String(minutes) + "m";
     }
   } else if (minutes > 0) {
     result += String(minutes) + (minutes == 1 ? " min" : " mins");
@@ -1424,6 +1472,10 @@ void INA226_ADC::enterSleepMode() {
 
 bool INA226_ADC::isConfigured() const { return m_isConfigured; }
 
+int INA226_ADC::getBatteryState() const {
+    return m_batteryState;
+}
+
 void INA226_ADC::setTempOvercurrentAlert(float amps) { configureAlert(amps); }
 
 void INA226_ADC::restoreOvercurrentAlert() {
@@ -1597,24 +1649,39 @@ float INA226_ADC::getLastHourEnergy_Wh() const {
   return (minuteBuffer.sum() + currentMinuteEnergy_Ws) / 3600.0f;
 }
 
+void INA226_ADC::resetEnergyStats() {
+    Serial.println("Resetting Energy Statistics...");
+    
+    // Clear RAM buffers
+    minuteBuffer.clear();
+    hourBuffer.clear();
+    dayBuffer.clear();
+    currentMinuteEnergy_Ws = 0.0f;
+    
+    // Clear RTC data
+    memset(&rtcData.minBuf, 0, sizeof(rtcData.minBuf));
+    memset(&rtcData.hourBuf, 0, sizeof(rtcData.hourBuf));
+    memset(&rtcData.dayBuf, 0, sizeof(rtcData.dayBuf));
+    rtcData.currentMinute_Ws = 0.0f;
+    rtcData.minHead = 0; rtcData.minCount = 0;
+    rtcData.hourHead = 0; rtcData.hourCount = 0;
+    rtcData.dayHead = 0; rtcData.dayCount = 0;
+    
+    Serial.println("Energy Statistics Reset Complete.");
+}
+
 float INA226_ADC::getLastDayEnergy_Wh() const {
-  // Sum of hour buffer (Wh) + Current partial hour (from minute buffer)
-  // "Last Day" = Rolling 24h.
-  // hourBuffer has last 0..23 FULL hours.
-  // The "current" hour is represented by the minute buffer.
-  // So Sum(hourBuffer) + Sum(minuteBuffer) is roughly [24h window + 0..59min].
-  // Actually CircularBuffer<24> stores last 24 *completed* hours.
-  // Ideally "Last 24h" = Sum(HourBuffer) is "Last 24 completed hours".
-  // If we want "Energy used in the last 24h period relative to NOW":
-  // It is Sum(HourBuffer) + Sum(MinuteBuffer) - (Oldest Hour Partial that is falling off?).
-  // Simpler approximation: Sum(HourBuffer) + Sum(MinuteBuffer)/3600.
-  // This is effectively "Energy used in valid history".
-  return hourBuffer.sum() + (minuteBuffer.sum() + currentMinuteEnergy_Ws) / 3600.0f;
+  // Return Average of the Hour Buffer (Average Wh per Hour for the last 24h)
+  size_t count = hourBuffer.getCount();
+  if (count == 0) return 0.0f;
+  return hourBuffer.sum() / (float)count;
 }
 
 float INA226_ADC::getLastWeekEnergy_Wh() const {
-    // Sum(DayBuffer) + Partial Day (HourBuffer + MinuteBuffer)
-    return dayBuffer.sum() + hourBuffer.sum() + (minuteBuffer.sum() + currentMinuteEnergy_Ws) / 3600.0f;
+    // Return Average of the Day Buffer (Average Wh per Day for the last 7 days)
+    size_t count = dayBuffer.getCount();
+    if (count == 0) return 0.0f;
+    return dayBuffer.sum() / (float)count;
 }
 
 void INA226_ADC::setLowVoltageDelay(uint32_t delay_s) {

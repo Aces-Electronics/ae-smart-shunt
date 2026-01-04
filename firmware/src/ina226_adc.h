@@ -82,6 +82,7 @@ public:
   void clearAlerts();
   void enterSleepMode();
   bool isConfigured() const;
+  int getBatteryState() const; // For simulation/error reporting
   void toggleHardwareAlerts();
   bool areHardwareAlertsDisabled() const;
   float getHardwareAlertThreshold_A() const;
@@ -115,6 +116,7 @@ public:
   float getLastHourEnergy_Wh() const;
   float getLastDayEnergy_Wh() const;
   float getLastWeekEnergy_Wh() const;
+  void resetEnergyStats();
 
 private:
   INA226_WE ina226;
@@ -139,6 +141,7 @@ private:
   volatile bool alertTriggered;
   bool m_isConfigured;
   uint16_t m_activeShuntA;
+  int m_batteryState; // 0=Normal, >0=Error
   DisconnectReason m_disconnectReason;
   bool m_hardwareAlertsDisabled;
 
