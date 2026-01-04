@@ -1733,6 +1733,15 @@ void loop()
     }
     ae_smart_shunt_struct.runFlatTime[sizeof(ae_smart_shunt_struct.runFlatTime) - 1] = '\0'; // ensure null termination
 
+    // Populate device name (use suffix if configured, otherwise default)
+    String suffix = ina226_adc.getDeviceNameSuffix();
+    String deviceName = "AE Smart Shunt";
+    if (suffix.length() > 0) {
+        deviceName = suffix;  // Use just the suffix as the display name
+    }
+    strncpy(ae_smart_shunt_struct.name, deviceName.c_str(), sizeof(ae_smart_shunt_struct.name) - 1);
+    ae_smart_shunt_struct.name[sizeof(ae_smart_shunt_struct.name) - 1] = '\0';
+
     // Update BLE characteristics
     Telemetry telemetry_data = {
         .batteryVoltage = ae_smart_shunt_struct.batteryVoltage,

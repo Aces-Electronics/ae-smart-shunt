@@ -76,6 +76,7 @@ typedef struct struct_message_ae_smart_shunt_1 {
   float lastHourWh;
   float lastDayWh;
   float lastWeekWh;
+  char name[24];   // Device name (e.g., "AE Smart Shunt" or custom)
 } __attribute__((packed)) struct_message_ae_smart_shunt_1;
 
 #endif // SHARED_DEFS_H
