@@ -26,6 +26,7 @@ struct Telemetry {
     float eFuseLimit;
     uint16_t activeShuntRating;
     float ratedCapacity;
+    String runFlatTime; // Added for sync
 };
 
 class BLEHandler {

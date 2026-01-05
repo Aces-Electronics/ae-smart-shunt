@@ -10,6 +10,7 @@ SET_LOOP_TASK_STACK_SIZE(16 * 1024); // 16KB, GitHub responses are heavy
 #include "gpio_adc.h"
 #include "passwords.h"
 #include "ota_handler.h"
+#include "tpms_handler.h"
 #include <esp_now.h>
 #include <esp_err.h>
 #include "driver/gpio.h"
@@ -831,6 +832,17 @@ void printShunt(const struct_message_ae_smart_shunt_1 *p)
       p->lastWeekWh,
       ina226_adc.isLoadConnected() ? "ON" : "OFF"
   );
+  
+  Serial.println("--- TPMS Data ---");
+  for(int i=0; i<TPMS_COUNT; i++) {
+        Serial.printf("  %s: %.1f PSI, %d C, %.1f V (Upd: %u)\n", 
+            TPMS_POSITION_SHORT[i], 
+            p->tpmsPressurePsi[i], 
+            p->tpmsTemperature[i], 
+            p->tpmsVoltage[i], 
+            p->tpmsLastUpdate[i]);
+  }
+  Serial.println("===================");
 }
 
 // Helper to prompt for shunt selection via Serial
@@ -1305,6 +1317,7 @@ void onDataSent(const uint8_t *mac_addr, esp_now_send_status_t status)
   Serial.println(status == ESP_NOW_SEND_SUCCESS ? "Success" : "Fail");
 }
 
+void onScanComplete();
 void setup()
 {
   Serial.begin(115200);
@@ -1397,12 +1410,18 @@ void setup()
   }
   Serial.println(F("------------------------------------"));
 
+
+// Callback for TPMS Scan Complete - Send WiFi Packet IMMEDIATELY
   // Initialize ESP-NOW
   if (!espNowHandler.begin())
   {
     Serial.println("ESP-NOW init failed");
     return;
   }
+  
+  // TPMS Setup
+  tpmsHandler.setScanCompleteCallback(onScanComplete);
+  tpmsHandler.begin();
 
   // Register callback for send status
   espNowHandler.registerSendCallback(onDataSent);
@@ -1482,6 +1501,9 @@ void setup()
       .ratedCapacity = ina226_adc.getMaxBatteryCapacity()
   };
   bleHandler.begin(initial_telemetry);
+  
+  // Initialize TPMS Scanner (Async)
+  tpmsHandler.begin();
 
   // Set the firmware version on the BLE characteristic
   bleHandler.updateFirmwareVersion(OTA_VERSION);
@@ -1490,8 +1512,10 @@ void setup()
   Serial.println("Setup done");
 }
 
-void loop()
+void loop_deprecated()
 {
+  tpmsHandler.update();
+  
   // LED Heartbeat
   if (millis() - last_led_blink > led_blink_interval)
   {
@@ -1647,7 +1671,10 @@ void loop()
       last_polling_millis = millis();
   }
 
-  // --- TELEMETRY BROADCAST (10s) ---
+  // TPMS Update (Drives Scan Cycle + Callbacks)
+  tpmsHandler.update();
+
+  // --- TELEMETRY BROADCAST (Fallback Timer) ---
   if (millis() - last_telemetry_millis > telemetry_interval)
   {
     // Populate struct fields based on configuration status
@@ -1742,6 +1769,15 @@ void loop()
     strncpy(ae_smart_shunt_struct.name, deviceName.c_str(), sizeof(ae_smart_shunt_struct.name) - 1);
     ae_smart_shunt_struct.name[sizeof(ae_smart_shunt_struct.name) - 1] = '\0';
 
+    // Populate Offloaded TPMS Data
+    for(int i=0; i<TPMS_COUNT; i++) {
+        const TPMSSensor* s = tpmsHandler.getSensor(i);
+        ae_smart_shunt_struct.tpmsPressurePsi[i] = s->pressurePsi;
+        ae_smart_shunt_struct.tpmsTemperature[i] = s->temperature;
+        ae_smart_shunt_struct.tpmsVoltage[i] = s->batteryVoltage;
+        ae_smart_shunt_struct.tpmsLastUpdate[i] = s->lastUpdate;
+    }
+
     // Update BLE characteristics
     Telemetry telemetry_data = {
         .batteryVoltage = ae_smart_shunt_struct.batteryVoltage,
@@ -1788,5 +1824,196 @@ void loop()
       Serial.println("Executing Scheduled Restart...");
       delay(100);
       ESP.restart();
+  }
+}
+
+// Callback for TPMS Scan Complete - Send WiFi Packet IMMEDIATELY
+void updateStruct(); // Fwd Decl
+void onScanComplete() {
+    updateStruct(); // Populate fresh data
+    espNowHandler.sendMessageAeSmartShunt();
+    last_telemetry_millis = millis(); // Reset timer fallback
+}
+
+void updateStruct() {
+    // Populate struct fields based on configuration status
+    ae_smart_shunt_struct.messageID = 11;
+    ae_smart_shunt_struct.dataChanged = true;
+
+    if (ina226_adc.isConfigured())
+    {
+      // --- CONFIGURED ---
+      ae_smart_shunt_struct.isCalibrated = true;
+      // Note: We don't need to call checkAndHandleProtection here as it's done in the fast loop
+
+      ae_smart_shunt_struct.batteryVoltage = ina226_adc.getBusVoltage_V();
+      ae_smart_shunt_struct.batteryCurrent = ina226_adc.getCurrent_mA() / 1000.0f;
+      ae_smart_shunt_struct.batteryPower = ina226_adc.getPower_mW() / 1000.0f;
+      ae_smart_shunt_struct.starterBatteryVoltage = starter_adc.readVoltage();
+      ae_smart_shunt_struct.lastHourWh = ina226_adc.getLastHourEnergy_Wh();
+      ae_smart_shunt_struct.lastDayWh = ina226_adc.getLastDayEnergy_Wh();
+      ae_smart_shunt_struct.lastWeekWh = ina226_adc.getLastWeekEnergy_Wh();
+
+#ifdef SIMULATION_MODE
+      // Mock Daily/Weekly Energy for UI Testing
+      // Sweep +/- 1200Wh (Daily) and +/- 5000Wh (Weekly)
+      unsigned long sim_t = millis();
+      float day_angle = (sim_t % 30000) / 30000.0f * 2 * PI;
+      float week_angle = (sim_t % 60000) / 60000.0f * 2 * PI;
+      
+      ae_smart_shunt_struct.lastDayWh = 1200.0f * sin(day_angle);
+      ae_smart_shunt_struct.lastWeekWh = 5000.0f * sin(week_angle);
+#endif
+
+      ae_smart_shunt_struct.batteryState = 0; // 0 = Normal, 1 = Warning, 2 = Critical
+      
+      if (!ina226_adc.isLoadConnected() && ina226_adc.getDisconnectReason() == OVERCURRENT) {
+          ae_smart_shunt_struct.batteryState = 5; // 5 = E-Fuse Tripped
+      }
+
+      // Get remaining Ah from INA helper
+      float remainingAh = ina226_adc.getBatteryCapacity();
+      ae_smart_shunt_struct.batteryCapacity = remainingAh; // remaining capacity in Ah
+      
+      // Use the dynamic max capacity for SOC calc
+      float maxCap = ina226_adc.getMaxBatteryCapacity();
+      if (maxCap > 0.0f)
+      {
+        ae_smart_shunt_struct.batterySOC = remainingAh / maxCap; // fraction 0..1
+      }
+      else
+      {
+        ae_smart_shunt_struct.batterySOC = 0.0f;
+      }
+
+      // Check for low SOC or low Voltage to set state
+      if (ae_smart_shunt_struct.batterySOC < 0.2f || ae_smart_shunt_struct.batteryVoltage < 11.8f)
+      {
+        if (ae_smart_shunt_struct.batterySOC < 0.1f || ae_smart_shunt_struct.batteryVoltage < 11.5f)
+        {
+          ae_smart_shunt_struct.batteryState = 2; // Critical
+        }
+        else
+        {
+          ae_smart_shunt_struct.batteryState = 1; // Warning
+        }
+      }
+      
+      // Calculate Rate of Discharge (Amps) => Time to Run Flat
+      float current = ae_smart_shunt_struct.batteryCurrent;
+      if (current < -0.1f) // Discharging significantly
+      {
+         float dischargeRate = -current; // Positive amps
+         float hoursRemaining = remainingAh / dischargeRate;
+         
+         if (hoursRemaining > 24.0f * 7.0f) {
+             snprintf(ae_smart_shunt_struct.runFlatTime, sizeof(ae_smart_shunt_struct.runFlatTime), "> 7 days");
+         } else {
+             int32_t seconds = (int32_t)(hoursRemaining * 3600.0f);
+             int h = seconds / 3600;
+             int m = (seconds % 3600) / 60;
+             snprintf(ae_smart_shunt_struct.runFlatTime, sizeof(ae_smart_shunt_struct.runFlatTime), "%dh %dm", h, m);
+         }
+      }
+      else
+      {
+          snprintf(ae_smart_shunt_struct.runFlatTime, sizeof(ae_smart_shunt_struct.runFlatTime), "Charging/Idle");
+      }
+
+    }
+    else
+    {
+      // --- NOT CONFIGURED ---
+      ae_smart_shunt_struct.isCalibrated = false;
+      ae_smart_shunt_struct.batteryVoltage = 0.0f;
+      ae_smart_shunt_struct.batteryCurrent = 0.0f;
+      ae_smart_shunt_struct.batteryPower = 0.0f;
+      ae_smart_shunt_struct.batterySOC = 0.0f;
+      ae_smart_shunt_struct.batteryState = 0;
+      snprintf(ae_smart_shunt_struct.runFlatTime, sizeof(ae_smart_shunt_struct.runFlatTime), "--");
+    }
+    
+    // Add TPMS Data
+    for(int i=0; i<TPMS_COUNT; i++) {
+        const TPMSSensor* s = tpmsHandler.getSensor(i);
+        if (s) {
+            ae_smart_shunt_struct.tpmsPressurePsi[i] = s->pressurePsi;
+            ae_smart_shunt_struct.tpmsTemperature[i] = s->temperature;
+            ae_smart_shunt_struct.tpmsVoltage[i] = s->batteryVoltage;
+            ae_smart_shunt_struct.tpmsLastUpdate[i] = s->lastUpdate;
+        } else {
+            ae_smart_shunt_struct.tpmsPressurePsi[i] = 0;
+            ae_smart_shunt_struct.tpmsTemperature[i] = 0;
+            ae_smart_shunt_struct.tpmsVoltage[i] = 0;
+            ae_smart_shunt_struct.tpmsLastUpdate[i] = 0;
+        }
+    }
+
+    // Update local copy in Handler (Ready to Send)
+    espNowHandler.setAeSmartShuntStruct(ae_smart_shunt_struct);
+}
+
+void loop() {
+  // Drives TPMS Scan & Callbacks -> onScanComplete() -> updateStruct() -> espNowHandler.sendMessage()
+  tpmsHandler.update();
+  
+  // High Frequency Polling (10 Hz)
+  if (millis() - last_polling_millis > polling_interval) {
+      ina226_adc.readSensors();
+      ina226_adc.checkAndHandleProtection(); 
+      if (ina226_adc.isConfigured()) {
+          ina226_adc.updateBatteryCapacity(ina226_adc.getCurrent_mA() / 1000.0f);
+          ina226_adc.updateEnergyUsage(ina226_adc.getPower_mW());
+      }
+      last_polling_millis = millis();
+  }
+  
+  // Fallback Telemetry (Safety Net)
+  if (millis() - last_telemetry_millis > telemetry_interval) {
+      updateStruct();
+      
+      // Update BLE Telemetry too (Since loop_deprecated is dead)
+      Telemetry telemetry_data = {
+        .batteryVoltage = ae_smart_shunt_struct.batteryVoltage,
+        .batteryCurrent = ae_smart_shunt_struct.batteryCurrent,
+        .batteryPower = ae_smart_shunt_struct.batteryPower,
+        .batterySOC = ae_smart_shunt_struct.batterySOC * 100.0f,
+        .batteryCapacity = ae_smart_shunt_struct.batteryCapacity,
+        .starterBatteryVoltage = ae_smart_shunt_struct.starterBatteryVoltage,
+        .isCalibrated = ae_smart_shunt_struct.isCalibrated,
+        .errorState = ae_smart_shunt_struct.batteryState,
+        .loadState = ina226_adc.isLoadConnected(),
+        .cutoffVoltage = ina226_adc.getLowVoltageCutoff(),
+        .reconnectVoltage = (ina226_adc.getLowVoltageCutoff() + ina226_adc.getHysteresis()),
+        .lastHourWh = ae_smart_shunt_struct.lastHourWh,
+        .lastDayWh = ae_smart_shunt_struct.lastDayWh,
+        .lastWeekWh = ae_smart_shunt_struct.lastWeekWh,
+        .lowVoltageDelayS = ina226_adc.getLowVoltageDelay(),
+        .deviceNameSuffix = ina226_adc.getDeviceNameSuffix(),
+        .eFuseLimit = ina226_adc.getEfuseLimit(),
+        .activeShuntRating = ina226_adc.getActiveShunt(),
+        .ratedCapacity = ina226_adc.getMaxBatteryCapacity(),
+        .runFlatTime = String(ae_smart_shunt_struct.runFlatTime)
+      };
+      
+      bleHandler.updateTelemetry(telemetry_data);
+      
+      espNowHandler.sendMessageAeSmartShunt();
+      printShunt(&ae_smart_shunt_struct);
+      last_telemetry_millis = millis();
+  }
+  
+  // Handle Async Restart
+  if (g_pendingRestart && millis() > g_restartTs) {
+      Serial.println("Executing Scheduled Restart...");
+      delay(100);
+      ESP.restart();
+  }
+  
+  // Handle BLE Serial Input (for debug commands if needed)
+  if (Serial.available()) {
+      String s = Serial.readStringUntil('\n');
+      s.trim();
+      pairingCallback(s); // Reuse pairing callback for serial commands
   }
 }

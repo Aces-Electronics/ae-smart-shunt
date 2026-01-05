@@ -1,10 +1,31 @@
 #include "espnow_handler.h"
 #include "esp_err.h"
 #include <cstring>
+#include "tpms_handler.h" // Access to tpmsHandler for config updates
+
+// Callback outside class
+static void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
+    if (len == sizeof(struct_message_tpms_config)) {
+        struct_message_tpms_config config;
+        memcpy(&config, incomingData, sizeof(config));
+        
+        if (config.messageID == 99) {
+            Serial.println("[ESP-NOW] Received TPMS Config (ID 99)");
+            for(int i=0; i<4; i++) {
+                Serial.printf("  Pos %d: %02X:%02X:%02X:%02X:%02X:%02X (Base: %.1f, En: %d)\n", i,
+                    config.macs[i][0], config.macs[i][1], config.macs[i][2],
+                    config.macs[i][3], config.macs[i][4], config.macs[i][5],
+                    config.baselines[i], config.configured[i]);
+            }
+            tpmsHandler.setConfig(config.macs, config.baselines, config.configured);
+        }
+    }
+}
 
 // 🔒 Compile-time check: catch padding/alignment mismatches.
 // Update "EXPECTED_AE_SMART_SHUNT_STRUCT_SIZE" if your struct changes.
-#define EXPECTED_AE_SMART_SHUNT_STRUCT_SIZE 110   // Updated: 86 + 24 (name field)
+// Update "EXPECTED_AE_SMART_SHUNT_STRUCT_SIZE" if your struct changes.
+#define EXPECTED_AE_SMART_SHUNT_STRUCT_SIZE 174   // Updated: 110 + 64 (TPMS)
 static_assert(sizeof(struct_message_ae_smart_shunt_1) == EXPECTED_AE_SMART_SHUNT_STRUCT_SIZE,
               "struct_message_ae_smart_shunt_1 has unexpected size! Possible padding/alignment issue.");
 
@@ -124,6 +145,7 @@ bool ESPNowHandler::begin()
         Serial.println("Error initializing ESP-NOW");
         return false;
     }
+    esp_now_register_recv_cb(OnDataRecv);
     return true;
 }
 
