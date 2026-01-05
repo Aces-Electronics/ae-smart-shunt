@@ -35,6 +35,7 @@ public:
     void begin(const Telemetry& initial_telemetry);
     void updateTelemetry(const Telemetry& telemetry);
     void startAdvertising(const Telemetry& telemetry);
+    bool isConnected(); // Check connection status
     void setServerCallbacks(BLEServerCallbacks* callbacks);
     void setLoadSwitchCallback(std::function<void(bool)> callback);
     void setSOCCallback(std::function<void(float)> callback);

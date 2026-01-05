@@ -97,6 +97,15 @@ void TPMSHandler::startScan() {
     Serial.println("[TPMS] Scan Started");
 }
 
+void TPMSHandler::stopScan() {
+    if (scanActive && pBLEScan) {
+        Serial.println("[TPMS] Forcing Scan Stop");
+        pBLEScan->stop();
+        pBLEScan->clearResults();
+        scanActive = false;
+    }
+}
+
 void TPMSHandler::onSensorDiscovered(const uint8_t* mac, float voltage, int temp, float pressure) {
     // Check if MAC matches any configured sensor
     for (int i = 0; i < TPMS_COUNT; i++) {

@@ -487,6 +487,10 @@ void BLEHandler::updateTelemetry(const Telemetry& telemetry) {
     startAdvertising(telemetry);
 }
 
+bool BLEHandler::isConnected() {
+    return pServer->getConnectedCount() > 0;
+}
+
 void BLEHandler::startAdvertising(const Telemetry& telemetry) {
     BLEAdvertising* pAdvertising = BLEDevice::getAdvertising();
 

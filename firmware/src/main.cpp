@@ -1955,7 +1955,12 @@ void updateStruct() {
 
 void loop() {
   // Drives TPMS Scan & Callbacks -> onScanComplete() -> updateStruct() -> espNowHandler.sendMessage()
-  tpmsHandler.update();
+  // PAUSE SCAN if BLE Client Connected (to allow config/OTA)
+  if (bleHandler.isConnected()) {
+      tpmsHandler.stopScan();
+  } else {
+      tpmsHandler.update();
+  }
   
   // High Frequency Polling (10 Hz)
   if (millis() - last_polling_millis > polling_interval) {

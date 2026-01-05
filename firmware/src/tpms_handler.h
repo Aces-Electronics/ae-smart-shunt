@@ -56,6 +56,7 @@ public:
     // Callback for scan complete (Trigger WiFi TX)
     typedef void (*ScanCompleteCallback)(void);
     void setScanCompleteCallback(ScanCompleteCallback cb) { scanCompleteCB = cb; }
+    void stopScan(); // Force stop scanning
 
 private:
     TPMSSensor sensors[TPMS_COUNT];
@@ -73,7 +74,7 @@ private:
     // No stopScan needed (async handles it)
 
     // Configuration
-    static constexpr int SCAN_DURATION_S = 9;               // Scan duration in seconds (90% Duty Cycle)
+    static constexpr int SCAN_DURATION_S = 5;               // Scan duration in seconds (50% Duty Cycle)
     static constexpr unsigned long SCAN_INTERVAL_MS = 10000; // Interval (10s)
 };
 
