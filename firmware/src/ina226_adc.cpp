@@ -1609,10 +1609,13 @@ void INA226_ADC::updateEnergyUsage(float power_mW) {
           
           if (hoursSinceLastDayPush >= 24) {
               // Push to Day Buffer (Wh)
+              // Push to Day Buffer (Wh)
               float lastDay_Wh = hourBuffer.sum(); // Sum(hourBuffer) is sum of 24x 1-hour blocks = last 24h
               dayBuffer.push(lastDay_Wh); 
               hoursSinceLastDayPush = 0;
+              Serial.printf("[Energy] Pushed Day: %.2f Wh\n", lastDay_Wh);
           }
+          Serial.printf("[Energy] Pushed Hour: %.2f Wh (MinuteSum: %.2f Ws)\n", lastHour_Wh, minuteBuffer.sum());
       }
       
       currentMinuteEnergy_Ws = 0.0f;
@@ -1671,17 +1674,13 @@ void INA226_ADC::resetEnergyStats() {
 }
 
 float INA226_ADC::getLastDayEnergy_Wh() const {
-  // Return Average of the Hour Buffer (Average Wh per Hour for the last 24h)
-  size_t count = hourBuffer.getCount();
-  if (count == 0) return 0.0f;
-  return hourBuffer.sum() / (float)count;
+  // Return Sum of the Hour Buffer (Total Wh for the last 24h)
+  return hourBuffer.sum();
 }
 
 float INA226_ADC::getLastWeekEnergy_Wh() const {
-    // Return Average of the Day Buffer (Average Wh per Day for the last 7 days)
-    size_t count = dayBuffer.getCount();
-    if (count == 0) return 0.0f;
-    return dayBuffer.sum() / (float)count;
+    // Return Sum of the Day Buffer (Total Wh for the last 7 days)
+    return dayBuffer.sum();
 }
 
 void INA226_ADC::setLowVoltageDelay(uint32_t delay_s) {
