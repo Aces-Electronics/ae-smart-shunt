@@ -57,7 +57,7 @@ void scheduleRestart(uint32_t delay_ms) {
 unsigned long last_led_blink = 0;
 const unsigned long led_blink_interval = 500; // ms
 
-struct_message_ae_smart_shunt_1 ae_smart_shunt_struct;
+struct_message_ae_smart_shunt_1 ae_smart_shunt_struct = {};  // Zero-initialize to prevent garbage
 // Initializing with a default shunt resistor value, which will be overwritten
 // if a calibrated value is loaded from NVS.
 // The default resistance value here is a fallback and will be overwritten by either a
@@ -1317,6 +1317,32 @@ void onDataSent(const uint8_t *mac_addr, esp_now_send_status_t status)
   Serial.println(status == ESP_NOW_SEND_SUCCESS ? "Success" : "Fail");
 }
 
+void printResetReason() {
+  esp_reset_reason_t reason = esp_reset_reason();
+  Serial.printf("\n[BOOT] Reset Reason: %d (", reason);
+  switch (reason) {
+    case ESP_RST_UNKNOWN: Serial.print("Unknown"); break;
+    case ESP_RST_POWERON: Serial.print("Power On"); break;
+    case ESP_RST_EXT: Serial.print("External Pin"); break;
+    case ESP_RST_SW: Serial.print("Software Reset"); break;
+    case ESP_RST_PANIC: Serial.print("Exception/Panic"); break;
+    case ESP_RST_INT_WDT: Serial.print("Interrupt WDT"); break;
+    case ESP_RST_TASK_WDT: Serial.print("Task WDT"); break;
+    case ESP_RST_WDT: Serial.print("Other WDT"); break;
+    case ESP_RST_DEEPSLEEP: Serial.print("Deep Sleep"); break;
+    case ESP_RST_BROWNOUT: Serial.print("Brownout"); break;
+    case ESP_RST_SDIO: Serial.print("SDIO"); break;
+    default: Serial.print("Other"); break;
+  }
+  Serial.println(")");
+
+  // Save to NVS
+  Preferences prefs;
+  prefs.begin("crash_log", false);
+  prefs.putInt("reason", (int)reason);
+  prefs.end();
+}
+
 void onScanComplete();
 void setup()
 {
@@ -1325,6 +1351,9 @@ void setup()
   // Wait for serial monitor to connect
   while (!Serial && millis() < 2000);
   delay(250);
+
+  printResetReason();
+
 
   // Disable the RTC GPIO hold on boot
   gpio_hold_dis(GPIO_NUM_5);
@@ -1503,7 +1532,7 @@ void setup()
   bleHandler.begin(initial_telemetry);
   
   // Initialize TPMS Scanner (Async)
-  tpmsHandler.begin();
+
 
   // Set the firmware version on the BLE characteristic
   bleHandler.updateFirmwareVersion(OTA_VERSION);
@@ -1738,7 +1767,8 @@ void loop_deprecated()
       float currentA = ina226_adc.getCurrent_mA() / 1000.0f; // convert mA to A
       float warningThresholdHours = 10.0f;
       String avgRunFlatTimeStr = ina226_adc.getAveragedRunFlatTime(currentA, warningThresholdHours, warning);
-      strncpy(ae_smart_shunt_struct.runFlatTime, avgRunFlatTimeStr.c_str(), sizeof(ae_smart_shunt_struct.runFlatTime));
+      memset(ae_smart_shunt_struct.runFlatTime, 0, sizeof(ae_smart_shunt_struct.runFlatTime));  // Clear buffer
+      strncpy(ae_smart_shunt_struct.runFlatTime, avgRunFlatTimeStr.c_str(), sizeof(ae_smart_shunt_struct.runFlatTime) - 1);
     }
     else
     {
@@ -1753,7 +1783,8 @@ void loop_deprecated()
       ae_smart_shunt_struct.batterySOC = 0.0f;
       ae_smart_shunt_struct.batteryCapacity = 0.0f;
       ae_smart_shunt_struct.batteryState = 4; // Use 4 for "Not Calibrated"
-      strncpy(ae_smart_shunt_struct.runFlatTime, "NOT CALIBRATED", sizeof(ae_smart_shunt_struct.runFlatTime));
+      memset(ae_smart_shunt_struct.runFlatTime, 0, sizeof(ae_smart_shunt_struct.runFlatTime));  // Clear buffer
+      strncpy(ae_smart_shunt_struct.runFlatTime, "NOT CALIBRATED", sizeof(ae_smart_shunt_struct.runFlatTime) - 1);
       ae_smart_shunt_struct.lastHourWh = 0.0f;
       ae_smart_shunt_struct.lastDayWh = 0.0f;
       ae_smart_shunt_struct.lastWeekWh = 0.0f;
@@ -1899,26 +1930,14 @@ void updateStruct() {
         }
       }
       
-      // Calculate Rate of Discharge (Amps) => Time to Run Flat
-      float current = ae_smart_shunt_struct.batteryCurrent;
-      if (current < -0.1f) // Discharging significantly
-      {
-         float dischargeRate = -current; // Positive amps
-         float hoursRemaining = remainingAh / dischargeRate;
-         
-         if (hoursRemaining > 24.0f * 7.0f) {
-             snprintf(ae_smart_shunt_struct.runFlatTime, sizeof(ae_smart_shunt_struct.runFlatTime), "> 7 days");
-         } else {
-             int32_t seconds = (int32_t)(hoursRemaining * 3600.0f);
-             int h = seconds / 3600;
-             int m = (seconds % 3600) / 60;
-             snprintf(ae_smart_shunt_struct.runFlatTime, sizeof(ae_smart_shunt_struct.runFlatTime), "%dh %dm", h, m);
-         }
-      }
-      else
-      {
-          snprintf(ae_smart_shunt_struct.runFlatTime, sizeof(ae_smart_shunt_struct.runFlatTime), "Charging/Idle");
-      }
+      // Calculate Run Flat Time using averaged current from energy buffer
+      // This provides a stable reading that accounts for intermittent loads (e.g., fridges)
+      bool warning = false;
+      float avgCurrentA = ina226_adc.getAverageCurrentFromEnergyBuffer_A();
+      String runFlatTimeStr = ina226_adc.getAveragedRunFlatTime(avgCurrentA, 10.0f, warning);
+      memset(ae_smart_shunt_struct.runFlatTime, 0, sizeof(ae_smart_shunt_struct.runFlatTime));  // Clear buffer
+      strncpy(ae_smart_shunt_struct.runFlatTime, runFlatTimeStr.c_str(), sizeof(ae_smart_shunt_struct.runFlatTime) - 1);
+      ae_smart_shunt_struct.runFlatTime[sizeof(ae_smart_shunt_struct.runFlatTime) - 1] = '\0';
 
     }
     else
@@ -1977,30 +1996,40 @@ void loop() {
   if (millis() - last_telemetry_millis > telemetry_interval) {
       updateStruct();
       
-      // Update BLE Telemetry too (Since loop_deprecated is dead)
+      // 10 Hz Telemetry Loop
       Telemetry telemetry_data = {
-        .batteryVoltage = ae_smart_shunt_struct.batteryVoltage,
-        .batteryCurrent = ae_smart_shunt_struct.batteryCurrent,
-        .batteryPower = ae_smart_shunt_struct.batteryPower,
-        .batterySOC = ae_smart_shunt_struct.batterySOC * 100.0f,
-        .batteryCapacity = ae_smart_shunt_struct.batteryCapacity,
-        .starterBatteryVoltage = ae_smart_shunt_struct.starterBatteryVoltage,
-        .isCalibrated = ae_smart_shunt_struct.isCalibrated,
-        .errorState = ae_smart_shunt_struct.batteryState,
-        .loadState = ina226_adc.isLoadConnected(),
-        .cutoffVoltage = ina226_adc.getLowVoltageCutoff(),
-        .reconnectVoltage = (ina226_adc.getLowVoltageCutoff() + ina226_adc.getHysteresis()),
-        .lastHourWh = ae_smart_shunt_struct.lastHourWh,
-        .lastDayWh = ae_smart_shunt_struct.lastDayWh,
-        .lastWeekWh = ae_smart_shunt_struct.lastWeekWh,
-        .lowVoltageDelayS = ina226_adc.getLowVoltageDelay(),
-        .deviceNameSuffix = ina226_adc.getDeviceNameSuffix(),
-        .eFuseLimit = ina226_adc.getEfuseLimit(),
-        .activeShuntRating = ina226_adc.getActiveShunt(),
-        .ratedCapacity = ina226_adc.getMaxBatteryCapacity(),
-        .runFlatTime = String(ae_smart_shunt_struct.runFlatTime)
+          .batteryVoltage = ina226_adc.getBusVoltage_V(),
+          .batteryCurrent = ina226_adc.getCurrent_mA() / 1000.0f,
+          .batteryPower = ina226_adc.getPower_mW() / 1000.0f,
+          .batterySOC = ae_smart_shunt_struct.batterySOC * 100.0f,
+          .batteryCapacity = ina226_adc.getBatteryCapacity(),
+          .starterBatteryVoltage = starter_adc.readVoltage(),
+          .isCalibrated = ina226_adc.isConfigured(),
+          .errorState = ae_smart_shunt_struct.batteryState,
+          .loadState = ina226_adc.isLoadConnected(),
+          .cutoffVoltage = ina226_adc.getLowVoltageCutoff(),
+          .reconnectVoltage = (ina226_adc.getLowVoltageCutoff() + ina226_adc.getHysteresis()),
+          .lastHourWh = ina226_adc.getLastHourEnergy_Wh(),
+          .lastDayWh = ina226_adc.getLastDayEnergy_Wh(),
+          .lastWeekWh = ina226_adc.getLastWeekEnergy_Wh(),
+          .lowVoltageDelayS = ina226_adc.getLowVoltageDelay(),
+          .deviceNameSuffix = ina226_adc.getDeviceNameSuffix(),
+          .eFuseLimit = ina226_adc.getEfuseLimit(),
+          .activeShuntRating = ina226_adc.getActiveShunt(),
+          .ratedCapacity = ina226_adc.getMaxBatteryCapacity(),
+          .runFlatTime = String(ae_smart_shunt_struct.runFlatTime)
       };
+
+      // Add Diagnostics String
+      uint32_t uptime = millis() / 1000;
+      int days = uptime / 86400;
+      int hours = (uptime % 86400) / 3600;
+      int minutes = (uptime % 3600) / 60;
       
+      char diagBuf[64];
+      snprintf(diagBuf, sizeof(diagBuf), "Rst:%d Up:%dd %dh %dm", esp_reset_reason(), days, hours, minutes);
+      telemetry_data.diagnostics = String(diagBuf);
+
       bleHandler.updateTelemetry(telemetry_data);
       
       espNowHandler.sendMessageAeSmartShunt();

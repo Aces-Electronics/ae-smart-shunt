@@ -116,6 +116,7 @@ public:
   float getLastHourEnergy_Wh() const;
   float getLastDayEnergy_Wh() const;
   float getLastWeekEnergy_Wh() const;
+  float getAverageCurrentFromEnergyBuffer_A() const;
   void resetEnergyStats();
 
 private:

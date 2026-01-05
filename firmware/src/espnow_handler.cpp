@@ -5,9 +5,13 @@
 
 // Callback outside class
 static void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
+
+    
     if (len == sizeof(struct_message_tpms_config)) {
         struct_message_tpms_config config;
         memcpy(&config, incomingData, sizeof(config));
+        
+        Serial.printf("[ESP-NOW RX] Possible TPMS config, messageID=%d\n", config.messageID);
         
         if (config.messageID == 99) {
             Serial.println("[ESP-NOW] Received TPMS Config (ID 99)");
@@ -58,41 +62,23 @@ void ESPNowHandler::sendMessageAeSmartShunt()
     size_t len = sizeof(localAeSmartShuntStruct);
 
     Serial.printf("Struct size: %d bytes\n", len);
-
-    Serial.print("Sending to MAC: ");
-    printMacAddress(broadcastAddress);
-
-    // Serial.print("Sending data (hex): ");
-    // for (size_t i = 0; i < len; i++)
-    // {
-    //     Serial.printf("%02X ", data[i]);
-    // }
     
     if (isSecure) {
-        // 1. Send Encrypted Unicast to Target
+        // Send Encrypted Unicast to Target (no broadcast in secure mode)
         Serial.print("Sending Encrypted to: ");
         printMacAddress(targetPeer);
         esp_err_t res = esp_now_send(targetPeer, data, len);
         if (res != ESP_OK) Serial.println("Encrypted Send Failed");
-
-        // 2. Disable Beacon in Secure Mode
-        // User requested strict unicast only.
-        // To re-pair, user must use App -> Factory Reset Shunt.
-        // Serial.println("Secure Mode: Beacon Disabled.");
-        
-        return; // Done
+        return; // Done - no broadcast in secure mode
     }
-    // Else fallthrough to original Broadcast logic
+    
+    // Else: Not paired, use broadcast for discovery
+    Serial.print("Sending Broadcast to: ");
+    printMacAddress(broadcastAddress);
     
     // Explicitly set ID to 33 (Discovery Beacon) for unencrypted broadcasts
     localAeSmartShuntStruct.messageID = 33;
 
-    // Serial.print(" | ASCII: ");
-    // for (size_t i = 0; i < len; i++)
-    // {
-    //     char c = data[i];
-    //     Serial.print(isprint(c) ? c : '.');
-    // }
     Serial.println();
 
     esp_err_t result = esp_now_send(broadcastAddress, data, len);

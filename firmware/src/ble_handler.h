@@ -27,6 +27,7 @@ struct Telemetry {
     uint16_t activeShuntRating;
     float ratedCapacity;
     String runFlatTime; // Added for sync
+    String diagnostics; // Added for crash/uptime info
 };
 
 class BLEHandler {
@@ -82,6 +83,8 @@ public:
     static const char* PAIRING_CHAR_UUID;
     static const char* EFUSE_LIMIT_CHAR_UUID;
     static const char* ACTIVE_SHUNT_CHAR_UUID;
+    static const char* RUN_FLAT_TIME_CHAR_UUID;
+    static const char* DIAGNOSTICS_CHAR_UUID; // New
 
     // --- New OTA Service ---
     static const char* OTA_SERVICE_UUID;
@@ -117,6 +120,8 @@ private:
     BLECharacteristic* pWifiPassCharacteristic;
     BLECharacteristic* pFirmwareVersionCharacteristic;
     BLECharacteristic* pPairingCharacteristic;
+    BLECharacteristic* pRunFlatTimeCharacteristic;
+    BLECharacteristic* pDiagnosticsCharacteristic;
 
     // --- New OTA service and characteristics ---
     BLEService* pOtaService;

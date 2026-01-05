@@ -35,6 +35,10 @@ struct RTC_Data {
     // Battery State
     float batteryCapacity;
     bool hasCapacity;
+
+    // Counters for partial buffering
+    int minutesSinceLastHourPush;
+    int hoursSinceLastDayPush;
 };
 
 RTC_DATA_ATTR RTC_Data rtcData = {0};
@@ -466,10 +470,14 @@ float INA226_ADC::getMaxBatteryCapacity() const {
 }
 
 void INA226_ADC::setRatedCapacity_Ah(float capacity) {
+    // Calculate current SOC percentage using the OLD max capacity
+    float currentSocPercent = (maxBatteryCapacity > 0) ? (batteryCapacity / maxBatteryCapacity) : 0.0f;
+    
+    // Update to NEW max capacity
     maxBatteryCapacity = capacity;
-    // Recalculate current batteryCapacity to maintain SOC percentage
-    float currentSocPercent = (maxBatteryCapacity > 0) ? (batteryCapacity / maxBatteryCapacity) * 100.0f : 0.0f;
-    batteryCapacity = maxBatteryCapacity * (currentSocPercent / 100.0f);
+    
+    // Recalculate remaining capacity (Ah) to match the same SOC percentage
+    batteryCapacity = maxBatteryCapacity * currentSocPercent;
     
     // Save to NVS
     Preferences prefs;
@@ -919,7 +927,11 @@ void INA226_ADC::checkSoCSync() {
           // Fully charged (Voltage high + tail current low)
           if (batteryCapacity < maxBatteryCapacity) {
              batteryCapacity = maxBatteryCapacity;
-             Serial.println("SOC Synced to 100% (High Voltage + Low Current)");
+             static unsigned long lastSocLog = 0;
+             if (millis() - lastSocLog > 60000) {
+                Serial.println("SOC Synced to 100% (High Voltage + Low Current)");
+                lastSocLog = millis();
+             }
           }
       } else {
           // Charging but high current -> not full yet.
@@ -950,6 +962,9 @@ String INA226_ADC::calculateRunFlatTimeFormatted(float currentA,
                                                  bool &warningTriggered) {
   warningTriggered = false;
 
+  // Idle threshold: +/- 0.050A
+  const float idleThresholdA = 0.050f;
+
   const float maxRunFlatHours = 24.0f * 7.0f;
   float runHours = -1.0f;
   bool charging = false;
@@ -957,21 +972,26 @@ String INA226_ADC::calculateRunFlatTimeFormatted(float currentA,
   // Define a small tolerance for "fully charged" state, e.g., 99.5%
   const float fullyChargedThreshold = maxBatteryCapacity * 0.995f;
 
+  // Check for idle state first (within ±0.050A)
+  if (fabsf(currentA) <= idleThresholdA) {
+    return String("> 7 days");
+  }
+
   // Positive current indicates charging, negative indicates discharging.
-  if (currentA > 0.20f) { // Charging
+  if (currentA > idleThresholdA) { // Charging
     if (batteryCapacity >= fullyChargedThreshold) {
       return String("Fully Charged!");
     }
     float remainingToFullAh = maxBatteryCapacity - batteryCapacity;
     runHours = remainingToFullAh / currentA;
     charging = true;
-  } else if (currentA < -0.001f) { // Discharging
+  } else if (currentA < -idleThresholdA) { // Discharging
     runHours = batteryCapacity / (-currentA);
     charging = false;
   }
 
   if (runHours <= 0.0f) {
-    return String("Fully Charged!");
+    return String("> 7 days");
   }
 
   if (runHours > maxRunFlatHours) {
@@ -1520,6 +1540,10 @@ void INA226_ADC::dumpRegisters() const {
 void INA226_ADC::updateEnergyUsage(float power_mW) {
   unsigned long now = millis();
   
+  // Static counters (moved to top for restore access)
+  static int minutesSinceLastHourPush = 0;
+  static int hoursSinceLastDayPush = 0;
+
   // Initialization / Restore check
   if (lastEnergyUpdateTime == 0) {
     if (rtcData.magic == RTC_MAGIC) {
@@ -1531,8 +1555,9 @@ void INA226_ADC::updateEnergyUsage(float power_mW) {
         hourBuffer.restore(rtcData.hourBuf, rtcData.hourHead, rtcData.hourCount);
         dayBuffer.restore(rtcData.dayBuf, rtcData.dayHead, rtcData.dayCount);
         
-        // Attempt to sync time if possible, or just reset "last seen" to now to avoid massive jumps
-        // If we saved lastUpdate_ms, we could check elapsed time, but for simpler logic we'll just continue from "now"
+        // Restore counters
+        minutesSinceLastHourPush = rtcData.minutesSinceLastHourPush;
+        hoursSinceLastDayPush = rtcData.hoursSinceLastDayPush;
         
         lastEnergyUpdateTime = now;
         lastMinuteMark = now; 
@@ -1544,6 +1569,8 @@ void INA226_ADC::updateEnergyUsage(float power_mW) {
         minuteBuffer.clear();
         hourBuffer.clear();
         dayBuffer.clear();
+        minutesSinceLastHourPush = 0;
+        hoursSinceLastDayPush = 0;
         
         // Initialize RTC
         memset(&rtcData, 0, sizeof(rtcData));
@@ -1561,56 +1588,17 @@ void INA226_ADC::updateEnergyUsage(float power_mW) {
   
   // Check for Minute Boundary (every 60 seconds)
   if (now - lastMinuteMark >= 60000) {
-      // 1 Minute passed. 
-      // Push accumulated Ws (converted to Wh?) or keep Ws?
-      // Let's keep Ws in minute buffer for precision, convert to Wh when summing or pushing to hour.
-      // Actually standardizing on Wh usually makes sense at hour level. 
-      // Let's store Ws in minute buffer.
+      minutesSinceLastHourPush++;
       minuteBuffer.push(currentMinuteEnergy_Ws);
       
-      // Check if we have completed an Hour (60 minutes)
-      // The minuteBuffer holds the last 60 minutes.
-      // Every time we push a minute, do we push to hour?
-      // No, "Hour Buffer" holds "Last 24 Hours".
-      // We should push to Hour Buffer once every 60 minutes.
-      // How to track? `minuteBuffer.getCount()` isn't enough because it caps at 60.
-      // We can use the buffer head or a counter.
-      // Or simply: When minuteBuffer wraps or every 60th push?
-      // Better: Keep a separate counter or simpler logic:
-      // "Rolling Window": The sum of minuteBuffer IS the "Last Hour".
-      // But for "Last Day", we need 24 chunks of "Hours".
-      // An "Hour Chunk" is the sum of the *just processed* 60 minutes.
-      // If we clear minute buffer, we lose "Last Hour" rolling ability.
-      // We need "Last Hour" to be a sliding window of 60 mins.
-      // We need "Last Day" to be a sliding window of 24 hours.
-      // This implies we need to accumulate minutes into an "Hour Accumulator" separate from the sliding window?
-      // No, we can just sample the minute buffer?
-      // Actually, standard approach:
-      // Minute Buffer receives data every minute.
-      // When 60 minutes have passed (track count), take the SUM of those 60 minutes and push to Hour Buffer.
-      // But if we use a sliding Minute Buffer, the "last 60 minutes" changes every minute.
-      // The "Hour Buffer" usually represents specific monotonic hours or just "chunks of 60 mins".
-      // Let's implement:
-      // Every 60 minutes (tracked by a counter), sum the last 60 entries (which corresponds to the full buffer if size 60) and push to Hour Buffer.
-      // Wait, if we push to Hour Buffer every 60 mins, "Last Day" updates only once an hour. That's acceptable.
-      
-      static int minutesSinceLastHourPush = 0;
-      minutesSinceLastHourPush++;
-      
       if (minutesSinceLastHourPush >= 60) {
-          // Push to Hour Buffer (Store as Wh now for larger scale)
-          // Sum of minute buffer (Ws) / 3600
           float lastHour_Wh = minuteBuffer.sum() / 3600.0f;
           hourBuffer.push(lastHour_Wh);
           minutesSinceLastHourPush = 0;
           
-          static int hoursSinceLastDayPush = 0;
           hoursSinceLastDayPush++;
-          
           if (hoursSinceLastDayPush >= 24) {
-              // Push to Day Buffer (Wh)
-              // Push to Day Buffer (Wh)
-              float lastDay_Wh = hourBuffer.sum(); // Sum(hourBuffer) is sum of 24x 1-hour blocks = last 24h
+              float lastDay_Wh = hourBuffer.sum(); 
               dayBuffer.push(lastDay_Wh); 
               hoursSinceLastDayPush = 0;
               Serial.printf("[Energy] Pushed Day: %.2f Wh\n", lastDay_Wh);
@@ -1626,9 +1614,10 @@ void INA226_ADC::updateEnergyUsage(float power_mW) {
       rtcData.lastUpdate_ms = lastEnergyUpdateTime;
       rtcData.lastMinMark_ms = lastMinuteMark;
       
+      rtcData.minutesSinceLastHourPush = minutesSinceLastHourPush;
+      rtcData.hoursSinceLastDayPush = hoursSinceLastDayPush;
+      
       // Copy buffers to RTC
-      // Note: This happens once a minute. Tolerable for RTC write? YES.
-      // Using direct memcpy for speed
       memcpy(rtcData.minBuf, minuteBuffer.getBuffer(), sizeof(rtcData.minBuf));
       rtcData.minHead = minuteBuffer.getHead();
       rtcData.minCount = minuteBuffer.getCount();
@@ -1640,10 +1629,6 @@ void INA226_ADC::updateEnergyUsage(float power_mW) {
       memcpy(rtcData.dayBuf, dayBuffer.getBuffer(), sizeof(rtcData.dayBuf));
       rtcData.dayHead = dayBuffer.getHead();
       rtcData.dayCount = dayBuffer.getCount();
-      
-      // We also need to persist the counters (minutesSince..., hoursSince...)
-      // For now, if we reboot, these reset, meaning we might delay the next Hour push up to 59 mins.
-      // Acceptable for this MVP iteration.
   }
 }
 
@@ -1674,13 +1659,52 @@ void INA226_ADC::resetEnergyStats() {
 }
 
 float INA226_ADC::getLastDayEnergy_Wh() const {
-  // Return Sum of the Hour Buffer (Total Wh for the last 24h)
-  return hourBuffer.sum();
+  // Return Sum of the Hour Buffer (Total Wh for the last 24h) + Current accumulating hour
+  return hourBuffer.sum() + getLastHourEnergy_Wh();
 }
 
 float INA226_ADC::getLastWeekEnergy_Wh() const {
-    // Return Sum of the Day Buffer (Total Wh for the last 7 days)
-    return dayBuffer.sum();
+    // Return Sum of the Day Buffer (Total Wh for the last 7 days) + Current accumulating day
+    return dayBuffer.sum() + getLastDayEnergy_Wh();
+}
+
+float INA226_ADC::getAverageCurrentFromEnergyBuffer_A() const {
+    // Get the actual number of minutes in the buffer (each minute = 1 entry)
+    size_t minutesInBuffer = minuteBuffer.getCount();
+    
+    // If buffer is empty or just started, fall back to instantaneous current
+    if (minutesInBuffer < 1) {
+        return getCurrent_mA() / 1000.0f;
+    }
+    
+    // Get total energy in the buffer (Watt-seconds) + current accumulating minute
+    float totalWs = minuteBuffer.sum() + currentMinuteEnergy_Ws;
+    
+    // Convert Ws to Wh: Ws / 3600 = Wh
+    float totalWh = totalWs / 3600.0f;
+    
+    // Calculate actual hours represented by the buffer
+    // minutesInBuffer entries + partial current minute (estimate as 0.5 minutes average)
+    float actualHours = (float)(minutesInBuffer) / 60.0f + 0.5f / 60.0f;
+    if (actualHours < 0.0167f) actualHours = 0.0167f; // Minimum ~1 minute
+    
+    // Average power = total energy / time
+    float avgPower_W = fabsf(totalWh) / actualHours;
+    
+    // Get current voltage for power-to-current conversion
+    float voltage = getBusVoltage_V();
+    if (voltage < 0.1f) voltage = 12.0f; // Fallback voltage
+    
+    // P = I * V => I = P / V
+    float avgCurrent_A = avgPower_W / voltage;
+    
+    // Determine sign from instantaneous current direction
+    // (our energy tracking stores absolute values, so we use current sign)
+    float instantCurrent = getCurrent_mA() / 1000.0f;
+    if (instantCurrent < 0) {
+        return -avgCurrent_A;
+    }
+    return avgCurrent_A;
 }
 
 void INA226_ADC::setLowVoltageDelay(uint32_t delay_s) {

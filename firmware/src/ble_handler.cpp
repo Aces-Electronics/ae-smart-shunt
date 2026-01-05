@@ -28,6 +28,8 @@ const char* BLEHandler::SET_RATED_CAPACITY_CHAR_UUID = "5A1B2C3D-4E5F-6A7B-8C9D-
 const char* BLEHandler::PAIRING_CHAR_UUID = "ACDC1234-5678-90AB-CDEF-1234567890CB";
 const char* BLEHandler::EFUSE_LIMIT_CHAR_UUID = "BB1B2C3D-4E5F-6A7B-8C9D-0E1F2A3B4C68";
 const char* BLEHandler::ACTIVE_SHUNT_CHAR_UUID = "CB1B2C3D-4E5F-6A7B-8C9D-0E1F2A3B4C69";
+const char* BLEHandler::RUN_FLAT_TIME_CHAR_UUID = "CC1B2C3D-4E5F-6A7B-8C9D-0E1F2A3B4C6A";
+const char* BLEHandler::DIAGNOSTICS_CHAR_UUID     = "ACDC1234-5678-90AB-CDEF-1234567890CC"; // Next available
 
 // --- New OTA Service UUIDs ---
 const char* BLEHandler::OTA_SERVICE_UUID = "1a89b148-b4e8-43d7-952b-a0b4b01e43b3";
@@ -395,6 +397,19 @@ void BLEHandler::begin(const Telemetry& initial_telemetry) {
     Serial.printf("Setting Pairing Characteristic Value to: %s\n", macAddr.c_str());
     pPairingCharacteristic->setValue(std::string(macAddr.c_str()));
 
+    // Run Flat Time Characteristic (Read-only string)
+    pRunFlatTimeCharacteristic = pService->createCharacteristic(
+        RUN_FLAT_TIME_CHAR_UUID,
+        NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY
+    );
+    pRunFlatTimeCharacteristic->setValue("--");  // Initial value before first telemetry
+
+    pDiagnosticsCharacteristic = pService->createCharacteristic(
+        DIAGNOSTICS_CHAR_UUID,
+        NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY
+    );
+    pDiagnosticsCharacteristic->setValue("Initializing...");
+
     pService->start();
 
     // --- Create New OTA Service ---
@@ -482,6 +497,14 @@ void BLEHandler::updateTelemetry(const Telemetry& telemetry) {
 
     pSetRatedCapacityCharacteristic->setValue(telemetry.ratedCapacity);
     pSetRatedCapacityCharacteristic->notify();
+
+    // Update Run Flat Time string
+    pRunFlatTimeCharacteristic->setValue(std::string(telemetry.runFlatTime.c_str()));
+    pRunFlatTimeCharacteristic->notify();
+
+    // Update Diagnostics
+    pDiagnosticsCharacteristic->setValue(std::string(telemetry.diagnostics.c_str()));
+    pDiagnosticsCharacteristic->notify();
 
     // Update advertising data
     startAdvertising(telemetry);

@@ -16,12 +16,19 @@ class TPMSAdvertisedDeviceCallbacks : public NimBLEAdvertisedDeviceCallbacks {
     void onResult(NimBLEAdvertisedDevice* advertisedDevice) override {
         if (!g_tpmsHandler) return;
 
+
+
         // 1. Check Name "BR"
         bool isTPMS = false;
         if (advertisedDevice->haveName() && advertisedDevice->getName() == "BR") isTPMS = true;
         
         // 2. Check Service UUID 0x27A5
         if (advertisedDevice->haveServiceUUID() && advertisedDevice->isAdvertisingService(NimBLEUUID((uint16_t)0x27A5))) isTPMS = true;
+
+        // 3. DEBUG: If it has manufacturer data approx correct length, assume it might be it and log why it failed
+        if (!isTPMS && advertisedDevice->haveManufacturerData() && advertisedDevice->getManufacturerData().length() >= 5) {
+             // Serial.println("Found candidate but filtering rejected it."); 
+        }
 
         if (!isTPMS) return;
 
@@ -41,9 +48,11 @@ class TPMSAdvertisedDeviceCallbacks : public NimBLEAdvertisedDeviceCallbacks {
         float pressurePsi = pressureAbsPsi - 14.7f; 
         if (pressurePsi < 0) pressurePsi = 0.0f;
 
-        // Get MAC
+        // Get MAC (Reverse bytes from Little Endian to Big Endian)
+        NimBLEAddress addr = advertisedDevice->getAddress();
+        const uint8_t* nativeMac = addr.getNative();
         uint8_t mac[6];
-        memcpy(mac, advertisedDevice->getAddress().getNative(), 6);
+        for(int k=0; k<6; k++) mac[k] = nativeMac[5-k];
 
         g_tpmsHandler->onSensorDiscovered(mac, voltage, temperature, pressurePsi);
     }
@@ -89,6 +98,19 @@ void TPMSHandler::update() {
 }
 
 void TPMSHandler::startScan() {
+    bool anyConfigured = false;
+    for (int i=0; i<TPMS_COUNT; i++) {
+        if (sensors[i].configured) { 
+            anyConfigured = true; 
+            break; 
+        }
+    }
+    
+    if (!anyConfigured) {
+        // Serial.println("[TPMS] Skipping scan - no sensors configured.");
+        return; 
+    }
+
     if (scanActive) return;
     scanActive = true;
     lastScanTime = millis();
@@ -126,6 +148,11 @@ void TPMSHandler::setConfig(const uint8_t macs[4][6], const float baselines[4], 
         memcpy(sensors[i].mac, macs[i], 6);
         sensors[i].baselinePsi = baselines[i];
         sensors[i].configured = configured[i];
+        if (configured[i]) {
+            Serial.printf("[TPMS] Configured %s: %02x:%02x:%02x:%02x:%02x:%02x\n", 
+                TPMS_POSITION_SHORT[i],
+                macs[i][0], macs[i][1], macs[i][2], macs[i][3], macs[i][4], macs[i][5]);
+        }
     }
     saveToNVS();
 }
@@ -150,6 +177,10 @@ void TPMSHandler::loadFromNVS() {
                  sscanf(macStr.c_str(), "%x:%x:%x:%x:%x:%x", &m[0], &m[1], &m[2], &m[3], &m[4], &m[5]);
                  for(int k=0; k<6; k++) sensors[i].mac[k] = (uint8_t)m[k];
                  sensors[i].configured = true;
+                 Serial.printf("[TPMS] Loaded %s from NVS: %02x:%02x:%02x:%02x:%02x:%02x\n", 
+                    TPMS_POSITION_SHORT[i],
+                    sensors[i].mac[0], sensors[i].mac[1], sensors[i].mac[2], 
+                    sensors[i].mac[3], sensors[i].mac[4], sensors[i].mac[5]);
              }
         } else {
             sensors[i].configured = false;
