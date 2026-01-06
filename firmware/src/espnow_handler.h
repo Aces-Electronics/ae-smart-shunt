@@ -24,6 +24,10 @@ public:
 
     bool addEncryptedPeer(const uint8_t* mac, const uint8_t* key);
     void switchToSecureMode(const uint8_t* gaugeMac);
+    
+    // Process incoming Temp Sensor Data
+    void updateTempSensorData(float temp, uint8_t batt);
+    void getTempSensorData(float &temp, uint8_t &batt, uint32_t &lastUpdate);
 
 private:
     uint8_t broadcastAddress[6];

@@ -4,6 +4,8 @@
 #include "tpms_handler.h" // Access to tpmsHandler for config updates
 
 // Callback outside class
+static ESPNowHandler* g_espNowHandler = nullptr;
+
 static void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
 
     
@@ -23,18 +25,27 @@ static void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len
             }
             tpmsHandler.setConfig(config.macs, config.baselines, config.configured);
         }
+    } else if (len == sizeof(struct_message_temp_sensor)) {
+         struct_message_temp_sensor sensorData;
+         memcpy(&sensorData, incomingData, sizeof(sensorData));
+         
+         if (sensorData.id == 22 && g_espNowHandler != nullptr) {
+             Serial.printf("[ESP-NOW] Rx Temp Sensor: %.2f C, %d%%\n", sensorData.temperature, sensorData.batteryLevel);
+             g_espNowHandler->updateTempSensorData(sensorData.temperature, sensorData.batteryLevel);
+         }
     }
 }
 
 // 🔒 Compile-time check: catch padding/alignment mismatches.
 // Update "EXPECTED_AE_SMART_SHUNT_STRUCT_SIZE" if your struct changes.
 // Update "EXPECTED_AE_SMART_SHUNT_STRUCT_SIZE" if your struct changes.
-#define EXPECTED_AE_SMART_SHUNT_STRUCT_SIZE 174   // Updated: 110 + 64 (TPMS)
+#define EXPECTED_AE_SMART_SHUNT_STRUCT_SIZE 183   // Updated: 174 + 9 (Temp Sensor)
 static_assert(sizeof(struct_message_ae_smart_shunt_1) == EXPECTED_AE_SMART_SHUNT_STRUCT_SIZE,
               "struct_message_ae_smart_shunt_1 has unexpected size! Possible padding/alignment issue.");
 
 ESPNowHandler::ESPNowHandler(const uint8_t *broadcastAddr)
 {
+    g_espNowHandler = this;
     memcpy(broadcastAddress, broadcastAddr, 6);
     memset(&peerInfo, 0, sizeof(peerInfo));
     // Optionally zero the local struct
@@ -98,6 +109,7 @@ bool ESPNowHandler::addEncryptedPeer(const uint8_t* mac, const uint8_t* key)
     esp_now_peer_info_t securePeer;
     memset(&securePeer, 0, sizeof(securePeer));
     memcpy(securePeer.peer_addr, mac, 6);
+
     securePeer.channel = 0;
     securePeer.encrypt = true;
     memcpy(securePeer.lmk, key, 16);
@@ -153,4 +165,16 @@ bool ESPNowHandler::addPeer()
         return false;
     }
     return true;
+}
+
+void ESPNowHandler::updateTempSensorData(float temp, uint8_t batt) {
+    localAeSmartShuntStruct.tempSensorTemperature = temp;
+    localAeSmartShuntStruct.tempSensorBatteryLevel = batt;
+    localAeSmartShuntStruct.tempSensorLastUpdate = millis();
+}
+
+void ESPNowHandler::getTempSensorData(float &temp, uint8_t &batt, uint32_t &lastUpdate) {
+    temp = localAeSmartShuntStruct.tempSensorTemperature;
+    batt = localAeSmartShuntStruct.tempSensorBatteryLevel;
+    lastUpdate = localAeSmartShuntStruct.tempSensorLastUpdate;
 }

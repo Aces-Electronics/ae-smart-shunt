@@ -28,7 +28,13 @@ struct Telemetry {
     float ratedCapacity;
     String runFlatTime; // Added for sync
     String diagnostics; // Added for crash/uptime info
+    String crashLog;    // Added for full backtrace
+    // Temp Sensor
+    float tempSensorTemperature;
+    uint8_t tempSensorBatteryLevel;
+    uint32_t tempSensorLastUpdate;
 };
+
 
 class BLEHandler {
 public:
@@ -59,6 +65,8 @@ public:
     // Service and Characteristic UUIDs
     // Using UUIDs from a random generator
     static const char* SERVICE_UUID;
+    static const char* CRASH_LOG_CHAR_UUID;
+    static const char* TEMP_SENSOR_DATA_CHAR_UUID;
     static const char* WIFI_SSID_CHAR_UUID;
     static const char* WIFI_PASS_CHAR_UUID;
     static const char* FIRMWARE_VERSION_CHAR_UUID;
@@ -122,6 +130,9 @@ private:
     BLECharacteristic* pPairingCharacteristic;
     BLECharacteristic* pRunFlatTimeCharacteristic;
     BLECharacteristic* pDiagnosticsCharacteristic;
+    BLECharacteristic* pCrashLogCharacteristic;
+    NimBLECharacteristic* pTempSensorDataCharacteristic;
+
 
     // --- New OTA service and characteristics ---
     BLEService* pOtaService;

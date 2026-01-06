@@ -83,6 +83,11 @@ typedef struct struct_message_ae_smart_shunt_1 {
   int tpmsTemperature[4];
   float tpmsVoltage[4];
   uint32_t tpmsLastUpdate[4];
+
+  // Temp Sensor Data (Relayed)
+  float tempSensorTemperature;
+  uint8_t tempSensorBatteryLevel;
+  uint32_t tempSensorLastUpdate;
 } __attribute__((packed)) struct_message_ae_smart_shunt_1;
 
 typedef struct struct_message_tpms_config {
@@ -91,5 +96,14 @@ typedef struct struct_message_tpms_config {
   float baselines[4];      // Baseline Pressures
   bool configured[4];      // Is sensor active?
 } __attribute__((packed)) struct_message_tpms_config;
+
+typedef struct struct_message_temp_sensor {
+  uint8_t id; // 22 for Temp Sensor
+  float temperature;
+  float batteryVoltage;
+  uint8_t batteryLevel;
+  uint32_t updateInterval;
+  char name[16];
+} __attribute__((packed)) struct_message_temp_sensor;
 
 #endif // SHARED_DEFS_H

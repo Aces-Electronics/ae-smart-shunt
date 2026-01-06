@@ -30,6 +30,8 @@ const char* BLEHandler::EFUSE_LIMIT_CHAR_UUID = "BB1B2C3D-4E5F-6A7B-8C9D-0E1F2A3
 const char* BLEHandler::ACTIVE_SHUNT_CHAR_UUID = "CB1B2C3D-4E5F-6A7B-8C9D-0E1F2A3B4C69";
 const char* BLEHandler::RUN_FLAT_TIME_CHAR_UUID = "CC1B2C3D-4E5F-6A7B-8C9D-0E1F2A3B4C6A";
 const char* BLEHandler::DIAGNOSTICS_CHAR_UUID     = "ACDC1234-5678-90AB-CDEF-1234567890CC"; // Next available
+const char* BLEHandler::CRASH_LOG_CHAR_UUID       = "ACDC1234-5678-90AB-CDEF-1234567890CD"; // Detailed Log
+const char* BLEHandler::TEMP_SENSOR_DATA_CHAR_UUID = "ACDC1234-5678-90AB-CDEF-1234567890CE"; // Relayed Temp Sensor
 
 // --- New OTA Service UUIDs ---
 const char* BLEHandler::OTA_SERVICE_UUID = "1a89b148-b4e8-43d7-952b-a0b4b01e43b3";
@@ -410,6 +412,22 @@ void BLEHandler::begin(const Telemetry& initial_telemetry) {
     );
     pDiagnosticsCharacteristic->setValue("Initializing...");
 
+    pCrashLogCharacteristic = pService->createCharacteristic(
+        CRASH_LOG_CHAR_UUID,
+        NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY
+    );
+    pCrashLogCharacteristic->setValue(std::string(initial_telemetry.crashLog.c_str()));
+
+    // Temp Sensor Data Relay
+    pTempSensorDataCharacteristic = pService->createCharacteristic(
+        TEMP_SENSOR_DATA_CHAR_UUID,
+        NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY
+    );
+    // Initial value: 0.0, 0%
+    uint8_t initTempData[5] = {0}; // float(0.0) + uint8(0)
+    pTempSensorDataCharacteristic->setValue(initTempData, 5);
+
+
     pService->start();
 
     // --- Create New OTA Service ---
@@ -505,6 +523,13 @@ void BLEHandler::updateTelemetry(const Telemetry& telemetry) {
     // Update Diagnostics
     pDiagnosticsCharacteristic->setValue(std::string(telemetry.diagnostics.c_str()));
     pDiagnosticsCharacteristic->notify();
+
+    // Update Temp Sensor (Float + Uint8 = 5 bytes)
+    uint8_t tempBuf[5];
+    memcpy(&tempBuf[0], &telemetry.tempSensorTemperature, 4);
+    tempBuf[4] = telemetry.tempSensorBatteryLevel;
+    pTempSensorDataCharacteristic->setValue(tempBuf, 5);
+    pTempSensorDataCharacteristic->notify();
 
     // Update advertising data
     startAdvertising(telemetry);

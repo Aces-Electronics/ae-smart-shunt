@@ -11,6 +11,7 @@ SET_LOOP_TASK_STACK_SIZE(16 * 1024); // 16KB, GitHub responses are heavy
 #include "passwords.h"
 #include "ota_handler.h"
 #include "tpms_handler.h"
+#include "crash_handler.h"
 #include <esp_now.h>
 #include <esp_err.h>
 #include "driver/gpio.h"
@@ -174,6 +175,15 @@ void performUnpair() {
 void pairingCallback(String payload) {
     Serial.println("Received Pairing Payload: " + payload);
     
+    if (payload == "CRASH") {
+        Serial.println("Forcing Crash (Divide by Zero)...");
+        delay(100);
+        volatile int x = 0;
+        volatile int y = 10 / x; 
+        (void)y;
+        return;
+    }
+
     if (payload == "RESET") {
         performUnpair();
         return;
@@ -1348,6 +1358,9 @@ void setup()
 {
   Serial.begin(115200);
 
+  // Process any crash logs from previous boot
+  crash_handler_process_on_boot();
+
   // Wait for serial monitor to connect
   while (!Serial && millis() < 2000);
   delay(250);
@@ -1527,7 +1540,8 @@ void setup()
       .deviceNameSuffix = ina226_adc.getDeviceNameSuffix(),
       .eFuseLimit = ina226_adc.getEfuseLimit(),
       .activeShuntRating = ina226_adc.getActiveShunt(),
-      .ratedCapacity = ina226_adc.getMaxBatteryCapacity()
+      .ratedCapacity = ina226_adc.getMaxBatteryCapacity(),
+      .crashLog = crash_handler_get_log()
   };
   bleHandler.begin(initial_telemetry);
   
@@ -1968,6 +1982,16 @@ void updateStruct() {
         }
     }
 
+    // Update Temp Sensor Data from ESP-NOW Handler (Received via Callback)
+    float tsTemp = 0.0f;
+    uint8_t tsBatt = 0;
+    uint32_t tsUpdate = 0;
+    espNowHandler.getTempSensorData(tsTemp, tsBatt, tsUpdate);
+    
+    ae_smart_shunt_struct.tempSensorTemperature = tsTemp;
+    ae_smart_shunt_struct.tempSensorBatteryLevel = tsBatt;
+    ae_smart_shunt_struct.tempSensorLastUpdate = tsUpdate;
+
     // Update local copy in Handler (Ready to Send)
     espNowHandler.setAeSmartShuntStruct(ae_smart_shunt_struct);
 }
@@ -2017,7 +2041,9 @@ void loop() {
           .eFuseLimit = ina226_adc.getEfuseLimit(),
           .activeShuntRating = ina226_adc.getActiveShunt(),
           .ratedCapacity = ina226_adc.getMaxBatteryCapacity(),
-          .runFlatTime = String(ae_smart_shunt_struct.runFlatTime)
+          .runFlatTime = String(ae_smart_shunt_struct.runFlatTime),
+          .tempSensorTemperature = ae_smart_shunt_struct.tempSensorTemperature,
+          .tempSensorBatteryLevel = ae_smart_shunt_struct.tempSensorBatteryLevel
       };
 
       // Add Diagnostics String
