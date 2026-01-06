@@ -1503,20 +1503,38 @@ void setup()
   prefs.end();
   
   if (storedMac != "" && storedKey != "") {
-      Serial.println("Restoring Encrypted Peer from NVS...");
+      Serial.println("Restoring Encrypted Peer (Gauge) from NVS...");
       uint8_t macBytes[6];
       uint8_t keyBytes[16];
       
-      int p = 0;
-      for (int i=0; i<6; i++) {
-          String byteStr = storedMac.substring(p, p+2);
-          macBytes[i] = (uint8_t)strtoul(byteStr.c_str(), NULL, 16);
-          p += 3;
-      }
+      // Sanitise MAC (remove colons if present)
+      storedMac.replace(":", "");
+      
+      hexStringToBytes(storedMac, macBytes, 6); 
       hexStringToBytes(storedKey, keyBytes, 16);
       
       espNowHandler.addEncryptedPeer(macBytes, keyBytes);
       espNowHandler.switchToSecureMode(macBytes);
+  }
+
+  // Load Temp Sensor Peer
+  String tempMac = prefs.getString("p_temp_mac", "");
+  String tempKey = prefs.getString("p_temp_key", "");
+  
+  if (tempMac != "" && tempKey != "") {
+      Serial.println("Restoring Encrypted Peer (Temp Sensor) from NVS...");
+      uint8_t macBytes[6];
+      uint8_t keyBytes[16];
+      
+      // Sanitise MAC (remove colons if present)
+      tempMac.replace(":", "");
+      
+      hexStringToBytes(tempMac, macBytes, 6);
+      hexStringToBytes(tempKey, keyBytes, 16);
+      
+      espNowHandler.addEncryptedPeer(macBytes, keyBytes);
+      // Do NOT switch secure mode target to Temp Sensor (we talk secure to Gauge primarily)
+      // But adding the peer allows us to Receive encrypted data from it.
   }
 
   // Create initial telemetry data for the first advertisement

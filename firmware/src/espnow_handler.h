@@ -28,6 +28,9 @@ public:
     // Process incoming Temp Sensor Data
     void updateTempSensorData(float temp, uint8_t batt);
     void getTempSensorData(float &temp, uint8_t &batt, uint32_t &lastUpdate);
+    
+    // Handle new peer request (save to NVS + add to ESP-NOW)
+    void handleNewPeer(const uint8_t* mac, const uint8_t* key);
 
 private:
     uint8_t broadcastAddress[6];

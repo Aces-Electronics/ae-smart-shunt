@@ -98,12 +98,21 @@ typedef struct struct_message_tpms_config {
 } __attribute__((packed)) struct_message_tpms_config;
 
 typedef struct struct_message_temp_sensor {
-  uint8_t id; // 22 for Temp Sensor
+  uint8_t id;
   float temperature;
   float batteryVoltage;
   uint8_t batteryLevel;
   uint32_t updateInterval;
   char name[16];
 } __attribute__((packed)) struct_message_temp_sensor;
+
+typedef struct struct_message_add_peer {
+  int messageID; // 200
+  uint8_t mac[6];
+  uint8_t key[16];
+  uint8_t channel;
+  bool encrypt;
+} __attribute__((packed)) struct_message_add_peer;
+
 
 #endif // SHARED_DEFS_H

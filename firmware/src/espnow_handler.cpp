@@ -8,7 +8,7 @@ static ESPNowHandler* g_espNowHandler = nullptr;
 
 static void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
 
-    
+    // 1. Check for TPMS Config
     if (len == sizeof(struct_message_tpms_config)) {
         struct_message_tpms_config config;
         memcpy(&config, incomingData, sizeof(config));
@@ -25,14 +25,31 @@ static void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len
             }
             tpmsHandler.setConfig(config.macs, config.baselines, config.configured);
         }
-    } else if (len == sizeof(struct_message_temp_sensor)) {
+        return;
+    } 
+    
+    // 2. Check for Temp Sensor Data
+    if (len == sizeof(struct_message_temp_sensor)) {
          struct_message_temp_sensor sensorData;
          memcpy(&sensorData, incomingData, sizeof(sensorData));
          
          if (sensorData.id == 22 && g_espNowHandler != nullptr) {
-             Serial.printf("[ESP-NOW] Rx Temp Sensor: %.2f C, %d%%\n", sensorData.temperature, sensorData.batteryLevel);
-             g_espNowHandler->updateTempSensorData(sensorData.temperature, sensorData.batteryLevel);
+              Serial.printf("[ESP-NOW] Rx Temp Sensor: %.2f C, %d%%\n", sensorData.temperature, sensorData.batteryLevel);
+              g_espNowHandler->updateTempSensorData(sensorData.temperature, sensorData.batteryLevel);
          }
+         return;
+    } 
+    
+    // 3. Check for Add Peer Command
+    if (len == sizeof(struct_message_add_peer)) {
+         struct_message_add_peer peerMsg;
+         memcpy(&peerMsg, incomingData, sizeof(peerMsg));
+         
+         if (peerMsg.messageID == 200 && g_espNowHandler != nullptr) {
+             Serial.println("[ESP-NOW] Received ADD PEER Command");
+             g_espNowHandler->handleNewPeer(peerMsg.mac, peerMsg.key);
+         }
+         return;
     }
 }
 
@@ -145,6 +162,33 @@ bool ESPNowHandler::begin()
     }
     esp_now_register_recv_cb(OnDataRecv);
     return true;
+}
+
+#include <Preferences.h>
+
+void ESPNowHandler::handleNewPeer(const uint8_t* mac, const uint8_t* key)
+{
+    // 1. Add to Runtime
+    addEncryptedPeer(mac, key);
+    
+    // 2. Save to NVS so it persists after reboot
+    Preferences prefs;
+    prefs.begin("pairing", false);
+    
+    char keyHex[33];
+    char macStr[18];
+    
+    snprintf(macStr, sizeof(macStr), "%02X%02X%02X%02X%02X%02X", 
+             mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+             
+    for(int i=0; i<16; i++) sprintf(&keyHex[i*2], "%02X", key[i]);
+    keyHex[32] = '\0';
+    
+    prefs.putString("p_temp_mac", macStr); // Hex string without colons
+    prefs.putString("p_temp_key", keyHex);
+    prefs.end();
+    
+    Serial.println("New Peer Saved to NVS (p_temp_mac)");
 }
 
 void ESPNowHandler::registerSendCallback(esp_now_send_cb_t callback)
