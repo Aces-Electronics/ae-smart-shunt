@@ -1321,10 +1321,32 @@ void runProtectionConfigMenu(INA226_ADC &ina)
 
 
 
+// Global state for Gauge Connection
+bool g_gaugeLastTxSuccess = false;
+
 void onDataSent(const uint8_t *mac_addr, esp_now_send_status_t status)
 {
   Serial.print("Last Packet Send Status: ");
   Serial.println(status == ESP_NOW_SEND_SUCCESS ? "Success" : "Fail");
+  
+  bool isGauge = espNowHandler.isGaugeMac(mac_addr);
+  Serial.printf("[DEBUG] onDataSent: isGauge=%d, Status=%d\n", isGauge, status);
+
+  if (isGauge) {
+      static int failCount = 0;
+      if (status == ESP_NOW_SEND_SUCCESS) {
+          failCount = 0;
+          g_gaugeLastTxSuccess = true;
+          Serial.println("[DEBUG] Gauge: SUCCESS (connected)");
+      } else {
+          failCount++;
+          Serial.printf("[DEBUG] Gauge: FAIL count=%d\n", failCount);
+          if (failCount >= 2) {
+              g_gaugeLastTxSuccess = false;
+              Serial.println("[DEBUG] Gauge: DISCONNECTED");
+          }
+      }
+  }
 }
 
 void printResetReason() {
@@ -1840,6 +1862,20 @@ void loop_deprecated()
         ae_smart_shunt_struct.tpmsVoltage[i] = s->batteryVoltage;
         ae_smart_shunt_struct.tpmsLastUpdate[i] = s->lastUpdate;
     }
+    
+    // Populate Relayed Temp Sensor Data & Calculate Age
+    float t_temp = 0; uint8_t t_batt = 0; uint32_t t_last = 0; uint32_t t_interval = 0;
+    espNowHandler.getTempSensorData(t_temp, t_batt, t_last, t_interval);
+    
+    ae_smart_shunt_struct.tempSensorTemperature = t_temp;
+    ae_smart_shunt_struct.tempSensorBatteryLevel = t_batt;
+    ae_smart_shunt_struct.tempSensorUpdateInterval = t_interval; // Relay the interval!
+    
+    if (t_last > 0) {
+        ae_smart_shunt_struct.tempSensorLastUpdate = millis() - t_last; // Age in ms
+    } else {
+        ae_smart_shunt_struct.tempSensorLastUpdate = 0xFFFFFFFF; // Never updated
+    }
 
     // Update BLE characteristics
     Telemetry telemetry_data = {
@@ -1861,8 +1897,13 @@ void loop_deprecated()
         .deviceNameSuffix = ina226_adc.getDeviceNameSuffix(),
         .eFuseLimit = ina226_adc.getEfuseLimit(),
         .activeShuntRating = ina226_adc.getActiveShunt(),
-        .ratedCapacity = ina226_adc.getMaxBatteryCapacity()
+        .ratedCapacity = ina226_adc.getMaxBatteryCapacity(),
+        .gaugeLastRx = espNowHandler.getLastGaugeRx(),
+        .gaugeLastTxSuccess = g_gaugeLastTxSuccess
     };
+    
+    Serial.printf("[DEBUG] updateStruct: GaugeTxSuccess=%d\n", g_gaugeLastTxSuccess);
+    
     bleHandler.updateTelemetry(telemetry_data);
 
     // Only send ESP-NOW data if WiFi is not connected (OTA not in progress)
@@ -1890,11 +1931,62 @@ void loop_deprecated()
   }
 }
 
+// Helper to package and send BLE data
+void sendBleUpdate() {
+
+
+      // 10 Hz Telemetry Loop
+      Telemetry telemetry_data = {
+          .batteryVoltage = ina226_adc.getBusVoltage_V(),
+          .batteryCurrent = ina226_adc.getCurrent_mA() / 1000.0f,
+          .batteryPower = ina226_adc.getPower_mW() / 1000.0f,
+          .batterySOC = ae_smart_shunt_struct.batterySOC * 100.0f,
+          .batteryCapacity = ina226_adc.getBatteryCapacity(),
+          .starterBatteryVoltage = starter_adc.readVoltage(),
+          .isCalibrated = ina226_adc.isConfigured(),
+          .errorState = ae_smart_shunt_struct.batteryState,
+          .loadState = ina226_adc.isLoadConnected(),
+          .cutoffVoltage = ina226_adc.getLowVoltageCutoff(),
+          .reconnectVoltage = (ina226_adc.getLowVoltageCutoff() + ina226_adc.getHysteresis()),
+          .lastHourWh = ina226_adc.getLastHourEnergy_Wh(),
+          .lastDayWh = ina226_adc.getLastDayEnergy_Wh(),
+          .lastWeekWh = ina226_adc.getLastWeekEnergy_Wh(),
+          .lowVoltageDelayS = ina226_adc.getLowVoltageDelay(),
+          .deviceNameSuffix = ina226_adc.getDeviceNameSuffix(),
+          .eFuseLimit = ina226_adc.getEfuseLimit(),
+          .activeShuntRating = ina226_adc.getActiveShunt(),
+          .ratedCapacity = ina226_adc.getMaxBatteryCapacity(),
+          .runFlatTime = String(ae_smart_shunt_struct.runFlatTime),
+          // Diagnostics
+          .diagnostics = "", 
+          // New Telemetry
+          .tempSensorTemperature = ae_smart_shunt_struct.tempSensorTemperature,
+          .tempSensorBatteryLevel = ae_smart_shunt_struct.tempSensorBatteryLevel,
+          .tempSensorLastUpdate = ae_smart_shunt_struct.tempSensorLastUpdate,
+          .tpmsPressurePsi = {ae_smart_shunt_struct.tpmsPressurePsi[0], ae_smart_shunt_struct.tpmsPressurePsi[1], ae_smart_shunt_struct.tpmsPressurePsi[2], ae_smart_shunt_struct.tpmsPressurePsi[3]},
+          .gaugeLastRx = espNowHandler.getLastGaugeRx(),
+          .gaugeLastTxSuccess = g_gaugeLastTxSuccess
+      };
+
+      // Add Diagnostics String
+      uint32_t uptime = millis() / 1000;
+      int days = uptime / 86400;
+      int hours = (uptime % 86400) / 3600;
+      int minutes = (uptime % 3600) / 60;
+      
+      char diagBuf[64];
+      snprintf(diagBuf, sizeof(diagBuf), "Rst:%d Up:%dd %dh %dm", esp_reset_reason(), days, hours, minutes);
+      telemetry_data.diagnostics = String(diagBuf);
+
+      bleHandler.updateTelemetry(telemetry_data);
+}
+
 // Callback for TPMS Scan Complete - Send WiFi Packet IMMEDIATELY
 void updateStruct(); // Fwd Decl
 void onScanComplete() {
-    updateStruct(); // Populate fresh data
+    updateStruct(); // Populate fresh data (calculates Temp Age, etc)
     espNowHandler.sendMessageAeSmartShunt();
+    sendBleUpdate(); // <-- CRITICAL: Update BLE immediately after scan
     last_telemetry_millis = millis(); // Reset timer fallback
 }
 
@@ -2004,15 +2096,31 @@ void updateStruct() {
     float tsTemp = 0.0f;
     uint8_t tsBatt = 0;
     uint32_t tsUpdate = 0;
-    espNowHandler.getTempSensorData(tsTemp, tsBatt, tsUpdate);
+    uint32_t tsInterval = 0;
+    espNowHandler.getTempSensorData(tsTemp, tsBatt, tsUpdate, tsInterval);
     
     ae_smart_shunt_struct.tempSensorTemperature = tsTemp;
     ae_smart_shunt_struct.tempSensorBatteryLevel = tsBatt;
-    ae_smart_shunt_struct.tempSensorLastUpdate = tsUpdate;
-
+    ae_smart_shunt_struct.tempSensorUpdateInterval = tsInterval;
+    
+    // Pass raw age to Telemetry/ESP-NOW. 
+    // App/Gauge will decide if it is "Stale" (e.g. > 180s).
+    // 0xFFFFFFFF (UINT32_MAX) reserved for "Never Updated".
+    if (tsUpdate > 0) {
+        ae_smart_shunt_struct.tempSensorLastUpdate = millis() - tsUpdate; // Raw Age
+    } else {
+        ae_smart_shunt_struct.tempSensorLastUpdate = 0xFFFFFFFF; // Never updated
+    }
+    
+    // DEBUG PRINT
+    Serial.printf("[DEBUG] Temp Sensor: update=%u, interval=%u, Age=%u\n", 
+                  tsUpdate, tsInterval, ae_smart_shunt_struct.tempSensorLastUpdate);
+    
     // Update local copy in Handler (Ready to Send)
     espNowHandler.setAeSmartShuntStruct(ae_smart_shunt_struct);
 }
+
+
 
 void loop() {
   // Drives TPMS Scan & Callbacks -> onScanComplete() -> updateStruct() -> espNowHandler.sendMessage()
@@ -2037,47 +2145,20 @@ void loop() {
   // Fallback Telemetry (Safety Net)
   if (millis() - last_telemetry_millis > telemetry_interval) {
       updateStruct();
+      sendBleUpdate();
       
-      // 10 Hz Telemetry Loop
-      Telemetry telemetry_data = {
-          .batteryVoltage = ina226_adc.getBusVoltage_V(),
-          .batteryCurrent = ina226_adc.getCurrent_mA() / 1000.0f,
-          .batteryPower = ina226_adc.getPower_mW() / 1000.0f,
-          .batterySOC = ae_smart_shunt_struct.batterySOC * 100.0f,
-          .batteryCapacity = ina226_adc.getBatteryCapacity(),
-          .starterBatteryVoltage = starter_adc.readVoltage(),
-          .isCalibrated = ina226_adc.isConfigured(),
-          .errorState = ae_smart_shunt_struct.batteryState,
-          .loadState = ina226_adc.isLoadConnected(),
-          .cutoffVoltage = ina226_adc.getLowVoltageCutoff(),
-          .reconnectVoltage = (ina226_adc.getLowVoltageCutoff() + ina226_adc.getHysteresis()),
-          .lastHourWh = ina226_adc.getLastHourEnergy_Wh(),
-          .lastDayWh = ina226_adc.getLastDayEnergy_Wh(),
-          .lastWeekWh = ina226_adc.getLastWeekEnergy_Wh(),
-          .lowVoltageDelayS = ina226_adc.getLowVoltageDelay(),
-          .deviceNameSuffix = ina226_adc.getDeviceNameSuffix(),
-          .eFuseLimit = ina226_adc.getEfuseLimit(),
-          .activeShuntRating = ina226_adc.getActiveShunt(),
-          .ratedCapacity = ina226_adc.getMaxBatteryCapacity(),
-          .runFlatTime = String(ae_smart_shunt_struct.runFlatTime),
-          .tempSensorTemperature = ae_smart_shunt_struct.tempSensorTemperature,
-          .tempSensorBatteryLevel = ae_smart_shunt_struct.tempSensorBatteryLevel
-      };
+      if (!WiFi.isConnected()) {
+          Serial.println("Mesh transmission: ready!");
+          espNowHandler.setAeSmartShuntStruct(ae_smart_shunt_struct);
+          espNowHandler.sendMessageAeSmartShunt();
+      }
 
-      // Add Diagnostics String
-      uint32_t uptime = millis() / 1000;
-      int days = uptime / 86400;
-      int hours = (uptime % 86400) / 3600;
-      int minutes = (uptime % 3600) / 60;
-      
-      char diagBuf[64];
-      snprintf(diagBuf, sizeof(diagBuf), "Rst:%d Up:%dd %dh %dm", esp_reset_reason(), days, hours, minutes);
-      telemetry_data.diagnostics = String(diagBuf);
-
-      bleHandler.updateTelemetry(telemetry_data);
-      
-      espNowHandler.sendMessageAeSmartShunt();
       printShunt(&ae_smart_shunt_struct);
+      if (ina226_adc.isOverflow()) {
+        Serial.println("Warning: Overflow condition!");
+      }
+
+      Serial.println();
       last_telemetry_millis = millis();
   }
   

@@ -8,6 +8,12 @@ static ESPNowHandler* g_espNowHandler = nullptr;
 
 static void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len) {
 
+    // 0. Check for Gauge RX (Any data from Paired Gauge)
+    if (g_espNowHandler && g_espNowHandler->isGaugeMac(mac)) {
+         g_espNowHandler->recordGaugeRx();
+         // Don't return, continue parsing (it might be a specific command)
+    }
+
     // 1. Check for TPMS Config
     if (len == sizeof(struct_message_tpms_config)) {
         struct_message_tpms_config config;
@@ -28,17 +34,17 @@ static void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len
         return;
     } 
     
-    // 2. Check for Temp Sensor Data
-    if (len == sizeof(struct_message_temp_sensor)) {
-         struct_message_temp_sensor sensorData;
-         memcpy(&sensorData, incomingData, sizeof(sensorData));
-         
-         if (sensorData.id == 22 && g_espNowHandler != nullptr) {
-              Serial.printf("[ESP-NOW] Rx Temp Sensor: %.2f C, %d%%\n", sensorData.temperature, sensorData.batteryLevel);
-              g_espNowHandler->updateTempSensorData(sensorData.temperature, sensorData.batteryLevel);
-         }
-         return;
-    } 
+     if (len == sizeof(struct_message_temp_sensor)) {
+          struct_message_temp_sensor sensorData;
+          memcpy(&sensorData, incomingData, sizeof(sensorData));
+          
+          if (sensorData.id == 22 && g_espNowHandler != nullptr) {
+               Serial.printf("[ESP-NOW] Rx Temp Sensor: %.2f C, %d%%, Int: %u\n", 
+                             sensorData.temperature, sensorData.batteryLevel, sensorData.updateInterval);
+               g_espNowHandler->updateTempSensorData(sensorData.temperature, sensorData.batteryLevel, sensorData.updateInterval);
+          }
+          return;
+     } 
     
     // 3. Check for Add Peer Command
     if (len == sizeof(struct_message_add_peer)) {
@@ -56,7 +62,7 @@ static void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len
 // 🔒 Compile-time check: catch padding/alignment mismatches.
 // Update "EXPECTED_AE_SMART_SHUNT_STRUCT_SIZE" if your struct changes.
 // Update "EXPECTED_AE_SMART_SHUNT_STRUCT_SIZE" if your struct changes.
-#define EXPECTED_AE_SMART_SHUNT_STRUCT_SIZE 183   // Updated: 174 + 9 (Temp Sensor)
+#define EXPECTED_AE_SMART_SHUNT_STRUCT_SIZE 187   // Updated: 183 + 4 (Update Interval)
 static_assert(sizeof(struct_message_ae_smart_shunt_1) == EXPECTED_AE_SMART_SHUNT_STRUCT_SIZE,
               "struct_message_ae_smart_shunt_1 has unexpected size! Possible padding/alignment issue.");
 
@@ -68,6 +74,12 @@ ESPNowHandler::ESPNowHandler(const uint8_t *broadcastAddr)
     // Optionally zero the local struct
     memset(&localAeSmartShuntStruct, 0, sizeof(localAeSmartShuntStruct));
     memset(targetPeer, 0, 6);
+    
+    // Explicitly zero temp sensor storage
+    rawTempC = 0.0f;
+    rawTempBatt = 0;
+    rawTempLastUpdate = 0;
+    rawTempInterval = 0;
 }
 
 void ESPNowHandler::setAeSmartShuntStruct(const struct_message_ae_smart_shunt_1 &shuntStruct)
@@ -211,14 +223,29 @@ bool ESPNowHandler::addPeer()
     return true;
 }
 
-void ESPNowHandler::updateTempSensorData(float temp, uint8_t batt) {
-    localAeSmartShuntStruct.tempSensorTemperature = temp;
-    localAeSmartShuntStruct.tempSensorBatteryLevel = batt;
-    localAeSmartShuntStruct.tempSensorLastUpdate = millis();
+void ESPNowHandler::updateTempSensorData(float temp, uint8_t batt, uint32_t interval) {
+    rawTempC = temp;
+    rawTempBatt = batt;
+    rawTempInterval = interval;
+    rawTempLastUpdate = millis();
 }
 
-void ESPNowHandler::getTempSensorData(float &temp, uint8_t &batt, uint32_t &lastUpdate) {
-    temp = localAeSmartShuntStruct.tempSensorTemperature;
-    batt = localAeSmartShuntStruct.tempSensorBatteryLevel;
-    lastUpdate = localAeSmartShuntStruct.tempSensorLastUpdate;
+void ESPNowHandler::getTempSensorData(float &temp, uint8_t &batt, uint32_t &lastUpdate, uint32_t &interval) {
+    temp = rawTempC;
+    batt = rawTempBatt;
+    lastUpdate = rawTempLastUpdate;
+    interval = rawTempInterval;
+}
+
+void ESPNowHandler::recordGaugeRx() {
+    lastGaugeRxTime = millis();
+}
+
+uint32_t ESPNowHandler::getLastGaugeRx() {
+    return lastGaugeRxTime;
+}
+
+bool ESPNowHandler::isGaugeMac(const uint8_t* mac) {
+    if (!isSecure) return false;
+    return (memcmp(mac, targetPeer, 6) == 0);
 }

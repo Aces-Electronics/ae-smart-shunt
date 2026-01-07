@@ -33,6 +33,11 @@ struct Telemetry {
     float tempSensorTemperature;
     uint8_t tempSensorBatteryLevel;
     uint32_t tempSensorLastUpdate;
+    // TPMS
+    float tpmsPressurePsi[4];
+    // Gauge
+    uint32_t gaugeLastRx;
+    bool gaugeLastTxSuccess;
 };
 
 
@@ -93,6 +98,8 @@ public:
     static const char* ACTIVE_SHUNT_CHAR_UUID;
     static const char* RUN_FLAT_TIME_CHAR_UUID;
     static const char* DIAGNOSTICS_CHAR_UUID; // New
+    static const char* TPMS_DATA_CHAR_UUID;
+    static const char* GAUGE_STATUS_CHAR_UUID;
 
     // --- New OTA Service ---
     static const char* OTA_SERVICE_UUID;
@@ -131,7 +138,9 @@ private:
     BLECharacteristic* pRunFlatTimeCharacteristic;
     BLECharacteristic* pDiagnosticsCharacteristic;
     BLECharacteristic* pCrashLogCharacteristic;
-    NimBLECharacteristic* pTempSensorDataCharacteristic;
+    BLECharacteristic* pTempSensorDataCharacteristic;
+    BLECharacteristic* pTpmsDataCharacteristic;
+    BLECharacteristic* pGaugeStatusCharacteristic;
 
 
     // --- New OTA service and characteristics ---

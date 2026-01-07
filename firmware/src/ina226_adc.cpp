@@ -101,7 +101,7 @@ INA226_ADC::INA226_ADC(uint8_t address, float shuntResistorOhms,
       m_disconnectReason(NONE), m_hardwareAlertsDisabled(false), m_batteryState(0), sampleIndex(0),
       sampleCount(0), lastSampleTime(0), sampleIntervalSeconds(10),
       lastEnergyUpdateTime(0), lastMinuteMark(0), currentMinuteEnergy_Ws(0.0f),
-      averagingState(STATE_UNKNOWN) {
+      averagingState(STATE_UNKNOWN), m_socSyncStartTime(0) {
   for (int i = 0; i < maxSamples; ++i)
     currentSamples[i] = 0.0f;
 }
@@ -894,7 +894,7 @@ void INA226_ADC::updateBatteryCapacity(float currentA) {
   batteryCapacity += deltaAh;
 
   // Sync SOC with voltage extrema to correct drift
-  checkSoCSync();
+  checkSoCSync(currentA);
 
   if (batteryCapacity < 0.0f)
     batteryCapacity = 0.0f;
@@ -910,10 +910,9 @@ void INA226_ADC::updateBatteryCapacity(float currentA) {
   lastUpdateTime = currentTime;
 }
 
-void INA226_ADC::checkSoCSync() {
-  // Current variables are expected to be up to date (readSensors called
-  // recently)
-  float currentA = current_mA / 1000.0f;
+void INA226_ADC::checkSoCSync(float currentA) {
+  // Use the passed calibrated/signed currentA instead of raw current_mA.
+  // This ensures logic is consistent with what the user sees on screen.
 
   // Tail current threshold: e.g. 4% of capacity.
   // If charging at high voltage with low current, we are full.
@@ -922,24 +921,32 @@ void INA226_ADC::checkSoCSync() {
   // Sync to 100%
   // If voltage is high (Absorption/Float) and current has dropped off.
   // We use 14.2V as the "Charging" voltage threshold.
-  if (busVoltage_V >= 14.2f && currentA > 0.0f) {
-      if (currentA <= 1.0f) {
-          // Fully charged (Voltage high + tail current low)
+  // Debounce: Must persist for 60 seconds (User Request)
+  if (busVoltage_V >= 14.2f && currentA <= 1.0f) {
+      if (m_socSyncStartTime == 0) {
+          m_socSyncStartTime = millis();
+      } else if (millis() - m_socSyncStartTime >= 60000) {
+          // Condition persisted for 60 seconds -> fully charged
           if (batteryCapacity < maxBatteryCapacity) {
-             batteryCapacity = maxBatteryCapacity;
-             static unsigned long lastSocLog = 0;
-             if (millis() - lastSocLog > 60000) {
-                Serial.println("SOC Synced to 100% (High Voltage + Low Current)");
-                lastSocLog = millis();
-             }
+              batteryCapacity = maxBatteryCapacity;
+              static unsigned long lastSocLog = 0;
+              if (millis() - lastSocLog > 60000) {
+                  Serial.printf("SOC Synced to 100%% (High Voltage %.2fV + Low Current %.2fA Persisted)\n", 
+                               busVoltage_V, currentA);
+                  lastSocLog = millis();
+              }
           }
-      } else {
-          // Charging but high current -> not full yet.
-          // Cap at 99% to prevent premature 100%
+      }
+
+      // If charging but current is still high (> 1A), cap at 99%
+      if (currentA > 1.0f) {
           if (batteryCapacity > maxBatteryCapacity * 0.99f) {
               batteryCapacity = maxBatteryCapacity * 0.99f;
           }
       }
+  } else {
+      // Condition not met -> reset debounce timer
+      m_socSyncStartTime = 0;
   }
 
   // Sync to 0%

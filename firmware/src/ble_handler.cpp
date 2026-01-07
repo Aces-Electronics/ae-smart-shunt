@@ -32,6 +32,8 @@ const char* BLEHandler::RUN_FLAT_TIME_CHAR_UUID = "CC1B2C3D-4E5F-6A7B-8C9D-0E1F2
 const char* BLEHandler::DIAGNOSTICS_CHAR_UUID     = "ACDC1234-5678-90AB-CDEF-1234567890CC"; // Next available
 const char* BLEHandler::CRASH_LOG_CHAR_UUID       = "ACDC1234-5678-90AB-CDEF-1234567890CD"; // Detailed Log
 const char* BLEHandler::TEMP_SENSOR_DATA_CHAR_UUID = "ACDC1234-5678-90AB-CDEF-1234567890CE"; // Relayed Temp Sensor
+const char* BLEHandler::TPMS_DATA_CHAR_UUID        = "ACDC1234-5678-90AB-CDEF-1234567890CF"; // TPMS Pressures
+const char* BLEHandler::GAUGE_STATUS_CHAR_UUID     = "ACDC1234-5678-90AB-CDEF-1234567890D0"; // Gauge Status
 
 // --- New OTA Service UUIDs ---
 const char* BLEHandler::OTA_SERVICE_UUID = "1a89b148-b4e8-43d7-952b-a0b4b01e43b3";
@@ -427,6 +429,22 @@ void BLEHandler::begin(const Telemetry& initial_telemetry) {
     uint8_t initTempData[5] = {0}; // float(0.0) + uint8(0)
     pTempSensorDataCharacteristic->setValue(initTempData, 5);
 
+    // TPMS Data (4 * float = 16 bytes)
+    pTpmsDataCharacteristic = pService->createCharacteristic(
+        TPMS_DATA_CHAR_UUID,
+        NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY
+    );
+    float initTpms[4] = {0,0,0,0};
+    pTpmsDataCharacteristic->setValue((uint8_t*)initTpms, 16);
+
+    // Gauge Status (uint32_t lastRx + bool lastTxSuccess = 5 bytes)
+    pGaugeStatusCharacteristic = pService->createCharacteristic(
+        GAUGE_STATUS_CHAR_UUID,
+        NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY
+    );
+    uint8_t initGaugeStatus[5] = {0};
+    pGaugeStatusCharacteristic->setValue(initGaugeStatus, 5);
+
 
     pService->start();
 
@@ -524,12 +542,24 @@ void BLEHandler::updateTelemetry(const Telemetry& telemetry) {
     pDiagnosticsCharacteristic->setValue(std::string(telemetry.diagnostics.c_str()));
     pDiagnosticsCharacteristic->notify();
 
-    // Update Temp Sensor (Float + Uint8 = 5 bytes)
-    uint8_t tempBuf[5];
+    // Update Temp Sensor (Float + Uint8 + Uint32 = 9 bytes)
+    uint8_t tempBuf[9];
     memcpy(&tempBuf[0], &telemetry.tempSensorTemperature, 4);
     tempBuf[4] = telemetry.tempSensorBatteryLevel;
-    pTempSensorDataCharacteristic->setValue(tempBuf, 5);
+    memcpy(&tempBuf[5], &telemetry.tempSensorLastUpdate, 4);
+    pTempSensorDataCharacteristic->setValue(tempBuf, 9);
     pTempSensorDataCharacteristic->notify();
+
+    // Update TPMS (4 * float = 16 bytes)
+    pTpmsDataCharacteristic->setValue((uint8_t*)telemetry.tpmsPressurePsi, 16);
+    pTpmsDataCharacteristic->notify();
+
+    // Update Gauge Status (uint32_t lastRx + bool lastTxSuccess = 5 bytes)
+    uint8_t gaugeBuf[5];
+    memcpy(&gaugeBuf[0], &telemetry.gaugeLastRx, 4);
+    gaugeBuf[4] = telemetry.gaugeLastTxSuccess ? 1 : 0;
+    pGaugeStatusCharacteristic->setValue(gaugeBuf, 5);
+    pGaugeStatusCharacteristic->notify();
 
     // Update advertising data
     startAdvertising(telemetry);

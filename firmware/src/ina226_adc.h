@@ -145,6 +145,7 @@ private:
   int m_batteryState; // 0=Normal, >0=Error
   DisconnectReason m_disconnectReason;
   bool m_hardwareAlertsDisabled;
+  unsigned long m_socSyncStartTime;
 
   // Table-based calibration
   std::vector<CalPoint> calibrationTable;
@@ -171,7 +172,7 @@ private:
   void applyShuntConfiguration();
 
   // SOC Sync
-  void checkSoCSync();
+  void checkSoCSync(float currentA);
 
   // Energy usage tracking
   // Energy usage tracking
