@@ -11,7 +11,7 @@
 - [Wiki - Quickstart Guide](../../wiki/Quickstart-Guide)
 
 # Project Goals:
-The overall goal of this project is to make a simple, robust and reliable Ssmart batery shunt to monitor voltage, current and power of a lithium battery, or battery system.
+The overall goal of this project is to make a simple, robust and reliable smart batery shunt to monitor voltage, current and power of a lithium battery, or a battery system.
 
 # Design goals:  
 - Smallest form-factor possible while being able to handle large currents, upwards of 300A, without getting too hot
