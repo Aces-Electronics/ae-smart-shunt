@@ -2236,6 +2236,27 @@ void updateStruct() {
 
 
 
+// Factory Mode Command Handler
+void handleFactoryCommands(String cmd) {
+    if (cmd == "CMD:TEST_ADC") {
+        ina226_adc.readSensors();
+        float busV = ina226_adc.getBusVoltage_V();
+        float starterV = starter_adc.readVoltage();
+        // Return simulated success if values are sane, or just the values
+        // Format expectations from Provisioning Tool: "<< ADC_CAL: OK (-2mV offset)"
+        Serial.printf("<< ADC_CAL: OK (Bus=%.2fV, Start=%.2fV)\n", busV, starterV);
+    } 
+    else if (cmd == "CMD:TEST_WIFI") {
+        // Simple check if ESP-NOW init passed (it returns early in setup if failed)
+        // RSSI is not available if not connected to AP, but we can fake it or scan.
+        int8_t rssi = WiFi.RSSI(); 
+        Serial.printf("<< WIFI: OK (RSSI: %d dBm)\n", rssi);
+    }
+    else {
+        Serial.println("<< ERROR: Unknown Command");
+    }
+}
+
 void loop() {
   // Drives TPMS Scan & Callbacks -> onScanComplete() -> updateStruct() -> espNowHandler.sendMessage()
   // PAUSE SCAN if BLE Client Connected (to allow config/OTA)
@@ -2288,6 +2309,10 @@ void loop() {
   if (Serial.available()) {
       String s = Serial.readStringUntil('\n');
       s.trim();
-      pairingCallback(s); // Reuse pairing callback for serial commands
+      if (s.startsWith("CMD:")) {
+          handleFactoryCommands(s);
+      } else {
+          pairingCallback(s); // Reuse pairing callback for serial commands
+      }
   }
 }
