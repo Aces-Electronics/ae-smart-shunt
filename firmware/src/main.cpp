@@ -17,6 +17,7 @@ SET_LOOP_TASK_STACK_SIZE(16 * 1024); // 16KB, GitHub responses are heavy
 #include "driver/gpio.h"
 #include <ArduinoJson.h>
 #include <nvs_flash.h>
+#include "esp_wifi.h"
 
 // WiFi and OTA
 #include <WiFi.h>
@@ -2419,6 +2420,8 @@ void loop() {
 
           WiFi.disconnect(true);
           WiFi.mode(WIFI_STA); // Keep STA for ESP-NOW
+          esp_wifi_set_channel(1, WIFI_SECOND_CHAN_NONE); // Force Channel 1 for Gauge
+          Serial.println("[ESP-NOW] Restored Channel 1");
           
           // Report Status immediately
           bleHandler.updateCloudStatus(g_lastCloudStatus, (millis() - g_lastCloudSuccessTime)/1000);
