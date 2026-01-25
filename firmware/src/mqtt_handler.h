@@ -57,7 +57,8 @@ public:
         shunt["type"] = "shunt";
         shunt["volts"] = _ina.getBusVoltage_V();
         shunt["amps"] = _ina.getCurrent_mA() / 1000.0f;
-        shunt["soc"] = _ina.getSOC_percent();
+        shunt["soc"] = (_ina.getMaxBatteryCapacity() > 0) ? (_ina.getBatteryCapacity() / _ina.getMaxBatteryCapacity()) * 100.0f : 0.0f;
+
 
         // 2. Temp Sensor (Last Known)
         float temp; uint8_t batt; uint32_t lastUp; uint32_t interval; char name[24];
