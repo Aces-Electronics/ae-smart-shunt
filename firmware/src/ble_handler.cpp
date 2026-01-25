@@ -43,15 +43,6 @@ const char* BLEHandler::OTA_UPDATE_CONTROL_CHAR_UUID = "3a89b148-b4e8-43d7-952b-
 const char* BLEHandler::OTA_RELEASE_METADATA_CHAR_UUID = "4a89b148-b4e8-43d7-952b-a0b4b01e43b3";
 const char* BLEHandler::OTA_PROGRESS_CHAR_UUID = "5a89b148-b4e8-43d7-952b-a0b4b01e43b3";
 
-void BLEHandler::updateCloudStatus(uint8_t status, uint32_t lastSuccessTime) {
-    if (pCloudStatusCharacteristic) {
-        uint8_t data[5];
-        data[0] = status;
-        memcpy(&data[1], &lastSuccessTime, 4);
-        pCloudStatusCharacteristic->setValue(data, 5);
-        pCloudStatusCharacteristic->notify();
-    }
-}
 
 void BLEHandler::setInitialWifiSsid(const String& ssid) {
     if (pWifiSsidCharacteristic) pWifiSsidCharacteristic->setValue(ssid.c_str());
