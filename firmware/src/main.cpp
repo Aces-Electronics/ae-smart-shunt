@@ -83,6 +83,7 @@ MqttHandler mqttHandler(espNowHandler, ina226_adc);
 unsigned long lastMqttUplink = 0;
 const unsigned long MQTT_UPLINK_INTERVAL = 15 * 60 * 1000; // 15 Minutes
 bool g_cloudEnabled = false;
+bool g_forceMqttUplink = false;
 uint8_t g_lastCloudStatus = 0;
 uint32_t g_lastCloudSuccessTime = 0;
 
@@ -1636,10 +1637,8 @@ void setup()
       
       
       if (enabled) {
-          // Force run immediately. 
-          // Using unsigned arithmetic: if we subtract Interval from millis, the diff will be >= Interval.
-          lastMqttUplink = millis() - MQTT_UPLINK_INTERVAL - 1000; 
-          Serial.println("[BLE] Cloud Enabled. Forcing Uplink Sequence NOW.");
+          g_forceMqttUplink = true;
+          Serial.println("[BLE] Cloud Enabled. Flag set for Immediate Uplink.");
       }
   });
 
@@ -2348,8 +2347,9 @@ void loop() {
       last_telemetry_millis = millis();
   }
 
-  // MQTT UPLINK (15 Minutes)
-  if (g_cloudEnabled && millis() - lastMqttUplink > MQTT_UPLINK_INTERVAL) {
+  // MQTT UPLINK (15 Minutes) or Forced
+  if (g_cloudEnabled && (g_forceMqttUplink || millis() - lastMqttUplink > MQTT_UPLINK_INTERVAL)) {
+      g_forceMqttUplink = false;
       lastMqttUplink = millis();
       String ssid = otaHandler.getWifiSsid();
       String pass = otaHandler.getWifiPass();
