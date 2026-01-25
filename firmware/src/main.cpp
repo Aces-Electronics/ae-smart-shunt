@@ -2359,8 +2359,6 @@ void loop() {
           uint8_t runStatus = 2; // Default Wifi Fail
           unsigned long runResultTime = 0;
 
-          unsigned long runResultTime = 0;
-
           // Check for WiFi Credentials
           if (otaHandler.getWifiSsid().length() == 0) {
               Serial.println("[MQTT] No WiFi SSID Set. Aborting Uplink.");

@@ -109,7 +109,6 @@ public:
     static const char* TPMS_CONFIG_CHAR_UUID;
     static const char* GAUGE_STATUS_CHAR_UUID;
     static const char* CLOUD_CONFIG_CHAR_UUID; // New
-    static const char* CLOUD_CONFIG_CHAR_UUID; // New
     static const char* CLOUD_STATUS_CHAR_UUID; // New
     static const char* MQTT_BROKER_CHAR_UUID; // New
     static const char* MQTT_USER_CHAR_UUID; // New
@@ -157,7 +156,6 @@ private:
     BLECharacteristic* pTpmsConfigCharacteristic;
     BLECharacteristic* pGaugeStatusCharacteristic;
     BLECharacteristic* pCloudConfigCharacteristic;
-    BLECharacteristic* pCloudConfigCharacteristic;
     BLECharacteristic* pCloudStatusCharacteristic;
     BLECharacteristic* pMqttBrokerCharacteristic;
     BLECharacteristic* pMqttUserCharacteristic;
@@ -184,7 +182,6 @@ private:
     std::vector<uint8_t> _metadata_buffer;
     std::function<void(String)> pairingCallback;
     std::function<void(float)> efuseLimitCallback;
-    std::function<void(std::vector<uint8_t>)> tpmsConfigCallback;
     std::function<void(std::vector<uint8_t>)> tpmsConfigCallback;
     std::function<void(bool)> cloudConfigCallback;
     std::function<void(String)> mqttBrokerCallback;
