@@ -2357,8 +2357,11 @@ void loop() {
       String pass = otaHandler.getWifiPass();
       
       if (ssid.length() > 0) {
-          Serial.println("[MQTT] Starting 15-min Uplink. Using Simultaneous Mode...");
-          // Radio stacks kept alive (Simultaneous)
+          Serial.println("[MQTT] Starting 15-min Uplink. Pausing Radio Stacks...");
+          
+          // 1. Deinit Stacks
+          esp_now_deinit();
+          BLEDevice::deinit(true);
 
           uint8_t runStatus = 2; // Default Wifi Fail
           unsigned long runResultTime = 0;
@@ -2419,9 +2422,50 @@ void loop() {
           g_lastCloudStatus = runStatus;
 
           WiFi.disconnect(true);
-          WiFi.mode(WIFI_STA); // Keep STA for ESP-NOW
-          esp_wifi_set_channel(1, WIFI_SECOND_CHAN_NONE); // Force Channel 1 for Gauge
-          Serial.println("[ESP-NOW] Restored Channel 1");
+          WiFi.mode(WIFI_OFF);
+          
+          Serial.println("[MQTT] Restoring Radio Stacks...");
+          espNowHandler.begin();
+
+          // Re-Init BLE
+          BLEDevice::init("AE Smart Shunt");
+          BLEDevice::setMTU(517);
+          
+          // Construct Telemetry for Re-Init (reuse existing struct data)
+           Telemetry telemetry_data = {
+              .batteryVoltage = ae_smart_shunt_struct.batteryVoltage,
+              .batteryCurrent = ae_smart_shunt_struct.batteryCurrent,
+              .batteryPower = ae_smart_shunt_struct.batteryPower,
+              .batterySOC = ae_smart_shunt_struct.batterySOC,
+              .batteryCapacity = ae_smart_shunt_struct.batteryCapacity,
+              .starterBatteryVoltage = ae_smart_shunt_struct.starterBatteryVoltage,
+              .isCalibrated = ae_smart_shunt_struct.isCalibrated,
+              .errorState = ae_smart_shunt_struct.batteryState,
+              .loadState = ina226_adc.isLoadConnected(),
+              .cutoffVoltage = ina226_adc.getLowVoltageCutoff(),
+              .reconnectVoltage = (ina226_adc.getLowVoltageCutoff() + ina226_adc.getHysteresis()),
+              .lastHourWh = ae_smart_shunt_struct.lastHourWh,
+              .lastDayWh = ae_smart_shunt_struct.lastDayWh,
+              .lastWeekWh = ae_smart_shunt_struct.lastWeekWh,
+              .lowVoltageDelayS = ina226_adc.getLowVoltageDelay(),
+              .deviceNameSuffix = ina226_adc.getDeviceNameSuffix(),
+              .eFuseLimit = ina226_adc.getEfuseLimit(),
+              .activeShuntRating = ina226_adc.getActiveShunt(),
+              .ratedCapacity = ina226_adc.getMaxBatteryCapacity(),
+              .runFlatTime = String(ae_smart_shunt_struct.runFlatTime),
+              .diagnostics = "", 
+              .tempSensorTemperature = ae_smart_shunt_struct.tempSensorTemperature,
+              .tempSensorBatteryLevel = ae_smart_shunt_struct.tempSensorBatteryLevel,
+              .tempSensorLastUpdate = ae_smart_shunt_struct.tempSensorLastUpdate,
+              .tempSensorUpdateInterval = ae_smart_shunt_struct.tempSensorUpdateInterval,
+              .tpmsPressurePsi = {ae_smart_shunt_struct.tpmsPressurePsi[0], ae_smart_shunt_struct.tpmsPressurePsi[1], ae_smart_shunt_struct.tpmsPressurePsi[2], ae_smart_shunt_struct.tpmsPressurePsi[3]},
+              .gaugeLastRx = espNowHandler.getLastGaugeRx(),
+              .gaugeLastTxSuccess = g_gaugeLastTxSuccess
+          };
+          bleHandler.begin(telemetry_data);
+          bleHandler.setInitialWifiSsid(otaHandler.getWifiSsid());
+          bleHandler.setInitialMqttBroker(mqttHandler.getBroker());
+          bleHandler.setInitialMqttUser(mqttHandler.getUser());
           
           // Report Status immediately
           bleHandler.updateCloudStatus(g_lastCloudStatus, (millis() - g_lastCloudSuccessTime)/1000);
