@@ -2372,31 +2372,45 @@ void loop() {
               // Simplified restore logic needed or allow duplicate?
               // Let's just break/continue with status updated.
           } else {
-            // 2. Connect WiFi
-            WiFi.begin(otaHandler.getWifiSsid().c_str(), otaHandler.getWifiPass().c_str());
-          unsigned long startWifi = millis();
-          while (WiFi.status() != WL_CONNECTED && millis() - startWifi < 10000) {
-              delay(500);
-              Serial.print(".");
-          }
-          
-          if (WiFi.status() == WL_CONNECTED) {
-              Serial.println("\n[MQTT] WiFi Connected. Connecting to Broker...");
-              if (mqttHandler.connect()) {
-                  mqttHandler.sendUplink();
-                  mqttHandler.loop(); 
-                  delay(1000);
-                  runStatus = 1; // Success
-                  g_lastCloudSuccessTime = millis();
-                  runResultTime = 0; // 0 seconds ago
-              } else {
-                  Serial.println("[MQTT] Broker Connection Failed.");
-                  runStatus = 3; // MQTT Fail
-              }
-          } else {
-              Serial.println("\n[MQTT] WiFi Connection Failed.");
-              runStatus = 2;
-          }
+            // 2. Connect WiFi (With Sniff)
+            bool ssidFound = false;
+            int n = WiFi.scanNetworks();
+            for (int i = 0; i < n; ++i) {
+                if (WiFi.SSID(i) == otaHandler.getWifiSsid()) {
+                    ssidFound = true;
+                    break;
+                }
+            }
+            
+            if (!ssidFound) {
+                 Serial.println("[MQTT] Target SSID not found in scan. Aborting.");
+                 runStatus = 2; // Wifi Fail
+            } else {
+                 WiFi.begin(otaHandler.getWifiSsid().c_str(), otaHandler.getWifiPass().c_str());
+                 unsigned long startWifi = millis();
+                 
+                 while (WiFi.status() != WL_CONNECTED && millis() - startWifi < 10000) {
+                     delay(500);
+                     Serial.print(".");
+                 }
+                 
+                 if (WiFi.status() == WL_CONNECTED) {
+                     Serial.println("\n[MQTT] WiFi Connected. Connecting to Broker...");
+                     if (mqttHandler.connect()) {
+                         mqttHandler.sendUplink();
+                         mqttHandler.loop(); 
+                         delay(1000);
+                         runStatus = 1; // Success
+                         g_lastCloudSuccessTime = millis();
+                     } else {
+                         Serial.println("[MQTT] Broker Connection Failed.");
+                         runStatus = 3; // MQTT Fail
+                     }
+                 } else {
+                     Serial.println("\n[MQTT] WiFi Connection Failed.");
+                     runStatus = 2;
+                 }
+            }
 
           g_lastCloudStatus = runStatus;
 
