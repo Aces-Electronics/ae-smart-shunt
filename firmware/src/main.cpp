@@ -1636,8 +1636,10 @@ void setup()
       
       
       if (enabled) {
-          // Force run soon (reset timer)
-          lastMqttUplink = 0; 
+          // Force run immediately. 
+          // Using unsigned arithmetic: if we subtract Interval from millis, the diff will be >= Interval.
+          lastMqttUplink = millis() - MQTT_UPLINK_INTERVAL - 1000; 
+          Serial.println("[BLE] Cloud Enabled. Forcing Uplink Sequence NOW.");
       }
   });
 
