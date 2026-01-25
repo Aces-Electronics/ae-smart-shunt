@@ -43,6 +43,10 @@ const char* BLEHandler::OTA_UPDATE_CONTROL_CHAR_UUID = "3a89b148-b4e8-43d7-952b-
 const char* BLEHandler::OTA_RELEASE_METADATA_CHAR_UUID = "4a89b148-b4e8-43d7-952b-a0b4b01e43b3";
 const char* BLEHandler::OTA_PROGRESS_CHAR_UUID = "5a89b148-b4e8-43d7-952b-a0b4b01e43b3";
 
+// --- Cloud Control UUIDs ---
+const char* BLEHandler::CLOUD_CONFIG_CHAR_UUID = "6a89b148-b4e8-43d7-952b-a0b4b01e43b3";
+const char* BLEHandler::CLOUD_STATUS_CHAR_UUID = "7a89b148-b4e8-43d7-952b-a0b4b01e43b3";
+
 
 class BoolCharacteristicCallbacks : public BLECharacteristicCallbacks {
     std::function<void(bool)> _callback;
@@ -216,6 +220,10 @@ void BLEHandler::setTpmsConfigCallback(std::function<void(std::vector<uint8_t>)>
     this->tpmsConfigCallback = callback;
 }
 
+void BLEHandler::setCloudConfigCallback(std::function<void(bool)> callback) {
+    this->cloudConfigCallback = callback;
+}
+
 // Helper to generate PIN from MAC
 uint32_t generatePinFromMac() {
     uint8_t mac[6];
@@ -264,6 +272,16 @@ void BLEHandler::updateOtaProgress(uint8_t progress) {
     if (pOtaProgressCharacteristic) {
         pOtaProgressCharacteristic->setValue(progress);
         pOtaProgressCharacteristic->notify();
+    }
+}
+
+void BLEHandler::updateCloudStatus(uint8_t status, uint32_t lastSuccessTime) {
+    if (pCloudStatusCharacteristic) {
+        uint8_t buf[5];
+        buf[0] = status;
+        memcpy(&buf[1], &lastSuccessTime, 4);
+        pCloudStatusCharacteristic->setValue(buf, 5);
+        pCloudStatusCharacteristic->notify();
     }
 }
 
@@ -473,6 +491,21 @@ void BLEHandler::begin(const Telemetry& initial_telemetry) {
     uint8_t initGaugeStatus[5] = {0};
     pGaugeStatusCharacteristic->setValue(initGaugeStatus, 5);
 
+
+    // Cloud Config Characteristic
+    pCloudConfigCharacteristic = pService->createCharacteristic(
+        CLOUD_CONFIG_CHAR_UUID,
+        NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::WRITE_ENC
+    );
+    pCloudConfigCharacteristic->setCallbacks(new BoolCharacteristicCallbacks(this->cloudConfigCallback)); 
+
+    // Cloud Status Characteristic
+    pCloudStatusCharacteristic = pService->createCharacteristic(
+        CLOUD_STATUS_CHAR_UUID,
+        NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY
+    );
+    uint8_t initCloudStatus[5] = {0}; // Status(1) + Time(4)
+    pCloudStatusCharacteristic->setValue(initCloudStatus, 5);
 
     pService->start();
 

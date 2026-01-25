@@ -68,6 +68,9 @@ public:
     void setPairingCallback(std::function<void(String)> callback);
     void setEfuseLimitCallback(std::function<void(float)> callback);
     void setTpmsConfigCallback(std::function<void(std::vector<uint8_t>)> callback);
+    void setCloudConfigCallback(std::function<void(bool)> callback);
+    void updateCloudStatus(uint8_t status, uint32_t lastSuccessTime);
+    void setCloudConfigCallback(std::function<void(bool)> callback);
 
 public:
     // Service and Characteristic UUIDs
@@ -103,7 +106,10 @@ public:
     static const char* DIAGNOSTICS_CHAR_UUID; // New
     static const char* TPMS_DATA_CHAR_UUID;
     static const char* TPMS_CONFIG_CHAR_UUID;
+    static const char* TPMS_CONFIG_CHAR_UUID;
     static const char* GAUGE_STATUS_CHAR_UUID;
+    static const char* CLOUD_CONFIG_CHAR_UUID; // New
+    static const char* CLOUD_STATUS_CHAR_UUID; // New
 
     // --- New OTA Service ---
     static const char* OTA_SERVICE_UUID;
@@ -145,7 +151,10 @@ private:
     BLECharacteristic* pTempSensorDataCharacteristic;
     BLECharacteristic* pTpmsDataCharacteristic;
     BLECharacteristic* pTpmsConfigCharacteristic;
+    BLECharacteristic* pTpmsConfigCharacteristic;
     BLECharacteristic* pGaugeStatusCharacteristic;
+    BLECharacteristic* pCloudConfigCharacteristic;
+    BLECharacteristic* pCloudStatusCharacteristic;
 
 
     // --- New OTA service and characteristics ---
@@ -169,6 +178,7 @@ private:
     std::function<void(String)> pairingCallback;
     std::function<void(float)> efuseLimitCallback;
     std::function<void(std::vector<uint8_t>)> tpmsConfigCallback;
+    std::function<void(bool)> cloudConfigCallback;
 
     // State tracking for advertising optimization
     float lastAdvVoltage = -1.0f;

@@ -76,6 +76,16 @@ BLEHandler bleHandler;
 WiFiClientSecure wifi_client;
 OtaHandler otaHandler(bleHandler, espNowHandler, wifi_client);
 
+// MQTT Handler
+#include "mqtt_handler.h"
+MqttHandler mqttHandler(espNowHandler, ina226_adc);
+
+unsigned long lastMqttUplink = 0;
+const unsigned long MQTT_UPLINK_INTERVAL = 15 * 60 * 1000; // 15 Minutes
+bool g_cloudEnabled = false;
+uint8_t g_lastCloudStatus = 0;
+uint32_t g_lastCloudSuccessTime = 0;
+
 void preOtaUpdate() {
     Serial.println("[MAIN] Pre-OTA update callback triggered. Saving battery capacity...");
     Preferences preferences;
@@ -1614,6 +1624,22 @@ void setup()
   });
   bleHandler.setServerCallbacks(new MainServerCallbacks());
 
+  // Cloud Config Callback
+  bleHandler.setCloudConfigCallback([](bool enabled){
+      Serial.printf("[BLE] Cloud Config Set: %s\n", enabled ? "ON" : "OFF");
+      g_cloudEnabled = enabled;
+      
+      Preferences p;
+      p.begin("config", false);
+      p.putBool("cloud_enabled", enabled);
+      p.end();
+      
+      if (enabled) {
+          // Force run soon (reset timer)
+          lastMqttUplink = 0; 
+      }
+  });
+
   // Load Pairing Info if exists
   Preferences prefs;
   prefs.begin("pairing", true); // read-only check first
@@ -1658,6 +1684,13 @@ void setup()
 
   // Create initial telemetry data for the first advertisement
   ina226_adc.readSensors(); // Read sensors to get initial values
+  
+  // Load Cloud Config
+  prefs.begin("config", true);
+  g_cloudEnabled = prefs.getBool("cloud_enabled", false);
+  prefs.end();
+  Serial.printf("Cloud Uplink Enabled: %s\n", g_cloudEnabled ? "YES" : "NO");
+
   Telemetry initial_telemetry = {
       .batteryVoltage = ina226_adc.getBusVoltage_V(),
       .batteryCurrent = ina226_adc.getCurrent_mA() / 1000.0f,
@@ -1688,6 +1721,8 @@ void setup()
   // Set the firmware version on the BLE characteristic
   bleHandler.updateFirmwareVersion(OTA_VERSION);
   Serial.printf("Firmware version %s set on BLE characteristic.\n", OTA_VERSION);
+  
+  mqttHandler.begin(); // Init MQTT Client
 
   Serial.println("Setup done");
 }
@@ -2296,6 +2331,103 @@ void loop() {
 
       Serial.println();
       last_telemetry_millis = millis();
+  }
+
+  // MQTT UPLINK (15 Minutes)
+  if (g_cloudEnabled && millis() - lastMqttUplink > MQTT_UPLINK_INTERVAL) {
+      lastMqttUplink = millis();
+      String ssid = otaHandler.getWifiSsid();
+      String pass = otaHandler.getWifiPass();
+      
+      if (ssid.length() > 0) {
+          Serial.println("[MQTT] Starting 15-min Uplink. Pausing Radio Stacks...");
+          
+          // 1. Deinit Stacks
+          esp_now_deinit();
+          BLEDevice::deinit(true);
+
+          uint8_t runStatus = 2; // Default Wifi Fail
+          unsigned long runResultTime = 0;
+
+          // 2. Connect WiFi
+          WiFi.begin(ssid.c_str(), pass.c_str());
+          unsigned long startWifi = millis();
+          while (WiFi.status() != WL_CONNECTED && millis() - startWifi < 10000) {
+              delay(500);
+              Serial.print(".");
+          }
+          
+          if (WiFi.status() == WL_CONNECTED) {
+              Serial.println("\n[MQTT] WiFi Connected. Connecting to Broker...");
+              if (mqttHandler.connect()) {
+                  mqttHandler.sendUplink();
+                  mqttHandler.loop(); 
+                  delay(1000);
+                  runStatus = 1; // Success
+                  g_lastCloudSuccessTime = millis();
+                  runResultTime = 0; // 0 seconds ago
+              } else {
+                  Serial.println("[MQTT] Broker Connection Failed.");
+                  runStatus = 3; // MQTT Fail
+              }
+          } else {
+              Serial.println("\n[MQTT] WiFi Connection Failed.");
+              runStatus = 2;
+          }
+
+          g_lastCloudStatus = runStatus;
+
+          // 3. Disconnect WiFi & Restore Stacks
+          WiFi.disconnect(true);
+          WiFi.mode(WIFI_OFF);
+          
+          Serial.println("[MQTT] Restoring Radio Stacks...");
+          espNowHandler.begin();
+          
+          // Re-Init BLE
+          BLEDevice::init("AE Smart Shunt");
+          BLEDevice::setMTU(517);
+          
+          // Construct Telemetry for Re-Init (reuse existing struct data)
+           Telemetry telemetry_data = {
+              .batteryVoltage = ae_smart_shunt_struct.batteryVoltage,
+              .batteryCurrent = ae_smart_shunt_struct.batteryCurrent,
+              .batteryPower = ae_smart_shunt_struct.batteryPower,
+              .batterySOC = ae_smart_shunt_struct.batterySOC,
+              .batteryCapacity = ae_smart_shunt_struct.batteryCapacity,
+              .starterBatteryVoltage = ae_smart_shunt_struct.starterBatteryVoltage,
+              .isCalibrated = ae_smart_shunt_struct.isCalibrated,
+              .errorState = ae_smart_shunt_struct.batteryState,
+              .loadState = ina226_adc.isLoadConnected(),
+              .cutoffVoltage = ina226_adc.getLowVoltageCutoff(),
+              .reconnectVoltage = (ina226_adc.getLowVoltageCutoff() + ina226_adc.getHysteresis()),
+              .lastHourWh = ae_smart_shunt_struct.lastHourWh,
+              .lastDayWh = ae_smart_shunt_struct.lastDayWh,
+              .lastWeekWh = ae_smart_shunt_struct.lastWeekWh,
+              .lowVoltageDelayS = ina226_adc.getLowVoltageDelay(),
+              .deviceNameSuffix = ina226_adc.getDeviceNameSuffix(),
+              .eFuseLimit = ina226_adc.getEfuseLimit(),
+              .activeShuntRating = ina226_adc.getActiveShunt(),
+              .ratedCapacity = ina226_adc.getMaxBatteryCapacity(),
+              .runFlatTime = String(ae_smart_shunt_struct.runFlatTime),
+              .diagnostics = "", 
+              .tempSensorTemperature = ae_smart_shunt_struct.tempSensorTemperature,
+              .tempSensorBatteryLevel = ae_smart_shunt_struct.tempSensorBatteryLevel,
+              .tempSensorLastUpdate = ae_smart_shunt_struct.tempSensorLastUpdate,
+              .tempSensorUpdateInterval = ae_smart_shunt_struct.tempSensorUpdateInterval,
+              .tpmsPressurePsi = {ae_smart_shunt_struct.tpmsPressurePsi[0], ae_smart_shunt_struct.tpmsPressurePsi[1], ae_smart_shunt_struct.tpmsPressurePsi[2], ae_smart_shunt_struct.tpmsPressurePsi[3]},
+              .gaugeLastRx = espNowHandler.getLastGaugeRx(),
+              .gaugeLastTxSuccess = g_gaugeLastTxSuccess
+          };
+          bleHandler.begin(telemetry_data);
+          
+          // Report Status immediately
+          bleHandler.updateCloudStatus(g_lastCloudStatus, (millis() - g_lastCloudSuccessTime)/1000);
+          
+          Serial.println("[MQTT] Uplink Sequence Complete.");
+      } else {
+          Serial.println("[MQTT] No WiFi Credentials. Skipping Uplink.");
+      }
   }
   
   // Handle Async Restart

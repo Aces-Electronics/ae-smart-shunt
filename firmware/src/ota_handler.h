@@ -16,6 +16,8 @@ public:
 
     void setWifiSsid(const String& ssid);
     void setWifiPass(const String& pass);
+    String getWifiSsid() { return wifi_ssid; }
+    String getWifiPass() { return wifi_pass; }
     void handleOtaControl(uint8_t command);
     void setPreUpdateCallback(std::function<void()> callback);
 
