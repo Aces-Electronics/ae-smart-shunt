@@ -416,7 +416,7 @@ void BLEHandler::begin(const Telemetry& initial_telemetry) {
 
     pWifiSsidCharacteristic = pService->createCharacteristic(
         WIFI_SSID_CHAR_UUID,
-        NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::WRITE_ENC
+        NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::WRITE_ENC
     );
     pWifiSsidCharacteristic->setCallbacks(new StringCharacteristicCallbacks(this->wifiSsidCallback));
 
@@ -546,7 +546,7 @@ void BLEHandler::begin(const Telemetry& initial_telemetry) {
     // MQTT User
     pMqttUserCharacteristic = pService->createCharacteristic(
         MQTT_USER_CHAR_UUID,
-         NIMBLE_PROPERTY::WRITE // Write only (Hide from Read)
+         NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::WRITE
     );
     pMqttUserCharacteristic->setCallbacks(new ByteVectorCharacteristicCallbacks([this](std::vector<uint8_t> data){
         std::string s(data.begin(), data.end());
