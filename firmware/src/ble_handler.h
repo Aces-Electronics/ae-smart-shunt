@@ -199,6 +199,14 @@ private:
     int lastAdvErrorState = -1;
     bool lastAdvLoadState = false;
     unsigned long lastAdvUpdateTime = 0;
+
+    // Connection Params Update Tracking
+    uint16_t _pendingConnHandle = 0;
+    unsigned long _connTime = 0;
+    
+public:
+    void loop(); // Call from main loop
+    void scheduleConnParamsUpdate(uint16_t connHandle);
 };
 
 #endif // BLE_HANDLER_H

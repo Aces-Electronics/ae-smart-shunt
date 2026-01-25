@@ -1,6 +1,7 @@
 #include "ble_handler.h"
 #include <NimBLEDevice.h>
 #include <WiFi.h>
+#include "esp_mac.h"
 
 // UUIDs generated from https://www.uuidgenerator.net/
 const char* BLEHandler::SERVICE_UUID = "4fafc201-1fb5-459e-8fcc-c5c9c331914b";
@@ -116,14 +117,21 @@ public:
 };
 
 class ServerCallbacks: public BLEServerCallbacks {
+    BLEHandler* pHandler;
+public:
+    ServerCallbacks(BLEHandler* handler) : pHandler(handler) {}
+
     void onConnect(BLEServer* pServer, ble_gap_conn_desc* desc) {
-      Serial.printf("BLE client connected (ID: %d). Updating Conn Params for Coex...\n", desc->conn_handle);
-      // Min 24(30ms), Max 40(50ms), Latency 4, Timeout 200(2000ms)
-      pServer->updateConnParams(desc->conn_handle, 24, 40, 4, 200);
+      Serial.printf("BLE client connected (ID: %d). Scheduling Params Update (Delayed)...\n", desc->conn_handle);
+      if(pHandler) pHandler->scheduleConnParamsUpdate(desc->conn_handle);
     }
 
     void onDisconnect(BLEServer* pServer) {
-      Serial.println("BLE client disconnected");
+        Serial.println("BLE client disconnected");
+        if (pHandler) {
+             // Cancel any pending update
+             pHandler->scheduleConnParamsUpdate(0);
+        }
     }
 
     void onMtuChanged(uint16_t MTU, ble_gap_conn_desc* desc) {
@@ -185,7 +193,10 @@ public:
     }
 };
 
-BLEHandler::BLEHandler() : pServer(NULL), pService(NULL) {}
+BLEHandler::BLEHandler() : pServer(NULL), pService(NULL) {
+    _pendingConnHandle = 0;
+    _connTime = 0;
+}
 
 void BLEHandler::setServerCallbacks(BLEServerCallbacks* callbacks) {
     if (pServer) {
@@ -260,7 +271,13 @@ void BLEHandler::setMqttAuthCallback(std::function<void(String, String)> callbac
 // Helper to generate PIN from MAC
 uint32_t generatePinFromMac() {
     uint8_t mac[6];
-    WiFi.macAddress(mac);
+    // Use esp_read_mac to get base MAC even if WiFi is off
+    esp_read_mac(mac, ESP_MAC_WIFI_STA); 
+    
+    // Log the MAC used for PIN generation
+    Serial.printf("[BLE SEC] MAC for PIN: %02X:%02X:%02X:%02X:%02X:%02X\n", 
+                  mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+
     // Use last 3 bytes to generate a unique 6-digit PIN
     uint32_t val = (mac[3] << 16) | (mac[4] << 8) | mac[5];
     uint32_t pin = val % 1000000;
@@ -328,7 +345,7 @@ void BLEHandler::begin(const Telemetry& initial_telemetry) {
     BLEDevice::setSecurityIOCap(BLE_HS_IO_DISPLAY_ONLY); // Forces user to enter PIN on phone
 
     pServer = BLEDevice::createServer();
-    pServer->setCallbacks(new ServerCallbacks());
+    pServer->setCallbacks(new ServerCallbacks(this));
     pService = pServer->createService(SERVICE_UUID);
 
     // Create characteristics
@@ -779,4 +796,29 @@ void BLEHandler::startAdvertising(const Telemetry& telemetry) {
     pAdvertising->setMaxPreferred(0x0C); 
 
     pAdvertising->start();
+}
+
+void BLEHandler::scheduleConnParamsUpdate(uint16_t connHandle) {
+    if (connHandle == 0) {
+        _pendingConnHandle = 0;
+        _connTime = 0;
+    } else {
+        _pendingConnHandle = connHandle;
+        _connTime = millis();
+    }
+}
+
+void BLEHandler::loop() {
+    if (_pendingConnHandle != 0 && _connTime != 0) {
+        if (millis() - _connTime > 2000) { // 2 Seconds Delay
+            Serial.printf("[BLE] Updating Conn Params for Handle %d (Delayed)\n", _pendingConnHandle);
+             // Min 24(30ms), Max 40(50ms), Latency 4, Timeout 300(3000ms)
+             // Using start on pServer
+             if (pServer) {
+                 pServer->updateConnParams(_pendingConnHandle, 24, 40, 4, 300);
+             }
+             _pendingConnHandle = 0; // Done
+             _connTime = 0;
+        }
+    }
 }

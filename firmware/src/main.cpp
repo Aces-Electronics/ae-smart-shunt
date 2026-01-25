@@ -2307,6 +2307,7 @@ void handleFactoryCommands(String cmd) {
 }
 
 void loop() {
+  bleHandler.loop(); 
   // Drives TPMS Scan & Callbacks -> onScanComplete() -> updateStruct() -> espNowHandler.sendMessage()
   // PAUSE SCAN if BLE Client Connected (to allow config/OTA)
   if (bleHandler.isConnected()) {
@@ -2356,7 +2357,7 @@ void loop() {
       
       if (ssid.length() > 0) {
           Serial.println("[MQTT] Starting 15-min Uplink. Using Simultaneous Mode...");
-          // Radio stacks kept alive.
+          // Radio stacks kept alive (Simultaneous)
 
           uint8_t runStatus = 2; // Default Wifi Fail
           unsigned long runResultTime = 0;
@@ -2416,9 +2417,8 @@ void loop() {
 
           g_lastCloudStatus = runStatus;
 
-          // 3. Disconnect WiFi & Restore Stacks
           WiFi.disconnect(true);
-          WiFi.mode(WIFI_STA); // Keep STA mode for ESP-NOW
+          WiFi.mode(WIFI_STA); // Keep STA for ESP-NOW
           
           // Report Status immediately
           bleHandler.updateCloudStatus(g_lastCloudStatus, (millis() - g_lastCloudSuccessTime)/1000);
