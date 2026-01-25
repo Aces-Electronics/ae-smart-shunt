@@ -74,6 +74,7 @@ public:
     void updateCloudStatus(uint8_t status, uint32_t lastSuccessTime);
     void setInitialWifiSsid(const String& ssid);
     void setInitialMqttBroker(const String& broker);
+    void setInitialMqttUser(const String& user);
 
 public:
     // Service and Characteristic UUIDs

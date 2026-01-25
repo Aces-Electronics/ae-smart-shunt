@@ -2457,6 +2457,9 @@ void loop() {
               .gaugeLastTxSuccess = g_gaugeLastTxSuccess
           };
           bleHandler.begin(telemetry_data);
+          bleHandler.setInitialWifiSsid(otaHandler.getWifiSsid());
+          bleHandler.setInitialMqttBroker(mqttHandler.getBroker());
+          bleHandler.setInitialMqttUser(mqttHandler.getUser());
           
           // Report Status immediately
           bleHandler.updateCloudStatus(g_lastCloudStatus, (millis() - g_lastCloudSuccessTime)/1000);

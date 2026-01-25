@@ -55,6 +55,12 @@ void BLEHandler::setInitialMqttBroker(const String& broker) {
         pMqttBrokerCharacteristic->setValue(std::string(broker.c_str())); 
     }
 }
+
+void BLEHandler::setInitialMqttUser(const String& user) {
+    if (pMqttUserCharacteristic) {
+        pMqttUserCharacteristic->setValue(std::string(user.c_str()));
+    }
+}
 const char* BLEHandler::CLOUD_CONFIG_CHAR_UUID = "6a89b148-b4e8-43d7-952b-a0b4b01e43b3";
 const char* BLEHandler::CLOUD_STATUS_CHAR_UUID = "7a89b148-b4e8-43d7-952b-a0b4b01e43b3";
 const char* BLEHandler::MQTT_BROKER_CHAR_UUID = "8a89b148-b4e8-43d7-952b-a0b4b01e43b3";
