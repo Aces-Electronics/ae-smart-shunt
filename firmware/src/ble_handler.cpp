@@ -45,7 +45,10 @@ const char* BLEHandler::OTA_PROGRESS_CHAR_UUID = "5a89b148-b4e8-43d7-952b-a0b4b0
 
 
 void BLEHandler::setInitialWifiSsid(const String& ssid) {
-    if (pWifiSsidCharacteristic) pWifiSsidCharacteristic->setValue(ssid.c_str());
+    Serial.printf("[BLE] Setting Initial SSID: '%s'\n", ssid.c_str());
+    if (pWifiSsidCharacteristic) {
+        pWifiSsidCharacteristic->setValue(std::string(ssid.c_str()));
+    }
 }
 
 void BLEHandler::setInitialMqttBroker(const String& broker) {
