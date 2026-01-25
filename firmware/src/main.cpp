@@ -1724,6 +1724,9 @@ void setup()
       .crashLog = crash_handler_get_log()
   };
   bleHandler.begin(initial_telemetry);
+  bleHandler.setInitialWifiSsid(otaHandler.getWifiSsid());
+  bleHandler.setInitialMqttBroker(mqttHandler.getBroker());
+  bleHandler.setInitialMqttUser(mqttHandler.getUser());
   
   // Initialize TPMS Scanner (Async)
 
