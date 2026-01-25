@@ -1,14 +1,13 @@
 #include "crash_handler.h"
 #include <esp_debug_helpers.h>
-#include <esp_debug_helpers.h>
 #include <esp_attr.h>
 #include <cstdio>
 #include <Preferences.h>
 #include <rom/rtc.h>
 
 // RTC Memory - detailed crash info survives reset
-// 512 bytes should be enough for a reasonable backtrace
-#define CRASH_BUFFER_SIZE 512
+// Increased to 2048 to accommodate full backtrace
+#define CRASH_BUFFER_SIZE 2048
 #define CRASH_MAGIC 0xDEADBEEF
 
 typedef struct {
@@ -26,13 +25,7 @@ void save_crash_info_to_rtc(const char* msg);
 Preferences crashPrefs;
 
 void crash_handler_init() {
-    // Optional: Hook panic handler here if strictly needed, 
-    // but often we just rely on the fact that we can capture data 
-    // if we control the exception or just rely on 'reset reason' + basic info.
-    // Ideally we want to override the panic handler. 
-    // Check if we can overwrite `esp_panic_handler`? 
-    // PlatformIO/Arduino ESP32 is tricky with overriding internal panic.
-    // For now, we mainly use this to PROCESS existing data on boot.
+    // Optional: Hook panic handler here if strictly needed
 }
 
 // Called on boot to check RTC and move to NVS
@@ -42,13 +35,9 @@ void crash_handler_process_on_boot() {
         Serial.println("[CRASH HANDLER] Found crash log in RTC memory!");
         
         crashPrefs.begin("crash", false);
-        String existing = crashPrefs.getString("log", "");
         
-        // Append new log (with timestamp/count limit?)
-        // For simplicity, we just overwrite or keep last 2.
+        // Save the new log
         String newLog = String(rtc_crash_info.buffer);
-        
-        // Let's just store the LATEST crash for now to save space
         crashPrefs.putString("log", newLog);
         
         Serial.println("[CRASH HANDLER] Saved to NVS:");
@@ -58,8 +47,6 @@ void crash_handler_process_on_boot() {
         
         // Clear Magic so we don't re-process
         rtc_crash_info.magic = 0;
-    } else {
-        // Serial.println("[CRASH HANDLER] No fresh crash log in RTC.");
     }
 }
 
@@ -70,33 +57,80 @@ String crash_handler_get_log() {
     return log;
 }
 
-// Can be called manually or by a custom panic handler
-void save_crash_info_to_rtc(const char* msg) {
-    rtc_crash_info.magic = CRASH_MAGIC;
-    rtc_crash_info.timestamp = millis();
-    strncpy(rtc_crash_info.buffer, msg, CRASH_BUFFER_SIZE - 1);
-    rtc_crash_info.buffer[CRASH_BUFFER_SIZE - 1] = '\0';
+// Helper to append to RTC buffer safely
+void append_to_rtc_buffer(const char* format, ...) {
+    if (rtc_crash_info.magic != CRASH_MAGIC) {
+        // Initialize if not likely set, though unsafe in panic
+        return; 
+    }
+    
+    char buf[128];
+    va_list args;
+    va_start(args, format);
+    vsnprintf(buf, sizeof(buf), format, args);
+    va_end(args);
+
+    size_t current_len = strlen(rtc_crash_info.buffer);
+    if (current_len + strlen(buf) < CRASH_BUFFER_SIZE - 1) {
+        strcat(rtc_crash_info.buffer, buf);
+    }
 }
 
 extern "C" void __real_esp_panic_handler(void *info);
 
 extern "C" void __wrap_esp_panic_handler(void *info) {
-    // Capture basic info. 
-    // RISC-V Specific Registers for ESP32-C3
-    uint32_t mepc, mcause, mtval, ra;
-    asm volatile("csrr %0, mepc" : "=r"(mepc));
-    asm volatile("csrr %0, mcause" : "=r"(mcause));
-    asm volatile("csrr %0, mtval" : "=r"(mtval));
-    asm volatile("mv %0, ra" : "=r"(ra));
+    // Only capture the FIRST panic to avoid loops
+    if (rtc_crash_info.magic != CRASH_MAGIC) {
+        rtc_crash_info.magic = CRASH_MAGIC;
+        rtc_crash_info.timestamp = millis();
+        rtc_crash_info.buffer[0] = '\0'; // Initialize empty string
 
-    char buf[128]; 
-    // Format: Panic at <ms> | MEPC:<hex> CAUSE:<hex> VAL:<hex> RA:<hex>
-    snprintf(buf, sizeof(buf), 
-        "Panic:%lums\nPC:0x%08lX\nCause:0x%lX\nVal:0x%lX\nRA:0x%lX", 
-        millis(), mepc, mcause, mtval, ra
-    );
-    
-    save_crash_info_to_rtc(buf);
+        // Capture Registers
+        // RISC-V Specific Registers for ESP32-C3
+        uint32_t mepc, mcause, mtval, ra, sp, fp;
+        asm volatile("csrr %0, mepc" : "=r"(mepc));
+        asm volatile("csrr %0, mcause" : "=r"(mcause));
+        asm volatile("csrr %0, mtval" : "=r"(mtval));
+        asm volatile("mv %0, ra" : "=r"(ra));
+        asm volatile("mv %0, sp" : "=r"(sp));
+        asm volatile("mv %0, s0" : "=r"(fp)); // Frame Pointer (s0/fp)
+
+        append_to_rtc_buffer("Panic:%lums\nPC:0x%08lX\nCause:0x%lX\nVal:0x%lX\nRA:0x%lX\nSP:0x%08lX\n\nBacktrace:", 
+            millis(), mepc, mcause, mtval, ra, sp
+        );
+
+        // Manual Stack Walk for RISC-V (Assumes Frame Pointers enabled)
+        // 0(fp) = prev_fp
+        // 4(fp) = return_address (ra)
+        uint32_t *current_fp = (uint32_t*)fp;
+        
+        // Include the current PC (mepc) as the first frame usually
+        append_to_rtc_buffer("0x%08lX ", mepc);
+        
+        // Then walk callers
+        for (int i = 0; i < 32; i++) {
+            // Basic sanity check: pointer must be aligned and in RAM/Cache
+            if ((uint32_t)current_fp < 0x3FC00000 || (uint32_t)current_fp & 3) {
+                 break;
+            }
+            
+            uint32_t next_fp = current_fp[0]; 
+            uint32_t ret_addr = current_fp[1]; 
+            
+            if (ret_addr == 0) break; // End of stack
+            
+            append_to_rtc_buffer("0x%08lX ", ret_addr);
+            
+            if (next_fp == 0 || next_fp <= (uint32_t)current_fp) {
+                // Stack should grow up (addresses increase) on return? 
+                // Wait, stack grows down. previous frame is at HIGHER address.
+                // So next_fp should be > current_fp
+                break;
+            }
+            current_fp = (uint32_t*)next_fp;
+        }
+        append_to_rtc_buffer("\n");
+    }
     
     // Pass to real handler for printing to Serial and resetting
     __real_esp_panic_handler(info);

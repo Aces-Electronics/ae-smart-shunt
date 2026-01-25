@@ -62,13 +62,12 @@ static NimBLEScan* pBLEScan = nullptr;
 
 TPMSHandler::TPMSHandler() : scanActive(false), lastScanTime(0), scanStartTime(0) {
     g_tpmsHandler = this;
+    mutex = xSemaphoreCreateMutex();
 }
 
 void TPMSHandler::begin() {
     Serial.println("[TPMS] Initializing Shunt Scanner...");
-    if (!NimBLEDevice::getInitialized()) {
-        NimBLEDevice::init("AE-Shunt");
-    }
+    // NimBLE initialization moved to main.cpp (centralized)
     
     pBLEScan = NimBLEDevice::getScan();
     pBLEScan->setAdvertisedDeviceCallbacks(new TPMSAdvertisedDeviceCallbacks());
@@ -129,16 +128,20 @@ void TPMSHandler::stopScan() {
 }
 
 void TPMSHandler::onSensorDiscovered(const uint8_t* mac, float voltage, int temp, float pressure) {
-    // Check if MAC matches any configured sensor
-    for (int i = 0; i < TPMS_COUNT; i++) {
-        if (sensors[i].configured && memcmp(sensors[i].mac, mac, 6) == 0) {
-            sensors[i].pressurePsi = pressure;
-            sensors[i].temperature = temp;
-            sensors[i].batteryVoltage = voltage;
-            sensors[i].lastUpdate = millis();
-            Serial.printf("[TPMS] Update %s: %.1f PSI\n", TPMS_POSITION_SHORT[i], pressure);
-            return;
+    if (xSemaphoreTake(mutex, pdMS_TO_TICKS(10)) == pdTRUE) {
+        // Check if MAC matches any configured sensor
+        for (int i = 0; i < TPMS_COUNT; i++) {
+            if (sensors[i].configured && memcmp(sensors[i].mac, mac, 6) == 0) {
+                sensors[i].pressurePsi = pressure;
+                sensors[i].temperature = temp;
+                sensors[i].batteryVoltage = voltage;
+                sensors[i].lastUpdate = millis();
+                Serial.printf("[TPMS] Update %s: %.1f PSI\n", TPMS_POSITION_SHORT[i], pressure);
+                xSemaphoreGive(mutex);
+                return;
+            }
         }
+        xSemaphoreGive(mutex);
     }
 }
 
@@ -160,6 +163,18 @@ void TPMSHandler::setConfig(const uint8_t macs[4][6], const float baselines[4], 
 const TPMSSensor* TPMSHandler::getSensor(int position) const {
     if (position < 0 || position >= TPMS_COUNT) return nullptr;
     return &sensors[position];
+}
+
+void TPMSHandler::getRawConfig(void* target_48_bytes) {
+    if (!target_48_bytes) return;
+    struct_message_tpms_config config;
+    config.messageID = 12; // TPMS Config ID
+    for (int i = 0; i < TPMS_COUNT; i++) {
+        memcpy(config.macs[i], sensors[i].mac, 6);
+        config.baselines[i] = sensors[i].baselinePsi;
+        config.configured[i] = sensors[i].configured;
+    }
+    memcpy(target_48_bytes, &config, sizeof(config));
 }
 
 void TPMSHandler::loadFromNVS() {

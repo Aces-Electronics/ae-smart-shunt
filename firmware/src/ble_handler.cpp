@@ -33,6 +33,7 @@ const char* BLEHandler::DIAGNOSTICS_CHAR_UUID     = "ACDC1234-5678-90AB-CDEF-123
 const char* BLEHandler::CRASH_LOG_CHAR_UUID       = "ACDC1234-5678-90AB-CDEF-1234567890CD"; // Detailed Log
 const char* BLEHandler::TEMP_SENSOR_DATA_CHAR_UUID = "ACDC1234-5678-90AB-CDEF-1234567890CE"; // Relayed Temp Sensor
 const char* BLEHandler::TPMS_DATA_CHAR_UUID        = "ACDC1234-5678-90AB-CDEF-1234567890CF"; // TPMS Pressures
+const char* BLEHandler::TPMS_CONFIG_CHAR_UUID      = "ACDC1234-5678-90AB-CDEF-1234567890D1"; // TPMS Config Backup/Restore
 const char* BLEHandler::GAUGE_STATUS_CHAR_UUID     = "ACDC1234-5678-90AB-CDEF-1234567890D0"; // Gauge Status
 
 // --- New OTA Service UUIDs ---
@@ -140,6 +141,21 @@ public:
     }
 };
 
+class ByteVectorCharacteristicCallbacks : public BLECharacteristicCallbacks {
+    std::function<void(std::vector<uint8_t>)> _callback;
+public:
+    ByteVectorCharacteristicCallbacks(std::function<void(std::vector<uint8_t>)> callback) : _callback(callback) {}
+
+    void onWrite(BLECharacteristic* pCharacteristic) {
+        std::string value = pCharacteristic->getValue();
+        if (value.length() > 0 && _callback) {
+            std::vector<uint8_t> data(value.begin(), value.end());
+            _callback(data);
+            pCharacteristic->notify();
+        }
+    }
+};
+
 BLEHandler::BLEHandler() : pServer(NULL), pService(NULL) {}
 
 void BLEHandler::setServerCallbacks(BLEServerCallbacks* callbacks) {
@@ -196,6 +212,10 @@ void BLEHandler::setEfuseLimitCallback(std::function<void(float)> callback) {
     this->efuseLimitCallback = callback;
 }
 
+void BLEHandler::setTpmsConfigCallback(std::function<void(std::vector<uint8_t>)> callback) {
+    this->tpmsConfigCallback = callback;
+}
+
 // Helper to generate PIN from MAC
 uint32_t generatePinFromMac() {
     uint8_t mac[6];
@@ -248,8 +268,7 @@ void BLEHandler::updateOtaProgress(uint8_t progress) {
 }
 
 void BLEHandler::begin(const Telemetry& initial_telemetry) {
-    BLEDevice::init("AE Smart Shunt");
-    BLEDevice::setMTU(517);
+    // BLEDevice::init and setMTU moved to main.cpp (centralized)
     
     // Security & Speed Configuration
     uint32_t passkey = generatePinFromMac();
@@ -437,6 +456,15 @@ void BLEHandler::begin(const Telemetry& initial_telemetry) {
     float initTpms[4] = {0,0,0,0};
     pTpmsDataCharacteristic->setValue((uint8_t*)initTpms, 16);
 
+    // TPMS Config (Backup/Restore - 48 bytes)
+    pTpmsConfigCharacteristic = pService->createCharacteristic(
+        TPMS_CONFIG_CHAR_UUID,
+        NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::WRITE_ENC
+    );
+    pTpmsConfigCharacteristic->setCallbacks(new ByteVectorCharacteristicCallbacks(this->tpmsConfigCallback));
+    uint8_t initTpmsConfig[48] = {0};
+    pTpmsConfigCharacteristic->setValue(initTpmsConfig, 48);
+
     // Gauge Status (uint32_t lastRx + bool lastTxSuccess = 5 bytes)
     pGaugeStatusCharacteristic = pService->createCharacteristic(
         GAUGE_STATUS_CHAR_UUID,
@@ -542,17 +570,21 @@ void BLEHandler::updateTelemetry(const Telemetry& telemetry) {
     pDiagnosticsCharacteristic->setValue(std::string(telemetry.diagnostics.c_str()));
     pDiagnosticsCharacteristic->notify();
 
-    // Update Temp Sensor (Float + Uint8 + Uint32 = 9 bytes)
-    uint8_t tempBuf[9];
+    // Update Temp Sensor (Float + Uint8 + Uint32 + Uint32 = 13 bytes)
+    uint8_t tempBuf[13];
     memcpy(&tempBuf[0], &telemetry.tempSensorTemperature, 4);
     tempBuf[4] = telemetry.tempSensorBatteryLevel;
     memcpy(&tempBuf[5], &telemetry.tempSensorLastUpdate, 4);
-    pTempSensorDataCharacteristic->setValue(tempBuf, 9);
+    memcpy(&tempBuf[9], &telemetry.tempSensorUpdateInterval, 4);
+    pTempSensorDataCharacteristic->setValue(tempBuf, 13);
     pTempSensorDataCharacteristic->notify();
 
-    // Update TPMS (4 * float = 16 bytes)
     pTpmsDataCharacteristic->setValue((uint8_t*)telemetry.tpmsPressurePsi, 16);
     pTpmsDataCharacteristic->notify();
+
+    // Update TPMS Config Backup (48 bytes)
+    pTpmsConfigCharacteristic->setValue(const_cast<uint8_t*>(telemetry.tpmsConfig), 48);
+    // No notify needed for config unless changed, but read is primary
 
     // Update Gauge Status (uint32_t lastRx + bool lastTxSuccess = 5 bytes)
     uint8_t gaugeBuf[5];
@@ -561,8 +593,20 @@ void BLEHandler::updateTelemetry(const Telemetry& telemetry) {
     pGaugeStatusCharacteristic->setValue(gaugeBuf, 5);
     pGaugeStatusCharacteristic->notify();
 
-    // Update advertising data
-    startAdvertising(telemetry);
+    // Conditional advertising restart
+    bool dataChanged = (fabsf(telemetry.batteryVoltage - lastAdvVoltage) > 0.05f) || 
+                       (telemetry.errorState != lastAdvErrorState) || 
+                       (telemetry.loadState != lastAdvLoadState);
+    
+    unsigned long now = millis();
+    if (dataChanged || (now - lastAdvUpdateTime > 60000) || lastAdvUpdateTime == 0) {
+        lastAdvVoltage = telemetry.batteryVoltage;
+        lastAdvErrorState = telemetry.errorState;
+        lastAdvLoadState = telemetry.loadState;
+        lastAdvUpdateTime = now;
+        
+        startAdvertising(telemetry);
+    }
 }
 
 bool BLEHandler::isConnected() {

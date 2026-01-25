@@ -36,9 +36,9 @@ float batteryCapacity = 100.0f; // Default rated battery capacity in Ah (used fo
 uint8_t broadcastAddress[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 
 // Main loop interval
-// Main loop interval
-const unsigned long telemetry_interval = 10000;
+const unsigned long telemetry_interval = 5000; // Increased frequency (5s)
 unsigned long last_telemetry_millis = 0;
+uint32_t telemetry_counter = 0;
 
 // Polling interval for accurate coulomb counting
 const unsigned long polling_interval = 100; // 100ms = 10Hz
@@ -126,7 +126,7 @@ void deviceNameSuffixCallback(String suffix) {
 }
 
 void ratedCapacityCallback(float capacityAh) {
-    Serial.printf("BLE received new rated battery capacity: %.2f Ah\n", capacityAh);
+    Serial.printf("[BLE WRITE] Rated Capacity: %.2f Ah\n", capacityAh);
     ina226_adc.setMaxBatteryCapacity(capacityAh);
 }
 
@@ -141,6 +141,7 @@ void wifiPassCallback(String pass) {
 }
 
 void otaControlCallback(uint8_t command) {
+    Serial.printf("[BLE WRITE] OTA Control Command: %d\n", command);
     ota_command = command;
     ota_command_pending = true;
 }
@@ -187,6 +188,51 @@ void pairingCallback(String payload) {
     if (payload == "RESET") {
         performUnpair();
         return;
+    }
+
+    if (payload == "PAIRING") {
+        Serial.println("Received PAIRING command via BLE. Forcing ESP-NOW broadcast for 5 minutes.");
+        espNowHandler.setForceBroadcast(true);
+        // We reuse the existing polling loop or fallback timer to reset this or just let it be.
+        // For simplicity, we could add a timer here, but since the shunt often isn't on a battery 
+        // constraint, just forcing it until reboot or manual stop is fine, or let's use a simple timer check in loop.
+        // Actually, let's keep it simple: Pairing mode remains active until reboot or next regular pairing.
+        return;
+    }
+
+    // Handle "MAC:KEY" format (e.g. "AABBCCDDEEFF:001122...33")
+    // MAC (12) + : + Key (32) = 45 chars min.
+    // Or MAC with colons (17) + : + Key (32) = 50 chars.
+    int separatorIndex = payload.indexOf(':');
+    if (separatorIndex > 0) {
+        String part1 = payload.substring(0, separatorIndex); // Potential MAC or Prefix (ADD)
+        String part2 = payload.substring(separatorIndex + 1); // Key?
+        
+        // Check if part1 is "ADD"
+        if (part1 == "ADD") {
+            // Format: ADD:MAC:KEY
+             int secondSep = part2.indexOf(':');
+             if (secondSep > 0) {
+                 part1 = part2.substring(0, secondSep); // MAC
+                 part2 = part2.substring(secondSep + 1); // Key
+             }
+        }
+        
+        // Clean MAC (remove colons)
+        part1.replace(":", "");
+        if (part1.length() == 12 && part2.length() == 32) {
+             Serial.printf("BLE: Received Pairing Credentials. MAC=%s, Key=%s\n", part1.c_str(), part2.c_str());
+             
+             uint8_t macBytes[6];
+             uint8_t keyBytes[16];
+             
+             hexStringToBytes(part1, macBytes, 6);
+             hexStringToBytes(part2, keyBytes, 16);
+             
+             espNowHandler.handleNewPeer(macBytes, keyBytes);
+             // handleNewPeer saves to NVS automatically.
+             return;
+        }
     }
 
     if (payload == "RESET_ENERGY") {
@@ -843,14 +889,37 @@ void printShunt(const struct_message_ae_smart_shunt_1 *p)
       ina226_adc.isLoadConnected() ? "ON" : "OFF"
   );
   
+  // Print Temp Sensor Data (Relay) - Always show what is in the struct!
+  Serial.println("--- Relayed Temp Sensor ---");
+  Serial.printf("  Temp : %.1f C\n", p->tempSensorTemperature);
+  Serial.printf("  Batt : %d %%\n", p->tempSensorBatteryLevel);
+  if (p->tempSensorLastUpdate == 0xFFFFFFFF) {
+      Serial.printf("  Age  : (NO DATA)\n");
+  } else {
+      if (p->tempSensorLastUpdate < 60000) {
+          Serial.printf("  Age  : %u s\n", p->tempSensorLastUpdate / 1000);
+      } else {
+          Serial.printf("  Age  : %u min\n", p->tempSensorLastUpdate / 60000);
+      }
+  }
+  Serial.println("===========================");
+
   Serial.println("--- TPMS Data ---");
-  for(int i=0; i<TPMS_COUNT; i++) {
-        Serial.printf("  %s: %.1f PSI, %d C, %.1f V (Upd: %u)\n", 
-            TPMS_POSITION_SHORT[i], 
-            p->tpmsPressurePsi[i], 
-            p->tpmsTemperature[i], 
-            p->tpmsVoltage[i], 
-            p->tpmsLastUpdate[i]);
+  for(int i=0; i<4; i++) {
+      if (p->tpmsLastUpdate[i] != 0xFFFFFFFF) {
+          Serial.printf("  %s: %.1f PSI, %d C, %.1f V (Age: %u ms)\n", 
+              TPMS_POSITION_SHORT[i], 
+              p->tpmsPressurePsi[i], 
+              p->tpmsTemperature[i], 
+              p->tpmsVoltage[i],
+              p->tpmsLastUpdate[i]);
+      } else {
+           if (p->tpmsLastUpdate[i] == 0xFFFFFFFE) {
+                 Serial.printf("  %s: Waiting for Data...\n", TPMS_POSITION_SHORT[i]);
+           } else {
+                 Serial.printf("  %s: (Not Configured)\n", TPMS_POSITION_SHORT[i]);
+           }
+      }
   }
   Serial.println("===================");
 }
@@ -1376,6 +1445,8 @@ void printResetReason() {
 }
 
 void onScanComplete();
+
+
 void setup()
 {
   Serial.begin(115200);
@@ -1448,6 +1519,19 @@ void setup()
   uint16_t activeShuntA = ina226_adc.getActiveShunt();
 
   Serial.printf("Active Shunt: %uA\n", activeShuntA);
+
+  // --- Smarter Boot SOC ---
+  // If voltage is high (>13.4V) and current is low (<0.5A), assume 100% SOC (Float/Full).
+  // This overrides the open-circuit voltage lookup which might be conservative.
+  ina226_adc.readSensors(); // Ensure fresh reading
+  float bootV = ina226_adc.getBusVoltage_V();
+  float bootA = ina226_adc.getCurrent_mA() / 1000.0f;
+  
+  if (bootV > 13.4f && fabs(bootA) < 0.5f) {
+      Serial.printf("Boot Smart SOC: Voltage %.2fV > 13.4V and Current %.2fA < 0.5A. Forcing 100%% SOC.\n", bootV, bootA);
+      ina226_adc.setSOC_percent(100.0f);
+      Serial.println("SOC Synced to 100% (High Voltage + Low Current Detected)");
+  }
   Serial.printf(" -> Calibrated Resistance: %.9f Ohms\n", ina226_adc.getCalibratedShuntResistance());
   if (ina226_adc.hasCalibrationTable()) {
       Serial.printf(" -> Using TABLE calibration (%u points)\n", ina226_adc.getCalibrationTable().size());
@@ -1474,6 +1558,10 @@ void setup()
   }
   Serial.println(F("------------------------------------"));
 
+
+  // Centralized NimBLE initialization
+  BLEDevice::init("AE Smart Shunt");
+  BLEDevice::setMTU(517);
 
 // Callback for TPMS Scan Complete - Send WiFi Packet IMMEDIATELY
   // Initialize ESP-NOW
@@ -1511,9 +1599,18 @@ void setup()
   bleHandler.setOtaControlCallback(otaControlCallback);
   bleHandler.setOtaTriggerCallback(otaTriggerCallback);
   bleHandler.setPairingCallback(pairingCallback);
-  bleHandler.setEfuseLimitCallback([](float current){
-      Serial.printf("[BLE WRITE] E-Fuse Limit set to: %.2f A\n", current);
-      ina226_adc.setEfuseLimit(current);
+  bleHandler.setEfuseLimitCallback([](float limit){
+      Serial.printf("[BLE WRITE] E-Fuse Limit: %.2f A\n", limit);
+      ina226_adc.setEfuseLimit(limit);
+  });
+  bleHandler.setTpmsConfigCallback([](std::vector<uint8_t> data){
+      if (data.size() == 48) {
+          Serial.println("BLE: Received TPMS Config Restore (48 bytes)");
+          struct_message_tpms_config* config = (struct_message_tpms_config*)data.data();
+          tpmsHandler.setConfig(config->macs, config->baselines, config->configured);
+      } else {
+          Serial.printf("BLE: TPMS Config Restore Failed - Invalid Size (%d)\n", data.size());
+      }
   });
   bleHandler.setServerCallbacks(new MainServerCallbacks());
 
@@ -1865,7 +1962,7 @@ void loop_deprecated()
     
     // Populate Relayed Temp Sensor Data & Calculate Age
     float t_temp = 0; uint8_t t_batt = 0; uint32_t t_last = 0; uint32_t t_interval = 0;
-    espNowHandler.getTempSensorData(t_temp, t_batt, t_last, t_interval);
+    espNowHandler.getTempSensorData(t_temp, t_batt, t_last, t_interval, ae_smart_shunt_struct.tempSensorName);
     
     ae_smart_shunt_struct.tempSensorTemperature = t_temp;
     ae_smart_shunt_struct.tempSensorBatteryLevel = t_batt;
@@ -1963,10 +2060,14 @@ void sendBleUpdate() {
           .tempSensorTemperature = ae_smart_shunt_struct.tempSensorTemperature,
           .tempSensorBatteryLevel = ae_smart_shunt_struct.tempSensorBatteryLevel,
           .tempSensorLastUpdate = ae_smart_shunt_struct.tempSensorLastUpdate,
+          .tempSensorUpdateInterval = ae_smart_shunt_struct.tempSensorUpdateInterval,
           .tpmsPressurePsi = {ae_smart_shunt_struct.tpmsPressurePsi[0], ae_smart_shunt_struct.tpmsPressurePsi[1], ae_smart_shunt_struct.tpmsPressurePsi[2], ae_smart_shunt_struct.tpmsPressurePsi[3]},
           .gaugeLastRx = espNowHandler.getLastGaugeRx(),
           .gaugeLastTxSuccess = g_gaugeLastTxSuccess
       };
+      
+      // Populate TPMS Config Backup
+      tpmsHandler.getRawConfig(telemetry_data.tpmsConfig);
 
       // Add Diagnostics String
       uint32_t uptime = millis() / 1000;
@@ -1986,6 +2087,7 @@ void updateStruct(); // Fwd Decl
 void onScanComplete() {
     updateStruct(); // Populate fresh data (calculates Temp Age, etc)
     espNowHandler.sendMessageAeSmartShunt();
+    telemetry_counter++;
     sendBleUpdate(); // <-- CRITICAL: Update BLE immediately after scan
     last_telemetry_millis = millis(); // Reset timer fallback
 }
@@ -2076,45 +2178,57 @@ void updateStruct() {
       snprintf(ae_smart_shunt_struct.runFlatTime, sizeof(ae_smart_shunt_struct.runFlatTime), "--");
     }
     
-    // Add TPMS Data
+    // Add TPMS Data (Sent with EVERY update)
     for(int i=0; i<TPMS_COUNT; i++) {
         const TPMSSensor* s = tpmsHandler.getSensor(i);
-        if (s) {
+        if (s && s->configured) {
             ae_smart_shunt_struct.tpmsPressurePsi[i] = s->pressurePsi;
             ae_smart_shunt_struct.tpmsTemperature[i] = s->temperature;
             ae_smart_shunt_struct.tpmsVoltage[i] = s->batteryVoltage;
-            ae_smart_shunt_struct.tpmsLastUpdate[i] = s->lastUpdate;
+            // Report Age (Time since last packet)
+            if (s->lastUpdate > 0) {
+                ae_smart_shunt_struct.tpmsLastUpdate[i] = millis() - s->lastUpdate;
+            } else {
+                ae_smart_shunt_struct.tpmsLastUpdate[i] = 0xFFFFFFFE; // Configured, Waiting for Data
+            }
         } else {
             ae_smart_shunt_struct.tpmsPressurePsi[i] = 0;
             ae_smart_shunt_struct.tpmsTemperature[i] = 0;
             ae_smart_shunt_struct.tpmsVoltage[i] = 0;
-            ae_smart_shunt_struct.tpmsLastUpdate[i] = 0;
+            ae_smart_shunt_struct.tpmsLastUpdate[i] = 0xFFFFFFFF;
         }
     }
 
-    // Update Temp Sensor Data from ESP-NOW Handler (Received via Callback)
+    // Relayed Temp Sensor Data (Always send freshest data)
     float tsTemp = 0.0f;
     uint8_t tsBatt = 0;
     uint32_t tsUpdate = 0;
     uint32_t tsInterval = 0;
-    espNowHandler.getTempSensorData(tsTemp, tsBatt, tsUpdate, tsInterval);
+    espNowHandler.getTempSensorData(tsTemp, tsBatt, tsUpdate, tsInterval, ae_smart_shunt_struct.tempSensorName);
+    
+    // Check for Staleness (Dynamic TTL)
+    // Relaxed TTL: We want to keep relaying cached data for a long time (e.g., 10x interval or 10 mins)
+    // so the App/Gauge can use the 'Age' field to decide when to show 'Disconnected', 
+    // rather than the Shunt censoring the data prematurely.
+    uint32_t ttl = (tsInterval > 0) ? (tsInterval * 10) : 600000; 
+    if (ttl < 600000) ttl = 600000; // Enforce minimum floor of 10 minutes
+
+    uint32_t age = (tsUpdate > 0) ? (millis() - tsUpdate) : 0xFFFFFFFF;
+    if (age > ttl) { 
+        Serial.printf("[DEBUG] Temp Stale: Age %u > TTL %u. Clearing.\n", age, ttl);
+        age = 0xFFFFFFFF; // Mark as stale/invalid
+        tsTemp = 0.0f;    // Clear value
+        tsBatt = 0;
+    }
     
     ae_smart_shunt_struct.tempSensorTemperature = tsTemp;
     ae_smart_shunt_struct.tempSensorBatteryLevel = tsBatt;
     ae_smart_shunt_struct.tempSensorUpdateInterval = tsInterval;
-    
-    // Pass raw age to Telemetry/ESP-NOW. 
-    // App/Gauge will decide if it is "Stale" (e.g. > 180s).
-    // 0xFFFFFFFF (UINT32_MAX) reserved for "Never Updated".
-    if (tsUpdate > 0) {
-        ae_smart_shunt_struct.tempSensorLastUpdate = millis() - tsUpdate; // Raw Age
-    } else {
-        ae_smart_shunt_struct.tempSensorLastUpdate = 0xFFFFFFFF; // Never updated
-    }
+    ae_smart_shunt_struct.tempSensorLastUpdate = age;
     
     // DEBUG PRINT
-    Serial.printf("[DEBUG] Temp Sensor: update=%u, interval=%u, Age=%u\n", 
-                  tsUpdate, tsInterval, ae_smart_shunt_struct.tempSensorLastUpdate);
+    Serial.printf("[DEBUG] Telemetry #%u sent. TPMS=YES, Temp=%s (Interval: %u ms)\n", 
+                  telemetry_counter, (age != 0xFFFFFFFF) ? "YES" : "NO_DATA", tsInterval);
     
     // Update local copy in Handler (Ready to Send)
     espNowHandler.setAeSmartShuntStruct(ae_smart_shunt_struct);
@@ -2151,6 +2265,7 @@ void loop() {
           Serial.println("Mesh transmission: ready!");
           espNowHandler.setAeSmartShuntStruct(ae_smart_shunt_struct);
           espNowHandler.sendMessageAeSmartShunt();
+          telemetry_counter++;
       }
 
       printShunt(&ae_smart_shunt_struct);

@@ -33,8 +33,10 @@ struct Telemetry {
     float tempSensorTemperature;
     uint8_t tempSensorBatteryLevel;
     uint32_t tempSensorLastUpdate;
+    uint32_t tempSensorUpdateInterval; // Added for connection status logic
     // TPMS
     float tpmsPressurePsi[4];
+    uint8_t tpmsConfig[48]; // Raw config backup
     // Gauge
     uint32_t gaugeLastRx;
     bool gaugeLastTxSuccess;
@@ -65,6 +67,7 @@ public:
     void updateOtaProgress(uint8_t progress);
     void setPairingCallback(std::function<void(String)> callback);
     void setEfuseLimitCallback(std::function<void(float)> callback);
+    void setTpmsConfigCallback(std::function<void(std::vector<uint8_t>)> callback);
 
 public:
     // Service and Characteristic UUIDs
@@ -99,6 +102,7 @@ public:
     static const char* RUN_FLAT_TIME_CHAR_UUID;
     static const char* DIAGNOSTICS_CHAR_UUID; // New
     static const char* TPMS_DATA_CHAR_UUID;
+    static const char* TPMS_CONFIG_CHAR_UUID;
     static const char* GAUGE_STATUS_CHAR_UUID;
 
     // --- New OTA Service ---
@@ -140,6 +144,7 @@ private:
     BLECharacteristic* pCrashLogCharacteristic;
     BLECharacteristic* pTempSensorDataCharacteristic;
     BLECharacteristic* pTpmsDataCharacteristic;
+    BLECharacteristic* pTpmsConfigCharacteristic;
     BLECharacteristic* pGaugeStatusCharacteristic;
 
 
@@ -163,6 +168,13 @@ private:
     std::vector<uint8_t> _metadata_buffer;
     std::function<void(String)> pairingCallback;
     std::function<void(float)> efuseLimitCallback;
+    std::function<void(std::vector<uint8_t>)> tpmsConfigCallback;
+
+    // State tracking for advertising optimization
+    float lastAdvVoltage = -1.0f;
+    int lastAdvErrorState = -1;
+    bool lastAdvLoadState = false;
+    unsigned long lastAdvUpdateTime = 0;
 };
 
 #endif // BLE_HANDLER_H

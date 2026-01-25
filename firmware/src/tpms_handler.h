@@ -49,6 +49,7 @@ public:
     
     // Data Access (For Telemetry)
     const TPMSSensor* getSensor(int position) const;
+    void getRawConfig(void* target_48_bytes); // Copy out 48 bytes
     
     // Called by BLE scan callback
     void onSensorDiscovered(const uint8_t* mac, float voltage, int temp, float pressure);
@@ -61,6 +62,7 @@ public:
 private:
     TPMSSensor sensors[TPMS_COUNT];
     ScanCompleteCallback scanCompleteCB = nullptr;
+    SemaphoreHandle_t mutex;
     
     // Scanning state
     bool scanActive;
