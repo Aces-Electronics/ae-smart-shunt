@@ -2419,7 +2419,6 @@ void loop() {
           // 3. Disconnect WiFi & Restore Stacks
           WiFi.disconnect(true);
           WiFi.mode(WIFI_STA); // Keep STA mode for ESP-NOW
-          WiFi.setSleep(false); // Critical for BLE co-existence
           
           // Report Status immediately
           bleHandler.updateCloudStatus(g_lastCloudStatus, (millis() - g_lastCloudSuccessTime)/1000);

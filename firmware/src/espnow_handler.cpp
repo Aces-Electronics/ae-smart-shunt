@@ -187,7 +187,6 @@ void ESPNowHandler::switchToSecureMode(const uint8_t* gaugeMac)
 bool ESPNowHandler::begin()
 {
     WiFi.mode(WIFI_MODE_STA);
-    WiFi.setSleep(false); // Critical for BLE co-existence
     // Disable WiFi scan power save if needed (optional).
     if (esp_now_init() != ESP_OK)
     {

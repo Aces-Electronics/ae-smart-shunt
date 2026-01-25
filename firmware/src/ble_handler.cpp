@@ -116,8 +116,10 @@ public:
 };
 
 class ServerCallbacks: public BLEServerCallbacks {
-    void onConnect(BLEServer* pServer) {
-      Serial.println("BLE client connected");
+    void onConnect(BLEServer* pServer, ble_gap_conn_desc* desc) {
+      Serial.printf("BLE client connected (ID: %d). Updating Conn Params for Coex...\n", desc->conn_handle);
+      // Min 24(30ms), Max 40(50ms), Latency 4, Timeout 200(2000ms)
+      pServer->updateConnParams(desc->conn_handle, 24, 40, 4, 200);
     }
 
     void onDisconnect(BLEServer* pServer) {
