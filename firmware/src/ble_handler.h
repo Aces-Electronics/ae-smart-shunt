@@ -72,6 +72,8 @@ public:
     void setMqttBrokerCallback(std::function<void(String)> callback);
     void setMqttAuthCallback(std::function<void(String, String)> callback);
     void updateCloudStatus(uint8_t status, uint32_t lastSuccessTime);
+    void setInitialWifiSsid(const String& ssid);
+    void setInitialMqttBroker(const String& broker);
 
 public:
     // Service and Characteristic UUIDs
