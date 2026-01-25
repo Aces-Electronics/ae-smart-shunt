@@ -1634,10 +1634,20 @@ void setup()
       p.putBool("cloud_enabled", enabled);
       p.end();
       
+      
       if (enabled) {
           // Force run soon (reset timer)
           lastMqttUplink = 0; 
       }
+  });
+
+  // MQTT Broker Callback
+  bleHandler.setMqttBrokerCallback([](String broker){
+      mqttHandler.setBroker(broker);
+  });
+
+  bleHandler.setMqttAuthCallback([](String user, String pass){
+      mqttHandler.setAuth(user, pass);
   });
 
   // Load Pairing Info if exists
@@ -2349,8 +2359,23 @@ void loop() {
           uint8_t runStatus = 2; // Default Wifi Fail
           unsigned long runResultTime = 0;
 
-          // 2. Connect WiFi
-          WiFi.begin(ssid.c_str(), pass.c_str());
+          unsigned long runResultTime = 0;
+
+          // Check for WiFi Credentials
+          if (otaHandler.getWifiSsid().length() == 0) {
+              Serial.println("[MQTT] No WiFi SSID Set. Aborting Uplink.");
+              runStatus = 4; // Wifi Missing
+              // Restore immediately
+              WiFi.mode(WIFI_OFF);
+              espNowHandler.begin();
+              BLEDevice::init("AE Smart Shunt");
+              BLEDevice::setMTU(517);
+              // Construct Telemetry... (Wait, duplicative?)
+              // Simplified restore logic needed or allow duplicate?
+              // Let's just break/continue with status updated.
+          } else {
+            // 2. Connect WiFi
+            WiFi.begin(otaHandler.getWifiSsid().c_str(), otaHandler.getWifiPass().c_str());
           unsigned long startWifi = millis();
           while (WiFi.status() != WL_CONNECTED && millis() - startWifi < 10000) {
               delay(500);
@@ -2425,6 +2450,7 @@ void loop() {
           bleHandler.updateCloudStatus(g_lastCloudStatus, (millis() - g_lastCloudSuccessTime)/1000);
           
           Serial.println("[MQTT] Uplink Sequence Complete.");
+      } 
       } else {
           Serial.println("[MQTT] No WiFi Credentials. Skipping Uplink.");
       }

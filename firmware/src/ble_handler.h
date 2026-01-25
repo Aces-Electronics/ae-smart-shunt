@@ -69,6 +69,8 @@ public:
     void setEfuseLimitCallback(std::function<void(float)> callback);
     void setTpmsConfigCallback(std::function<void(std::vector<uint8_t>)> callback);
     void setCloudConfigCallback(std::function<void(bool)> callback);
+    void setMqttBrokerCallback(std::function<void(String)> callback);
+    void setMqttAuthCallback(std::function<void(String, String)> callback);
     void updateCloudStatus(uint8_t status, uint32_t lastSuccessTime);
 
 public:
@@ -107,7 +109,11 @@ public:
     static const char* TPMS_CONFIG_CHAR_UUID;
     static const char* GAUGE_STATUS_CHAR_UUID;
     static const char* CLOUD_CONFIG_CHAR_UUID; // New
+    static const char* CLOUD_CONFIG_CHAR_UUID; // New
     static const char* CLOUD_STATUS_CHAR_UUID; // New
+    static const char* MQTT_BROKER_CHAR_UUID; // New
+    static const char* MQTT_USER_CHAR_UUID; // New
+    static const char* MQTT_PASS_CHAR_UUID; // New
 
     // --- New OTA Service ---
     static const char* OTA_SERVICE_UUID;
@@ -151,7 +157,11 @@ private:
     BLECharacteristic* pTpmsConfigCharacteristic;
     BLECharacteristic* pGaugeStatusCharacteristic;
     BLECharacteristic* pCloudConfigCharacteristic;
+    BLECharacteristic* pCloudConfigCharacteristic;
     BLECharacteristic* pCloudStatusCharacteristic;
+    BLECharacteristic* pMqttBrokerCharacteristic;
+    BLECharacteristic* pMqttUserCharacteristic;
+    BLECharacteristic* pMqttPassCharacteristic;
 
 
     // --- New OTA service and characteristics ---
@@ -175,7 +185,14 @@ private:
     std::function<void(String)> pairingCallback;
     std::function<void(float)> efuseLimitCallback;
     std::function<void(std::vector<uint8_t>)> tpmsConfigCallback;
+    std::function<void(std::vector<uint8_t>)> tpmsConfigCallback;
     std::function<void(bool)> cloudConfigCallback;
+    std::function<void(String)> mqttBrokerCallback;
+    std::function<void(String, String)> mqttAuthCallback;
+    
+    // Internal temp storage for separate user/pass writes
+    String _pendingMqttUser;
+    String _pendingMqttPass;
 
     // State tracking for advertising optimization
     float lastAdvVoltage = -1.0f;

@@ -12,7 +12,15 @@ OtaHandler::OtaHandler(BLEHandler& bleHandler, ESPNowHandler& espNowHandler, WiF
 void OtaHandler::begin() {
     wifi_client.setCACert(OTAGH_CA_CERT);
     OTA::init(wifi_client);
-    Serial.println("[OTA_HANDLER] OTA Handler initialized.");
+    
+    // Load WiFi Config
+    Preferences p;
+    p.begin("ota", true); 
+    wifi_ssid = p.getString("w_ssid", "");
+    wifi_pass = p.getString("w_pass", "");
+    p.end();
+
+    Serial.printf("[OTA_HANDLER] Initialized. Loaded WiFi SSID: '%s'\n", wifi_ssid.c_str());
 }
 
 void OtaHandler::setPreUpdateCallback(std::function<void()> callback) {
@@ -47,6 +55,11 @@ void OtaHandler::setWifiSsid(const String& ssid) {
     wifi_ssid = trimmed_ssid;
     Serial.printf("[OTA_HANDLER] WiFi SSID set to: '%s'\n", wifi_ssid.c_str());
 
+    Preferences p;
+    p.begin("ota", false);
+    p.putString("w_ssid", wifi_ssid);
+    p.end();
+
     // Reset OTA state to allow for a new check
     if (ota_state != OTA_IDLE) {
         Serial.println("[OTA_HANDLER] Resetting OTA state due to new SSID.");
@@ -62,6 +75,11 @@ void OtaHandler::setWifiPass(const String& pass) {
     Serial.println("[OTA_HANDLER] wifiPassCallback received.");
     wifi_pass = pass;
     Serial.println("[OTA_HANDLER] WiFi password has been set.");
+
+    Preferences p;
+    p.begin("ota", false);
+    p.putString("w_pass", wifi_pass);
+    p.end();
 
     // Reset OTA state to allow for a new check
     if (ota_state != OTA_IDLE) {

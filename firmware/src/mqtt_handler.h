@@ -8,7 +8,12 @@
 #include "ina226_adc.h"
 
 // Hardcoded for Proof of Concept as requested. In prod, use NVS/Manager.
-#define MQTT_BROKER "192.168.1.100" 
+// Hardcoded Default
+#define DEFAULT_MQTT_BROKER "192.168.1.100" 
+#define DEFAULT_MQTT_USER "aesmartshunt"
+#define DEFAULT_MQTT_PASS "AERemoteAccess2024!"
+#define MQTT_PORT 1883
+#include <Preferences.h>
 #define MQTT_PORT 1883
 
 class MqttHandler {
@@ -16,7 +21,16 @@ public:
     MqttHandler(ESPNowHandler& espNow, INA226_ADC& ina) : _espNow(espNow), _ina(ina), client(espClient) {}
 
     void begin() {
-        client.setServer(MQTT_BROKER, MQTT_PORT);
+        // Load Broker from NVS
+        Preferences p;
+        p.begin("config", true);
+        _broker = p.getString("mqtt_broker", DEFAULT_MQTT_BROKER);
+        _user = p.getString("mqtt_user", DEFAULT_MQTT_USER);
+        _pass = p.getString("mqtt_pass", DEFAULT_MQTT_PASS);
+        p.end();
+        Serial.printf("[MQTT] Loaded Broker: %s\n", _broker.c_str());
+
+        client.setServer(_broker.c_str(), MQTT_PORT);
         client.setCallback([this](char* topic, uint8_t* payload, unsigned int length) {
             this->callback(topic, payload, length);
         });
@@ -33,7 +47,7 @@ public:
         if (client.connected()) return true;
 
         String clientId = "AEShunt-" + WiFi.macAddress();
-        if (client.connect(clientId.c_str())) {
+        if (client.connect(clientId.c_str(), _user.c_str(), _pass.c_str())) {
             Serial.println("MQTT Connected");
             String subTopic = "ae/device/" + WiFi.macAddress() + "/command";
             client.subscribe(subTopic.c_str());
@@ -85,6 +99,28 @@ public:
         Serial.println("MQTT Uplink Sent: " + output);
     }
 
+    void setBroker(String broker) {
+        _broker = broker;
+        Preferences p;
+        p.begin("config", false);
+        p.putString("mqtt_broker", broker);
+        p.end();
+        Serial.printf("[MQTT] Broker updated to: %s\n", broker.c_str());
+    }
+
+    void setAuth(String user, String pass) {
+        _user = user;
+        _pass = pass;
+        Preferences p;
+        p.begin("config", false);
+        p.putString("mqtt_user", user);
+        p.putString("mqtt_pass", pass);
+        p.end();
+        Serial.println("[MQTT] Auth updated.");
+    }
+
+    String getBroker() { return _broker; }
+
 private:
     void callback(char* topic, uint8_t* payload, unsigned int length) {
         Serial.printf("Message arrived [%s]\n", topic);
@@ -95,6 +131,9 @@ private:
     INA226_ADC& _ina;
     WiFiClient espClient;
     PubSubClient client;
+    String _broker;
+    String _user;
+    String _pass;
 };
 
 #endif

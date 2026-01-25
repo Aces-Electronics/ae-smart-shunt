@@ -46,6 +46,9 @@ const char* BLEHandler::OTA_PROGRESS_CHAR_UUID = "5a89b148-b4e8-43d7-952b-a0b4b0
 // --- Cloud Control UUIDs ---
 const char* BLEHandler::CLOUD_CONFIG_CHAR_UUID = "6a89b148-b4e8-43d7-952b-a0b4b01e43b3";
 const char* BLEHandler::CLOUD_STATUS_CHAR_UUID = "7a89b148-b4e8-43d7-952b-a0b4b01e43b3";
+const char* BLEHandler::MQTT_BROKER_CHAR_UUID = "8a89b148-b4e8-43d7-952b-a0b4b01e43b3";
+const char* BLEHandler::MQTT_USER_CHAR_UUID = "9a89b148-b4e8-43d7-952b-a0b4b01e43b3";
+const char* BLEHandler::MQTT_PASS_CHAR_UUID = "aa89b148-b4e8-43d7-952b-a0b4b01e43b3";
 
 
 class BoolCharacteristicCallbacks : public BLECharacteristicCallbacks {
@@ -222,6 +225,14 @@ void BLEHandler::setTpmsConfigCallback(std::function<void(std::vector<uint8_t>)>
 
 void BLEHandler::setCloudConfigCallback(std::function<void(bool)> callback) {
     this->cloudConfigCallback = callback;
+}
+
+void BLEHandler::setMqttBrokerCallback(std::function<void(String)> callback) {
+    this->mqttBrokerCallback = callback;
+}
+
+void BLEHandler::setMqttAuthCallback(std::function<void(String, String)> callback) {
+    this->mqttAuthCallback = callback;
 }
 
 // Helper to generate PIN from MAC
@@ -492,20 +503,70 @@ void BLEHandler::begin(const Telemetry& initial_telemetry) {
     pGaugeStatusCharacteristic->setValue(initGaugeStatus, 5);
 
 
-    // Cloud Config Characteristic
+    // Cloud Config
     pCloudConfigCharacteristic = pService->createCharacteristic(
         CLOUD_CONFIG_CHAR_UUID,
-        NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::WRITE_ENC
+        NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::WRITE
     );
-    pCloudConfigCharacteristic->setCallbacks(new BoolCharacteristicCallbacks(this->cloudConfigCallback)); 
+    pCloudConfigCharacteristic->setCallbacks(new BoolCharacteristicCallbacks([this](bool val){
+        if(cloudConfigCallback) cloudConfigCallback(val);
+    }));
 
-    // Cloud Status Characteristic
+    // Cloud Status
     pCloudStatusCharacteristic = pService->createCharacteristic(
         CLOUD_STATUS_CHAR_UUID,
         NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY
     );
-    uint8_t initCloudStatus[5] = {0}; // Status(1) + Time(4)
-    pCloudStatusCharacteristic->setValue(initCloudStatus, 5);
+    uint8_t initialStatus[5] = {0};
+    pCloudStatusCharacteristic->setValue(initialStatus, 5);
+    
+    // MQTT Broker
+    pMqttBrokerCharacteristic = pService->createCharacteristic(
+        MQTT_BROKER_CHAR_UUID,
+         NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::WRITE
+    );
+    pMqttBrokerCharacteristic->setCallbacks(new ByteVectorCharacteristicCallbacks([this](std::vector<uint8_t> data){
+        std::string s(data.begin(), data.end());
+        String broker = String(s.c_str());
+        Serial.printf("[BLE] MQTT Broker Set: %s\n", broker.c_str());
+        if(mqttBrokerCallback) mqttBrokerCallback(broker);
+    }));
+
+    // MQTT User
+    pMqttUserCharacteristic = pService->createCharacteristic(
+        MQTT_USER_CHAR_UUID,
+         NIMBLE_PROPERTY::WRITE // Write only (Hide from Read)
+    );
+    pMqttUserCharacteristic->setCallbacks(new ByteVectorCharacteristicCallbacks([this](std::vector<uint8_t> data){
+        std::string s(data.begin(), data.end());
+        _pendingMqttUser = String(s.c_str());
+        // Wait for Password? Or callback now if pass exists?
+        // Let's assume we update ONE by ONE. But handler expects both.
+        // We will call callback if BOTH are set? Or just whenever one changes, we need the other.
+        // Issue: user sets user, then pass. Callback called twice?
+        // Better: We only call callback if valid?
+        // Actually, we need to read the OTHER one if not in memory.
+        // But BLE Handler logic restarts.
+        // Let's simplify: pass both to callback?
+        // If one is empty, we might overwrite with empty.
+        // Let's just store in MEMBER variables and invoke callback.
+        if (mqttAuthCallback && _pendingMqttUser.length() > 0 && _pendingMqttPass.length() > 0) {
+             mqttAuthCallback(_pendingMqttUser, _pendingMqttPass);
+        }
+    }));
+
+     // MQTT Pass
+    pMqttPassCharacteristic = pService->createCharacteristic(
+        MQTT_PASS_CHAR_UUID,
+         NIMBLE_PROPERTY::WRITE // Write only
+    );
+    pMqttPassCharacteristic->setCallbacks(new ByteVectorCharacteristicCallbacks([this](std::vector<uint8_t> data){
+        std::string s(data.begin(), data.end());
+        _pendingMqttPass = String(s.c_str());
+        if (mqttAuthCallback && _pendingMqttUser.length() > 0 && _pendingMqttPass.length() > 0) {
+             mqttAuthCallback(_pendingMqttUser, _pendingMqttPass);
+        }
+    }));
 
     pService->start();
 

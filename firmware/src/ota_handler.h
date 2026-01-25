@@ -7,6 +7,7 @@
 #include "ble_handler.h"
 #include "espnow_handler.h"
 #include <OTA-Hub.hpp>
+#include <Preferences.h>
 
 class OtaHandler {
 public:
