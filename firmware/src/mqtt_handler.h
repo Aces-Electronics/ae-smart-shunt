@@ -9,12 +9,11 @@
 
 // Hardcoded for Proof of Concept as requested. In prod, use NVS/Manager.
 // Hardcoded Default
-#define DEFAULT_MQTT_BROKER "155.138.198.158" 
+#define DEFAULT_MQTT_BROKER "mqtt.aceselectronics.com" 
 #define DEFAULT_MQTT_USER "aesmartshunt"
 #define DEFAULT_MQTT_PASS "AERemoteAccess2024!"
 #define MQTT_PORT 1883
 #include <Preferences.h>
-#define MQTT_PORT 1883
 
 class MqttHandler {
 public:

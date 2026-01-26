@@ -2359,9 +2359,15 @@ void loop() {
       if (ssid.length() > 0) {
           Serial.println("[MQTT] Starting 15-min Uplink. Pausing Radio Stacks...");
           
-          // 1. Deinit Stacks
+          // 1. Store ESP-NOW channel before deinit
+          uint8_t espnow_channel = 1; // Default channel
+          wifi_second_chan_t second;
+          esp_wifi_get_channel(&espnow_channel, &second);
+          Serial.printf("[MQTT] Stored ESP-NOW channel: %d\n", espnow_channel);
+          
+          // 2. Deinit Stacks
           esp_now_deinit();
-          BLEDevice::deinit(true);
+          BLEDevice::deinit(false); // CRITICAL: Keep bonding database (false instead of true)
 
           uint8_t runStatus = 2; // Default Wifi Fail
           unsigned long runResultTime = 0;
@@ -2432,6 +2438,10 @@ void loop() {
           
           Serial.println("[MQTT] Restoring Radio Stacks...");
           espNowHandler.begin();
+          
+          // CRITICAL: Restore ESP-NOW channel after WiFi operations
+          esp_wifi_set_channel(espnow_channel, WIFI_SECOND_CHAN_NONE);
+          Serial.printf("[MQTT] Restored ESP-NOW channel: %d\n", espnow_channel);
 
           // Re-Init BLE
           BLEDevice::init("AE Smart Shunt");
