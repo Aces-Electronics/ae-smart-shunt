@@ -30,6 +30,7 @@ public:
         Serial.printf("[MQTT] Loaded Broker: %s\n", _broker.c_str());
 
         client.setServer(_broker.c_str(), MQTT_PORT);
+        client.setBufferSize(1024); // Increase from default 256 bytes to handle large JSON payloads
         client.setCallback([this](char* topic, uint8_t* payload, unsigned int length) {
             this->callback(topic, payload, length);
         });
@@ -55,10 +56,10 @@ public:
         return false;
     }
 
-    void sendUplink(const struct_message_ae_smart_shunt_1& shuntStruct) {
+    bool sendUplink(const struct_message_ae_smart_shunt_1& shuntStruct) {
         if (!client.connected()) {
             Serial.println("[MQTT] ERROR: Not connected, cannot send uplink");
-            return;
+            return false;
         }
 
         JsonDocument doc; // ArduinoJson v7
@@ -128,6 +129,8 @@ public:
         
         String topic = "ae/uplink/" + WiFi.macAddress();
         
+        Serial.printf("[MQTT] Payload size: %d bytes\n", output.length());
+        
         // CRITICAL FIX: Check if publish succeeded
         bool published = client.publish(topic.c_str(), output.c_str());
         
@@ -136,9 +139,11 @@ public:
             // CRITICAL FIX: Ensure message is flushed to network before WiFi disconnect
             client.loop();
             delay(100); // Give TCP stack time to send
+            return true;
         } else {
             Serial.println("[MQTT] ERROR: Publish failed!");
             Serial.println("[MQTT] Attempted payload: " + output);
+            return false;
         }
     }
 
