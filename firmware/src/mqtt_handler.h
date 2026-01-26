@@ -56,7 +56,7 @@ public:
         return false;
     }
 
-    void sendUplink() {
+    void sendUplink(const struct_message_ae_smart_shunt_1& shuntStruct) {
         if (!client.connected()) {
             Serial.println("[MQTT] ERROR: Not connected, cannot send uplink");
             return;
@@ -64,34 +64,64 @@ public:
 
         JsonDocument doc; // ArduinoJson v7
         doc["gateway_mac"] = WiFi.macAddress();
-        doc["timestamp"] = millis(); // Placeholder
+        doc["timestamp"] = millis();
 
         JsonArray sensors = doc["sensors"].to<JsonArray>();
 
-        // 1. Shunt Data
+        // 1. Shunt Data - Full struct serialization
         JsonObject shunt = sensors.add<JsonObject>();
         shunt["mac"] = WiFi.macAddress();
         shunt["type"] = "shunt";
-        shunt["volts"] = _ina.getBusVoltage_V();
-        shunt["amps"] = _ina.getCurrent_mA() / 1000.0f;
-        shunt["soc"] = (_ina.getMaxBatteryCapacity() > 0) ? (_ina.getBatteryCapacity() / _ina.getMaxBatteryCapacity()) * 100.0f : 0.0f;
-
-
-        // 2. Temp Sensor (Last Known)
-        float temp; uint8_t batt; uint32_t lastUp; uint32_t interval; char name[24];
-        _espNow.getTempSensorData(temp, batt, lastUp, interval, name);
         
-        if (lastUp > 0) { // Only if we have received data
-             JsonObject t = sensors.add<JsonObject>();
-             // We don't have MAC for temp sensor stored in getTempSensorData?? 
-             // espnow_handler.h only stores values, not MAC.
-             // User said "The shunt has all the data already".
-             // Assuming we just report it as "Linked Temp".
-             t["type"] = "temp";
-             t["temp"] = temp;
-             t["battery"] = batt;
-             if (strlen(name) > 0) t["name"] = name;
-             // t["mac"] = ??? -> We need to store MAC in ESPNowHandler
+        // Core telemetry
+        shunt["volts"] = shuntStruct.batteryVoltage;
+        shunt["amps"] = shuntStruct.batteryCurrent;
+        shunt["power"] = shuntStruct.batteryPower;
+        shunt["soc"] = shuntStruct.batterySOC * 100.0f; // Convert 0-1 to 0-100
+        shunt["capacity_ah"] = shuntStruct.batteryCapacity;
+        shunt["state"] = shuntStruct.batteryState;
+        shunt["run_flat_time"] = String(shuntStruct.runFlatTime);
+        
+        // Starter battery
+        shunt["starter_volts"] = shuntStruct.starterBatteryVoltage;
+        
+        // Calibration status
+        shunt["calibrated"] = shuntStruct.isCalibrated;
+        
+        // Energy stats
+        shunt["last_hour_wh"] = shuntStruct.lastHourWh;
+        shunt["last_day_wh"] = shuntStruct.lastDayWh;
+        shunt["last_week_wh"] = shuntStruct.lastWeekWh;
+        
+        // Device name
+        if (strlen(shuntStruct.name) > 0) {
+            shunt["name"] = String(shuntStruct.name);
+        }
+        
+        // TPMS Data (if any configured)
+        JsonArray tpms = shunt["tpms"].to<JsonArray>();
+        for (int i = 0; i < 4; i++) {
+            if (shuntStruct.tpmsLastUpdate[i] != 0xFFFFFFFF) { // Valid data
+                JsonObject tire = tpms.add<JsonObject>();
+                tire["index"] = i;
+                tire["pressure_psi"] = shuntStruct.tpmsPressurePsi[i];
+                tire["temp_c"] = shuntStruct.tpmsTemperature[i];
+                tire["battery_v"] = shuntStruct.tpmsVoltage[i];
+                tire["age_ms"] = shuntStruct.tpmsLastUpdate[i];
+            }
+        }
+
+        // 2. Temp Sensor (if available)
+        if (shuntStruct.tempSensorLastUpdate != 0xFFFFFFFF) {
+            JsonObject tempSensor = sensors.add<JsonObject>();
+            tempSensor["type"] = "temp";
+            tempSensor["temp"] = shuntStruct.tempSensorTemperature;
+            tempSensor["battery"] = shuntStruct.tempSensorBatteryLevel;
+            tempSensor["age_ms"] = shuntStruct.tempSensorLastUpdate;
+            tempSensor["interval_ms"] = shuntStruct.tempSensorUpdateInterval;
+            if (strlen(shuntStruct.tempSensorName) > 0) {
+                tempSensor["name"] = String(shuntStruct.tempSensorName);
+            }
         }
 
         String output;

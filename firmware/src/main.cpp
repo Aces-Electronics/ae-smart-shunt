@@ -2404,7 +2404,9 @@ void loop() {
                  if (WiFi.status() == WL_CONNECTED) {
                      Serial.println("\n[MQTT] WiFi Connected. Connecting to Broker...");
                      if (mqttHandler.connect()) {
-                         mqttHandler.sendUplink();
+                         // Update struct with fresh telemetry data before sending
+                         updateStruct();
+                         mqttHandler.sendUplink(ae_smart_shunt_struct);
                          // CRITICAL: Give MQTT client time to send message before WiFi disconnect
                          // PubSubClient needs multiple loop() calls to process outgoing queue
                          for (int i = 0; i < 20; i++) {
