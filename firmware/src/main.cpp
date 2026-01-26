@@ -2373,7 +2373,8 @@ void loop() {
               Serial.println("[MQTT] BLE advertising stopped");
           }
           if (bleHandler.isConnected()) {
-              BLEDevice::getServer()->disconnect(BLEDevice::getServer()->getConnId());
+              // NimBLE: disconnect all connected clients
+              BLEDevice::getServer()->disconnect(0); // 0 = disconnect all
               Serial.println("[MQTT] BLE client disconnected");
           }
           
