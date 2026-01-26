@@ -75,6 +75,7 @@ public:
     void setInitialWifiSsid(const String& ssid);
     void setInitialMqttBroker(const String& broker);
     void setInitialMqttUser(const String& user);
+    void setInitialCloudConfig(bool enabled);
 
 public:
     // Service and Characteristic UUIDs

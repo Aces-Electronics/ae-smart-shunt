@@ -65,6 +65,14 @@ void BLEHandler::setInitialMqttUser(const String& user) {
         pMqttUserCharacteristic->setValue(std::string(user.c_str()));
     }
 }
+
+void BLEHandler::setInitialCloudConfig(bool enabled) {
+    Serial.printf("[BLE] Setting Initial Cloud Config: %s\n", enabled ? "ON" : "OFF");
+    if (pCloudConfigCharacteristic) {
+        uint8_t val = enabled ? 1 : 0;
+        pCloudConfigCharacteristic->setValue(&val, 1);
+    }
+}
 const char* BLEHandler::CLOUD_CONFIG_CHAR_UUID = "6a89b148-b4e8-43d7-952b-a0b4b01e43b3";
 const char* BLEHandler::CLOUD_STATUS_CHAR_UUID = "7a89b148-b4e8-43d7-952b-a0b4b01e43b3";
 const char* BLEHandler::MQTT_BROKER_CHAR_UUID = "8a89b148-b4e8-43d7-952b-a0b4b01e43b3";

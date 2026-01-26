@@ -1729,6 +1729,7 @@ void setup()
   bleHandler.setInitialWifiSsid(otaHandler.getWifiSsid());
   bleHandler.setInitialMqttBroker(mqttHandler.getBroker());
   bleHandler.setInitialMqttUser(mqttHandler.getUser());
+  bleHandler.setInitialCloudConfig(g_cloudEnabled); // Set loaded cloud config state
   
   // Initialize TPMS Scanner (Async)
 

@@ -9,7 +9,7 @@
 
 // Hardcoded for Proof of Concept as requested. In prod, use NVS/Manager.
 // Hardcoded Default
-#define DEFAULT_MQTT_BROKER "mqtt.aceselectronics.com" 
+#define DEFAULT_MQTT_BROKER "mqtt.aceselectronics.com.au" 
 #define DEFAULT_MQTT_USER "aesmartshunt"
 #define DEFAULT_MQTT_PASS "AERemoteAccess2024!"
 #define MQTT_PORT 1883
