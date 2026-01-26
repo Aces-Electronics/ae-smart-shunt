@@ -87,6 +87,7 @@ bool g_cloudEnabled = false;
 bool g_forceMqttUplink = false;
 uint8_t g_lastCloudStatus = 0;
 uint32_t g_lastCloudSuccessTime = 0;
+bool g_hasCrashLog = false;
 
 void preOtaUpdate() {
     Serial.println("[MAIN] Pre-OTA update callback triggered. Saving battery capacity...");
@@ -2426,6 +2427,18 @@ void loop() {
                  if (WiFi.status() == WL_CONNECTED) {
                      Serial.println("\n[MQTT] WiFi Connected. Connecting to Broker...");
                      if (mqttHandler.connect()) {
+                         
+                         // Check for Pending Crash Log
+                         if (g_hasCrashLog) {
+                             String log = crash_handler_get_log();
+                             if (mqttHandler.sendCrashLog(log)) {
+                                 Serial.println("[MQTT] Crash Log sent successfully.");
+                                 g_hasCrashLog = false; // Prevent re-sending
+                             } else {
+                                 Serial.println("[MQTT] Failed to send Crash Log.");
+                             }
+                         }
+
                          // Update struct with fresh telemetry data before sending
                          updateStruct();
                          mqttHandler.sendUplink(ae_smart_shunt_struct);
