@@ -2162,6 +2162,15 @@ void updateStruct() {
       ae_smart_shunt_struct.lastDayWh = ina226_adc.getLastDayEnergy_Wh();
       ae_smart_shunt_struct.lastWeekWh = ina226_adc.getLastWeekEnergy_Wh();
 
+      // Populate Device Name (Consistency with BLE Advertised Name)
+      String suffix = ina226_adc.getDeviceNameSuffix();
+      String deviceName = "AE Smart Shunt";
+      if (suffix.length() > 0) {
+          deviceName += " - " + suffix;
+      }
+      strncpy(ae_smart_shunt_struct.name, deviceName.c_str(), sizeof(ae_smart_shunt_struct.name) - 1);
+      ae_smart_shunt_struct.name[sizeof(ae_smart_shunt_struct.name) - 1] = '\0';
+
 #ifdef SIMULATION_MODE
       // Mock Daily/Weekly Energy for UI Testing
       // Sweep +/- 1200Wh (Daily) and +/- 5000Wh (Weekly)
