@@ -339,10 +339,11 @@ void BLEHandler::begin(const Telemetry& initial_telemetry) {
     // BLEDevice::init and setMTU moved to main.cpp (centralized)
     
     // Security & Speed Configuration
-    uint32_t passkey = generatePinFromMac();
-    BLEDevice::setSecurityAuth(true, true, true); // Bonding, MITM, Secure Connection
-    BLEDevice::setSecurityPasskey(passkey);
-    BLEDevice::setSecurityIOCap(BLE_HS_IO_DISPLAY_ONLY); // Forces user to enter PIN on phone
+    // Security & Speed Configuration
+    // uint32_t passkey = generatePinFromMac();
+    // BLEDevice::setSecurityAuth(true, true, true); 
+    // BLEDevice::setSecurityPasskey(passkey);
+    // BLEDevice::setSecurityIOCap(BLE_HS_IO_DISPLAY_ONLY);
 
     pServer = BLEDevice::createServer();
     pServer->setCallbacks(new ServerCallbacks(this));
@@ -390,20 +391,20 @@ void BLEHandler::begin(const Telemetry& initial_telemetry) {
 
     pLoadControlCharacteristic = pService->createCharacteristic(
         LOAD_CONTROL_CHAR_UUID,
-        NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::WRITE_ENC
+        NIMBLE_PROPERTY::WRITE
     );
     pLoadControlCharacteristic->setCallbacks(new BoolCharacteristicCallbacks(this->loadSwitchCallback));
 
     pSetSocCharacteristic = pService->createCharacteristic(
         SET_SOC_CHAR_UUID,
-        NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::WRITE_ENC
+        NIMBLE_PROPERTY::WRITE
     );
     pSetSocCharacteristic->setCallbacks(new FloatCharacteristicCallbacks(this->socCallback));
 
     pSetVoltageProtectionCharacteristic = pService->createCharacteristic(
         SET_VOLTAGE_PROTECTION_CHAR_UUID,
-        NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::WRITE_ENC | 
-        NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::READ_ENC | 
+        NIMBLE_PROPERTY::WRITE | 
+        NIMBLE_PROPERTY::READ | 
         NIMBLE_PROPERTY::NOTIFY
     );
     pSetVoltageProtectionCharacteristic->setCallbacks(new StringCharacteristicCallbacks(this->voltageProtectionCallback));
@@ -423,16 +424,16 @@ void BLEHandler::begin(const Telemetry& initial_telemetry) {
 
     pLowVoltageDelayCharacteristic = pService->createCharacteristic(
         LOW_VOLTAGE_DELAY_CHAR_UUID,
-        NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::READ_ENC | 
-        NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::WRITE_ENC | 
+        NIMBLE_PROPERTY::READ | 
+        NIMBLE_PROPERTY::WRITE | 
         NIMBLE_PROPERTY::NOTIFY
     );
     pLowVoltageDelayCharacteristic->setCallbacks(new Uint32CharacteristicCallbacks(this->lowVoltageDelayCallback));
 
     pDeviceNameSuffixCharacteristic = pService->createCharacteristic(
         DEVICE_NAME_SUFFIX_CHAR_UUID,
-        NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::READ_ENC | 
-        NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::WRITE_ENC
+        NIMBLE_PROPERTY::READ | 
+        NIMBLE_PROPERTY::WRITE
     );
     pDeviceNameSuffixCharacteristic->setCallbacks(new StringCharacteristicCallbacks(this->deviceNameSuffixCallback));
 
@@ -444,7 +445,7 @@ void BLEHandler::begin(const Telemetry& initial_telemetry) {
 
     pWifiSsidCharacteristic = pService->createCharacteristic(
         WIFI_SSID_CHAR_UUID,
-        NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::WRITE_ENC
+        NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::WRITE
     );
     pWifiSsidCharacteristic->setCallbacks(new StringCharacteristicCallbacks(this->wifiSsidCallback));
 
@@ -463,8 +464,8 @@ void BLEHandler::begin(const Telemetry& initial_telemetry) {
 
     pPairingCharacteristic = pService->createCharacteristic(
         PAIRING_CHAR_UUID,
-        NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::WRITE_ENC | 
-        NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::READ_ENC
+        NIMBLE_PROPERTY::WRITE | 
+        NIMBLE_PROPERTY::READ
     );
     pPairingCharacteristic->setCallbacks(new StringCharacteristicCallbacks(this->pairingCallback));
     
@@ -527,7 +528,7 @@ void BLEHandler::begin(const Telemetry& initial_telemetry) {
     // TPMS Config (Backup/Restore - 48 bytes)
     pTpmsConfigCharacteristic = pService->createCharacteristic(
         TPMS_CONFIG_CHAR_UUID,
-        NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::WRITE_ENC
+        NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::WRITE
     );
     pTpmsConfigCharacteristic->setCallbacks(new ByteVectorCharacteristicCallbacks(this->tpmsConfigCallback));
     uint8_t initTpmsConfig[48] = {0};
