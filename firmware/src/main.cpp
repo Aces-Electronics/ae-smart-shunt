@@ -2366,9 +2366,19 @@ void loop() {
           esp_wifi_get_channel(&espnow_channel, &second);
           Serial.printf("[MQTT] Stored ESP-NOW channel: %d\n", espnow_channel);
           
-          // 2. Deinit Stacks
+          // 2. Pause BLE (stop advertising, disconnect clients) - PRESERVE BONDING
+          BLEAdvertising* pAdvertising = BLEDevice::getAdvertising();
+          if (pAdvertising) {
+              pAdvertising->stop();
+              Serial.println("[MQTT] BLE advertising stopped");
+          }
+          if (bleHandler.isConnected()) {
+              BLEDevice::getServer()->disconnect(BLEDevice::getServer()->getConnId());
+              Serial.println("[MQTT] BLE client disconnected");
+          }
+          
+          // 3. Deinit ESP-NOW only
           esp_now_deinit();
-          BLEDevice::deinit(false); // CRITICAL: Keep bonding database (false instead of true)
 
           uint8_t runStatus = 2; // Default Wifi Fail
           unsigned long runResultTime = 0;
@@ -2380,11 +2390,6 @@ void loop() {
               // Restore immediately
               WiFi.mode(WIFI_OFF);
               espNowHandler.begin();
-              BLEDevice::init("AE Smart Shunt");
-              BLEDevice::setMTU(517);
-              // Construct Telemetry... (Wait, duplicative?)
-              // Simplified restore logic needed or allow duplicate?
-              // Let's just break/continue with status updated.
           } else {
             // 2. Connect WiFi (With Sniff)
             bool ssidFound = false;
@@ -2444,11 +2449,8 @@ void loop() {
           esp_wifi_set_channel(espnow_channel, WIFI_SECOND_CHAN_NONE);
           Serial.printf("[MQTT] Restored ESP-NOW channel: %d\n", espnow_channel);
 
-          // Re-Init BLE
-          BLEDevice::init("AE Smart Shunt");
-          BLEDevice::setMTU(517);
-          
-          // Construct Telemetry for Re-Init (reuse existing struct data)
+          // Resume BLE (restart advertising) - BLE stack still running, bonding preserved
+          // Construct Telemetry for advertising (reuse existing struct data)
            Telemetry telemetry_data = {
               .batteryVoltage = ae_smart_shunt_struct.batteryVoltage,
               .batteryCurrent = ae_smart_shunt_struct.batteryCurrent,
@@ -2479,12 +2481,18 @@ void loop() {
               .gaugeLastRx = espNowHandler.getLastGaugeRx(),
               .gaugeLastTxSuccess = g_gaugeLastTxSuccess
           };
-          bleHandler.begin(telemetry_data);
+           
+           // Restart advertising with current telemetry
+           bleHandler.startAdvertising(telemetry_data);
           bleHandler.setInitialWifiSsid(otaHandler.getWifiSsid());
           bleHandler.setInitialMqttBroker(mqttHandler.getBroker());
           bleHandler.setInitialMqttUser(mqttHandler.getUser());
           
           // Report Status immediately
+          const char* statusText[] = {"Unknown", "Success", "WiFi Fail", "MQTT Fail", "WiFi Missing"};
+          Serial.printf("[MQTT] Cloud Status: %s (code %d)\n", 
+                       (g_lastCloudStatus <= 4) ? statusText[g_lastCloudStatus] : "Invalid", 
+                       g_lastCloudStatus);
           bleHandler.updateCloudStatus(g_lastCloudStatus, (millis() - g_lastCloudSuccessTime)/1000);
           
           Serial.println("[MQTT] Uplink Sequence Complete.");
