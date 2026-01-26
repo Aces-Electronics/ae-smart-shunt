@@ -57,7 +57,10 @@ public:
     }
 
     void sendUplink() {
-        if (!client.connected()) return;
+        if (!client.connected()) {
+            Serial.println("[MQTT] ERROR: Not connected, cannot send uplink");
+            return;
+        }
 
         JsonDocument doc; // ArduinoJson v7
         doc["gateway_mac"] = WiFi.macAddress();
@@ -95,8 +98,19 @@ public:
         serializeJson(doc, output);
         
         String topic = "ae/uplink/" + WiFi.macAddress();
-        client.publish(topic.c_str(), output.c_str());
-        Serial.println("MQTT Uplink Sent: " + output);
+        
+        // CRITICAL FIX: Check if publish succeeded
+        bool published = client.publish(topic.c_str(), output.c_str());
+        
+        if (published) {
+            Serial.println("MQTT Uplink Sent: " + output);
+            // CRITICAL FIX: Ensure message is flushed to network before WiFi disconnect
+            client.loop();
+            delay(100); // Give TCP stack time to send
+        } else {
+            Serial.println("[MQTT] ERROR: Publish failed!");
+            Serial.println("[MQTT] Attempted payload: " + output);
+        }
     }
 
     void setBroker(String broker) {

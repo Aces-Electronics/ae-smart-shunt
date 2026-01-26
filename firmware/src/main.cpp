@@ -2405,8 +2405,12 @@ void loop() {
                      Serial.println("\n[MQTT] WiFi Connected. Connecting to Broker...");
                      if (mqttHandler.connect()) {
                          mqttHandler.sendUplink();
-                         mqttHandler.loop(); 
-                         delay(1000);
+                         // CRITICAL: Give MQTT client time to send message before WiFi disconnect
+                         // PubSubClient needs multiple loop() calls to process outgoing queue
+                         for (int i = 0; i < 20; i++) {
+                             mqttHandler.loop();
+                             delay(100); // 20 * 100ms = 2 seconds total
+                         }
                          runStatus = 1; // Success
                          g_lastCloudSuccessTime = millis();
                      } else {
