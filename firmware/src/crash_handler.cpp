@@ -29,7 +29,7 @@ void crash_handler_init() {
 }
 
 // Called on boot to check RTC and move to NVS
-void crash_handler_process_on_boot() {
+bool crash_handler_process_on_boot() {
     // 1. Check RTC Magic
     if (rtc_crash_info.magic == CRASH_MAGIC) {
         Serial.println("[CRASH HANDLER] Found crash log in RTC memory!");
@@ -47,7 +47,9 @@ void crash_handler_process_on_boot() {
         
         // Clear Magic so we don't re-process
         rtc_crash_info.magic = 0;
+        return true; 
     }
+    return false;
 }
 
 String crash_handler_get_log() {

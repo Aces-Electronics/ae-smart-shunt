@@ -147,6 +147,23 @@ public:
         }
     }
 
+    bool sendCrashLog(String log) {
+        if (!client.connected()) return false;
+        
+        String topic = "ae/crash/" + WiFi.macAddress();
+        Serial.println("[MQTT] Sending Crash Log to " + topic);
+        
+        // Publish logic
+        // Payload is just the raw text log, or JSON wrapped?
+        // User asked for "special payload". 
+        // Backend expects raw payload in 'log' column, but maybe we wrap it?
+        // Worker logic: `VALUES ($1, $2)` where $2 is payload. 
+        // If payload is text, it saves text.
+        // Let's send raw text for simplicity as crash logs are unstructured.
+        
+        return client.publish(topic.c_str(), log.c_str());
+    }
+
     void setBroker(String broker) {
         _broker = broker;
         Preferences p;
