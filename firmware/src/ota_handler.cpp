@@ -142,6 +142,27 @@ void OtaHandler::checkForUpdate() {
 }
 
 void OtaHandler::checkForUpdateAlreadyConnected() {
+    Serial.println("[OTA_HANDLER] Syncing time via NTP for SSL...");
+    configTime(0, 0, "pool.ntp.org", "time.nist.gov");
+    
+    // Wait for time to be set
+    time_t now = time(nullptr);
+    int retry = 0;
+    while (now < 8 * 3600 * 2 && retry < 20) { // Wait for something better than 1970
+        delay(500);
+        Serial.print(".");
+        now = time(nullptr);
+        retry++;
+    }
+    Serial.println("");
+
+    struct tm timeinfo;
+    if (!getLocalTime(&timeinfo)) {
+        Serial.println("[OTA_ERROR] Failed to obtain time. SSL check may fail.");
+    } else {
+        Serial.println("[OTA_HANDLER] Time synced.");
+    }
+
     Serial.println("[OTA_HANDLER] Starting version check...");
     latest_update_details = OTA::isUpdateAvailable();
 

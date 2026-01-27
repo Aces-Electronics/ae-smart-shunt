@@ -1,7 +1,7 @@
 #pragma once
 
-// OTA server settings
-#define OTA_SERVER "api.github.com"
+// OTA server settings (Custom Backend)
+#define OTA_SERVER "aenv.aceselectronics.com.au"
 #define OTA_PORT 443
 
 // Helpers to stringify macro values safely
@@ -9,25 +9,25 @@
 #define STR(x) STR_HELPER(x)
 
 // Expect these macros to be provided at build time:
-//   -DOTAGH_OWNER_NAME=myuser
-//   -DOTAGH_REPO_NAME=myrepo
-// Optional:
-//   -DOTAGH_BEARER=your_token
+//   -DOTA_DEVICE_TYPE="ae-smart-shunt"
+//   -DHW_VERSION=2
 
-// Construct GitHub API paths
-#define OTA_CHECK_PATH "/repos/" STR(OTAGH_OWNER_NAME) "/" STR(OTAGH_REPO_NAME) "/releases"
-#define OTA_BIN_PATH   "/repos/" STR(OTAGH_OWNER_NAME) "/" STR(OTAGH_REPO_NAME) "/releases/assets/"
-
-#ifdef OTAGH_BEARER
-#define OTA_BEARER STR(OTAGH_BEARER)
+#ifndef OTA_DEVICE_TYPE
+#define OTA_DEVICE_TYPE "unknown"
 #endif
 
-#define FIRMWARE_BIN_MATCH "firmware.bin"
+// Construct API paths
+// API Check: /api/firmware/check?type=ae-smart-shunt&hw_version=2
+#define OTA_CHECK_PATH "/api/firmware/check?type=" STR(OTA_DEVICE_TYPE) "&hw_version=" STR(HW_VERSION)
 
 #include <Arduino.h>
 
-// Helper to construct a full asset endpoint from asset_id
-inline String OTA_ASSET_ENDPOINT_CONSTRUCTOR(const String &asset_id)
+// Helper to construct a full asset endpoint if the API returns a relative path
+inline String OTA_ASSET_ENDPOINT_CONSTRUCTOR(const String &url)
 {
-    return String(OTA_BIN_PATH) + asset_id;
+    // If it's already absolute (http...), return as is. 
+    // If relative, prepend /
+    if (url.startsWith("http")) return url;
+    if (url.startsWith("/")) return url; 
+    return "/" + url;
 }

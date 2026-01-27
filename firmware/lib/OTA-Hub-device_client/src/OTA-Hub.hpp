@@ -1,5 +1,5 @@
 #pragma once
-#define HTTP_MAX_HEADERS 30 // GitHub sends ~28 headers back!
+#define HTTP_MAX_HEADERS 30 
 
 #include <Arduino.h>
 
@@ -7,7 +7,7 @@
 #include <Hard-Stuff-Http.hpp>
 #include <Update.h>
 #include <ArduinoJson.h>
-#include "ota-github-defaults.h"
+#include "ota-github-defaults.h" // Now contains custom config
 
 #ifndef OTA_VERSION
 #define OTA_VERSION "local_development"
@@ -23,28 +23,6 @@ inline String getMacAddress()
     sprintf(baseMacChr, "%02X:%02X:%02X:%02X:%02X:%02X", baseMac[0], baseMac[1], baseMac[2], baseMac[3], baseMac[4], baseMac[5]);
     return String(baseMacChr);
 }
-
-inline time_t cvtDate()
-{
-    char s_month[5];
-    int year;
-    tmElements_t t;
-    static const char month_names[] = "JanFebMarAprMayJunJulAugSepOctNovDec";
-
-    sscanf(__DATE__, "%s %hhd %d", s_month, &t.Day, &year);
-    sscanf(__TIME__, "%2hhd %*c %2hhd %*c %2hhd", &t.Hour, &t.Minute, &t.Second);
-
-    // Find where is s_month in month_names. Deduce month value.
-    t.Month = (strstr(month_names, s_month) - month_names) / 3 + 1;
-
-    // year can be given as '2010' or '10'. It is converted to years since 1970
-    if (year > 99)
-        t.Year = year - 1970;
-    else
-        t.Year = year + 30;
-
-    return makeTime(t);
-}
 #pragma endregion
 
 namespace OTA
@@ -52,67 +30,29 @@ namespace OTA
 #pragma region WorkingVariabls
     inline HardStuffHttpClient *http_ota;
     inline Client *underlying_client;
-    inline String asset_id;
 #pragma endregion
 
 #pragma region UsefulStructs
-    /**
-     * @brief What is the condition of the update relative to the current installed firmware?
-     */
     enum UpdateCondition
     {
-        NO_UPDATE,     // The proposed release is the same name and same age as this one (i.e. they're the same)
-        OLD_DIFFERENT, // The proposed release is different to what we've got here (but it's older)
-        NEW_SAME,      // The proposed release is newer but has the same name as this one (are you versioning correctly?)
-        NEW_DIFFERENT  // The proposed update is both newer and has a different name (so is likely to be a legitimate update)
+        NO_UPDATE,     
+        OLD_DIFFERENT, 
+        NEW_SAME,      
+        NEW_DIFFERENT  
     };
 
-    /**
-     * @brief What is the condition of the install?
-     */
     enum InstallCondition
     {
-        FAILED_TO_DOWNLOAD, // For whatever reason, we failed to download the update
-        REDIRECT_REQUIRED,  // We'll need to follow a redirect to download the firmware.bin file. Don't forget to set to the new ca_cert!
-        SUCCESS             // Success! You'll likely only see me if you've asked the installer to not restart the ESP32.
+        FAILED_TO_DOWNLOAD, 
+        REDIRECT_REQUIRED,  
+        SUCCESS             
     };
 
-    /**
-     * @brief Everything necesary related to a firmware release
-     */
-    // Helper to parse ISO8601 string to time_t
-    inline time_t parseISO8601(String str) {
-        tmElements_t tm;
-        int Year, Month, Day, Hour, Minute, Second;
-        if (sscanf(str.c_str(), "%d-%d-%dT%d:%d:%d", &Year, &Month, &Day, &Hour, &Minute, &Second) == 6) {
-            tm.Year = Year - 1970;
-            tm.Month = Month;
-            tm.Day = Day;
-            tm.Hour = Hour;
-            tm.Minute = Minute;
-            tm.Second = Second;
-            return makeTime(tm);
-        }
-        return 0;
-    }
-
-    // Helper to format time_t to ISO8601 string
-    inline String formatISO8601(time_t t) {
-        tmElements_t tm;
-        breakTime(t, tm);
-        char buf[25];
-        sprintf(buf, "%04d-%02d-%02dT%02d:%02d:%02dZ", tm.Year + 1970, tm.Month, tm.Day, tm.Hour, tm.Minute, tm.Second);
-        return String(buf);
-    }
-    
     struct UpdateObject
     {
         UpdateCondition condition;
         String name;
         String tag_name;
-        time_t published_at;
-        String release_notes;
-        String firmware_asset_id;
         String firmware_asset_endpoint;
         String redirect_server;
 
@@ -124,42 +64,27 @@ namespace OTA
                 "NEW_DIFFERENT",
                 "NEW_SAME"};
 
-            // Print condition
             print_stream->println("------------------------");
             print_stream->println("Condition: " + String(condition_strings[condition]));
-            print_stream->println("name: " + name);
             print_stream->println("tag_name: " + tag_name);
-            // print_stream->println("published_at: " + http_ota->formatTimeISO8601(published_at));
-            print_stream->println("published_at: " + String((unsigned long)published_at));
-            print_stream->println("firmware_asset_id: " + String(firmware_asset_id));
-            print_stream->println("firmware_asset_endpoint: " + String(firmware_asset_endpoint));
+            print_stream->println("endpoint: " + String(firmware_asset_endpoint));
             print_stream->println("------------------------");
         }
     };
 #pragma endregion
 
 #pragma region SupportFunctions
-
-    // Initial define of function
     inline InstallCondition continueRedirect(UpdateObject *details, bool restart = true, std::function<void(size_t, size_t)> progress_callback = nullptr);
-
-    inline void confirmConnected()
-    {
-        if (http_ota->connected())
-        {
-        }
-    }
 
     inline void printFirmwareDetails(Stream *print_stream = &Serial, const char *latest_tag = nullptr)
     {
         print_stream->println("------------------------");
         print_stream->println("Device MAC: " + getMacAddress());
         print_stream->println("Firmware Version (OTA_VERSION): " + String(OTA_VERSION));
-        print_stream->println("Firmware Compilation Date: " + String(__DATE__) + ", " + String(__TIME__));
-
+        
         if (latest_tag != nullptr)
         {
-            print_stream->println("Latest Release Tag (GitHub): " + String(latest_tag));
+            print_stream->println("Latest Release (Server): " + String(latest_tag));
         }
 
         print_stream->println("------------------------");
@@ -195,156 +120,98 @@ namespace OTA
 #pragma region CoreFunctions
 
     /**
-     * @brief Check your server (or GitHub) to see if an update is available
-     *
-     * @return UpdateObject that bundles all the info we'll need.
+     * @brief Check your server to see if an update is available
+     * API RESPONSE EXPECTED:
+     * {
+     *    "version": "1.0.1",
+     *    "available": true,
+     *    "url": "/api/firmware/check?type=...&download=true"
+     * }
      */
     inline UpdateObject isUpdateAvailable()
     {
         UpdateObject return_object;
         return_object.condition = NO_UPDATE;
 
-        // Get the response from the server
         HardStuffHttpRequest request;
-        if (String(OTA_SERVER).indexOf("github") > 0)
-        {
-            request.addHeader("Accept", "application/vnd.github+json");
-        }
-        else
-        {
-            request.addHeader("accept", "application/json");
-        }
-#ifdef OTA_BEARER
-        request.addHeader("authorization", "Bearer " + String(OTA_BEARER)); // Used only in private repos. See the docs.
-#endif
+        request.addHeader("accept", "application/json");
 
-        // Inject MAC address for backend device identification
+        // Inject MAC address
         String checkPath = String(OTA_CHECK_PATH);
-        String macParam = (checkPath.indexOf('?') > 0 ? "&mac=" : "?mac=") + getMacAddress();
-        checkPath += macParam;
+        // Only append MAC if not already in macro (it is in our new macro, but good for safety)
+        if (checkPath.indexOf("mac=") == -1) {
+             checkPath += "&mac=" + getMacAddress();
+        }
+        // Also append current_version
+        checkPath += "&current_version=" + String(OTA_VERSION);
+
+        Serial.println("GET " + String(OTA_SERVER) + checkPath);
 
         HardStuffHttpResponse response = http_ota->getFromHTTPServer(checkPath.c_str(), &request);
 
         if (response.success())
         {
-            // The releases endpoint returns an array, so we need to process it as such.
-            JsonDocument doc; // ArduinoJson v7 uses dynamic memory automatically
+            JsonDocument doc; 
             DeserializationError error = deserializeJson(doc, response.body);
 
             if (error) {
                 Serial.print(F("deserializeJson() failed: "));
                 Serial.println(error.c_str());
+                Serial.println("Body: " + response.body);
                 return return_object;
             }
 
-            JsonObject release_response;
-            if (doc.is<JsonArray>())
+            // Parse Custom Backend Response
+            if (!doc["version"].is<String>() || !doc["available"].is<bool>())
             {
-                JsonArray release_array = doc.as<JsonArray>();
-                if (release_array.size() == 0)
-                {
-                    Serial.println("No releases found in the repository.");
-                    return return_object;
-                }
-                // The first element in the array is the latest release.
-                release_response = release_array[0].as<JsonObject>();
-            }
-            else
-            {
-                // Fallback for if the API ever goes back to a single object for /latest
-                release_response = doc.as<JsonObject>();
-            }
-
-            if (release_response.isNull())
-            {
-                Serial.println("Failed to parse release information.");
+                Serial.println("Invalid API response format");
                 return return_object;
             }
 
-            if (
-#if ARDUINOJSON_VERSION_MAJOR >= 7
-                release_response["name"].isNull() ||
-                release_response["published_at"].isNull() ||
-                release_response["assets"].isNull()
-#else
-                !release_response.containsKey("name") ||
-                !release_response.containsKey("published_at") ||
-                !release_response.containsKey("assets")
-#endif
-            )
-            {
-                Serial.println("The latest release contains no assets and/or metadata. We can't continue...");
-                return return_object;
+            bool available = doc["available"];
+            String serverVersion = doc["version"].as<String>();
+            String url = doc["url"].as<String>();
+
+            return_object.tag_name = serverVersion;
+            printFirmwareDetails(&Serial, serverVersion.c_str());
+
+            if (available && url.length() > 0) {
+                 return_object.condition = NEW_DIFFERENT; // Assume if available=true, it's what we want
+                 return_object.firmware_asset_endpoint = url;
+            } else {
+                 return_object.condition = NO_UPDATE;
             }
 
-            return_object.name = release_response["name"].as<String>();
-            return_object.tag_name = release_response["tag_name"].as<String>();
-            // if (!release_response["body"].isNull()) {
-            //     return_object.release_notes = release_response["body"].as<String>();
-            // }
-            // return_object.published_at = http_ota->formatTimeFromISO8601(release_response["published_at"].as<String>());
-            return_object.published_at = parseISO8601(release_response["published_at"].as<String>());
-
-            // Compare OTA_VERSION against tag_name, not name
-            bool update_is_different = return_object.tag_name.compareTo(OTA_VERSION) != 0;
-            bool update_is_newer = release_response["published_at"].as<time_t>() > cvtDate();
-
-            // Print both local firmware version and GitHub tag for debugging
-            printFirmwareDetails(&Serial, return_object.tag_name.c_str());
-
-            JsonArray asset_array = release_response["assets"].as<JsonArray>();
-            for (JsonVariant v : asset_array)
-            {
-                if (v["name"].as<String>().compareTo(FIRMWARE_BIN_MATCH) == 0)
-                {
-                    return_object.firmware_asset_id = v["id"].as<String>();
-                    return_object.condition = update_is_different
-                                                  ? (update_is_newer ? NEW_DIFFERENT : OLD_DIFFERENT)
-                                                  : (update_is_newer ? NEW_SAME : NO_UPDATE);
-                    return_object.firmware_asset_endpoint = OTA_ASSET_ENDPOINT_CONSTRUCTOR(return_object.firmware_asset_id);
-                    return return_object;
-                }
-            }
-            Serial.println("The latest release contains no firmware asset. We can't continue...");
-#if ARDUINOJSON_VERSION_MAJOR < 7
-            release_response.clear();
-#endif
             return return_object;
         }
 
-        Serial.println("Failed to connect to GitHub. Check your OTA_... #defines.");
+        Serial.println("Failed to connect to Update Server.");
         return return_object;
     }
 
     /**
-     * @brief Download and perform an update based on the details provided in the UpdateObject file.
-     *
-     * @param details You'll get this from `isUpdateAvailable`
-     * @param restart You can stop the updater from automatically restarting the board, say if you need to wind things down a bit...
-     * @return InstallCondition Was it a success?
+     * @brief Download and perform update
      */
     inline InstallCondition performUpdate(UpdateObject *details, bool follow_redirects = true, bool restart = true, std::function<void(size_t, size_t)> progress_callback = nullptr)
     {
-        Serial.println("Fetching update from: " + (details->redirect_server.isEmpty() ? String(OTA_SERVER) : details->redirect_server) + details->firmware_asset_endpoint);
+        String path = details->firmware_asset_endpoint;
+        // If path is full URL, we might need to reinit client? 
+        // For now, assume relative path on same server as configured, OR handle redirect logic.
+        // Our backend returns a relative path like /api/firmware/check?...
+
+        Serial.println("Fetching update from: " + (details->redirect_server.isEmpty() ? String(OTA_SERVER) : details->redirect_server) + path);
 
         HardStuffHttpRequest request;
-        // Headers
         request.addHeader("Accept", "application/octet-stream");
-#ifdef OTA_BEARER
-        request.addHeader("Authorization", "Bearer " + String(OTA_BEARER));
-#endif
 
-        // On GitHub this will likely return a 302 with a "location" header:
-        HardStuffHttpResponse response = http_ota->getFromHTTPServer(details->firmware_asset_endpoint, &request, true);
+        HardStuffHttpResponse response = http_ota->getFromHTTPServer(path, &request, true);
 
-        if (response.status_code == 302)
+        if (response.status_code == 302 || response.status_code == 301)
         {
-            // Do redirect logic
-            // Extract URL from "Location"
             String URL = "";
             for (int i = 0; i < response.header_count; i++)
             {
-                if (response.headers[i].key.compareTo("Location") == 0)
+                if (response.headers[i].key.equalsIgnoreCase("Location"))
                 {
                     URL = response.headers[i].value;
                     break;
@@ -353,18 +220,27 @@ namespace OTA
             if (URL.isEmpty())
             {
                 Serial.println("Redirection URL extraction error...");
-                Serial.println("We can't continue.");
                 return FAILED_TO_DOWNLOAD;
             }
-            // Get .com/ (or other part);
-            URL.replace("https://", "");
-            URL.replace("http://", "");
-            int slash_index = URL.indexOf("/");
+            
+            // Basic parsing for redirect
+            // Assume format https://domain.com/path
+            int protocolEnd = URL.indexOf("://");
+            if (protocolEnd > 0) {
+                int serverStart = protocolEnd + 3;
+                int pathStart = URL.indexOf("/", serverStart);
+                if (pathStart > 0) {
+                     details->redirect_server = URL.substring(serverStart, pathStart);
+                     details->firmware_asset_endpoint = URL.substring(pathStart);
+                }
+            } else {
+                 // Relative redirect?
+                 details->firmware_asset_endpoint = URL;
+            }
 
-            http_ota->stop();
-            delay(250);
-            details->redirect_server = URL.substring(0, slash_index);
-            details->firmware_asset_endpoint = URL.substring(slash_index);
+             http_ota->stop();
+             delay(250);
+
             if (follow_redirects)
             {
                 Serial.println("Redirect required, handling internally...");
@@ -378,28 +254,33 @@ namespace OTA
 
         if (response.status_code >= 200 && response.status_code < 300)
         {
-            // we can download as normal
-            Serial.println(String(FIRMWARE_BIN_MATCH) + " found. Checking validity.");
-            int contentLength;
-            bool isValidContentType;
+            Serial.println("Binary found. Checking validity.");
+            int contentLength = 0;
+            bool isValidContentType = false;
 
             for (int i_header = 0; i_header < response.header_count; i_header++)
             {
-                if (response.headers[i_header].key.compareTo("Content-Length") == 0)
+                if (response.headers[i_header].key.equalsIgnoreCase("Content-Length"))
                 {
                     contentLength = response.headers[i_header].value.toInt();
                 }
-                if (response.headers[i_header].key.compareTo("Content-Type") == 0)
+                if (response.headers[i_header].key.equalsIgnoreCase("Content-Type"))
                 {
                     String contentType = response.headers[i_header].value;
-                    isValidContentType =
-                        contentType == "application/octet-stream" || contentType == "application/macbinary";
+                    if (contentType.startsWith("application/octet-stream") || contentType.startsWith("application/macbinary")) {
+                        isValidContentType = true;
+                    }
                 }
+            }
+            
+            // Allow if valid content type OR if content length looks reasonable (sometimes types differ)
+            if (contentLength > 10000) { 
+                 isValidContentType = true; 
             }
 
             if (contentLength && isValidContentType)
             {
-                Serial.println(String(FIRMWARE_BIN_MATCH) + " is good. Beginning the OTA update, this may take a while...");
+                Serial.printf("Size: %d bytes. Beginning Update...\n", contentLength);
                 if (progress_callback) {
                     Update.onProgress(progress_callback);
                 }
@@ -422,29 +303,22 @@ namespace OTA
                     }
                 }
 
-                Serial.println("------------------------------ERROR------------------------------");
-                Serial.printf("    ERROR CODE: %d", Update.getError());
-                Serial.println("-----------------------------------------------------------------");
+                Serial.printf("OTA Error: %d\n", Update.getError());
             }
             else
             {
-                Serial.println("Content isn't a valid *.bin download.");
+                Serial.println("Content isn't a valid binary (Size/Type check failed).");
             }
         }
         else
         {
-            Serial.println("There was no content in the response");
-            response.print(); // Log the errors
+            Serial.printf("HTTP Error: %d\n", response.status_code);
+            // response.print(); 
         }
         http_ota->stop();
         return FAILED_TO_DOWNLOAD;
     }
 
-    /**
-     * @brief Continue with an update (likely modified) following a 302 redirect.
-     * Behaves similar to performUpdate, but is used after defining new SSL certs as needed.
-     * @return InstallCondition
-     */
     inline InstallCondition continueRedirect(UpdateObject *details, bool restart, std::function<void(size_t, size_t)> progress_callback)
     {
         reinit(*underlying_client, details->redirect_server.c_str(), OTA_PORT);
