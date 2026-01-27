@@ -121,6 +121,12 @@ public:
         if (shuntStruct.tempSensorLastUpdate != 0xFFFFFFFF) {
             JsonObject tempSensor = sensors.add<JsonObject>();
             tempSensor["type"] = "temp";
+            
+            String tempMac = _espNow.getTempSensorMac();
+            if (tempMac.length() > 0) {
+                 tempSensor["mac"] = tempMac;
+            }
+            
             tempSensor["temp"] = shuntStruct.tempSensorTemperature;
             tempSensor["battery"] = shuntStruct.tempSensorBatteryLevel;
             tempSensor["age_ms"] = millis() - shuntStruct.tempSensorLastUpdate;

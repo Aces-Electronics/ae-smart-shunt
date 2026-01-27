@@ -54,7 +54,7 @@ static void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len
           
           if (sensorData.id == 22 && g_espNowHandler != nullptr) {
                // Logged inside updateTempSensorData
-               g_espNowHandler->updateTempSensorData(sensorData.temperature, sensorData.batteryLevel, sensorData.updateInterval, sensorData.name, sensorData.hardwareVersion, sensorData.firmwareVersion);
+               g_espNowHandler->updateTempSensorData(mac, sensorData.temperature, sensorData.batteryLevel, sensorData.updateInterval, sensorData.name, sensorData.hardwareVersion, sensorData.firmwareVersion);
                
                Serial.println("=== RX Temp Sensor ===");
                Serial.printf("  ID      : %d\n", sensorData.id);
@@ -101,6 +101,7 @@ ESPNowHandler::ESPNowHandler(const uint8_t *broadcastAddr)
     rawTempBatt = 0;
     rawTempLastUpdate = 0;
     rawTempInterval = 0;
+    memset(rawTempMac, 0, sizeof(rawTempMac));
 }
 
 void ESPNowHandler::setAeSmartShuntStruct(const struct_message_ae_smart_shunt_1 &shuntStruct)
@@ -304,7 +305,7 @@ bool ESPNowHandler::addPeer()
     return true;
 }
 
-void ESPNowHandler::updateTempSensorData(float temp, uint8_t batt, uint32_t interval, const char* name, uint8_t hwVersion, const char* fwVersion)
+void ESPNowHandler::updateTempSensorData(const uint8_t* mac, float temp, uint8_t batt, uint32_t interval, const char* name, uint8_t hwVersion, const char* fwVersion)
 {
     rawTempC = temp;
     rawTempBatt = batt;
@@ -313,6 +314,15 @@ void ESPNowHandler::updateTempSensorData(float temp, uint8_t batt, uint32_t inte
     rawTempHwVersion = hwVersion;
     if (name) strncpy(rawTempName, name, sizeof(rawTempName) - 1);
     if (fwVersion) strncpy(rawTempFwVersion, fwVersion, sizeof(rawTempFwVersion) - 1);
+    
+    if (mac) {
+        snprintf(rawTempMac, sizeof(rawTempMac), "%02X:%02X:%02X:%02X:%02X:%02X",
+                 mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    }
+}
+
+String ESPNowHandler::getTempSensorMac() {
+    return String(rawTempMac);
 }
 
 void ESPNowHandler::getTempSensorData(float &temp, uint8_t &batt, uint32_t &lastUpdate, uint32_t &interval, char* nameBuf, uint8_t &hwVersion, char* fwVersionBuf)
