@@ -81,6 +81,7 @@ public:
         shunt["capacity_ah"] = shuntStruct.batteryCapacity;
         shunt["state"] = shuntStruct.batteryState;
         shunt["run_flat_time"] = String(shuntStruct.runFlatTime);
+        shunt["rssi"] = WiFi.RSSI();
         
         // Starter battery
         shunt["starter_volts"] = shuntStruct.starterBatteryVoltage;
@@ -97,6 +98,9 @@ public:
         if (strlen(shuntStruct.name) > 0) {
             shunt["name"] = String(shuntStruct.name);
         }
+        
+        // Hardware version
+        shunt["hw_version"] = shuntStruct.hardwareVersion;
         
         // TPMS Data (if any configured)
         JsonArray tpms = shunt["tpms"].to<JsonArray>();

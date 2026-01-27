@@ -1,0 +1,12 @@
+{
+  "version": "1.2.3",
+  "hw_version": 2,
+  "device_type": "shunt",
+  "board": "hw2",
+  "filename": "shunt_v1.2.3_hw2.bin",
+  "size_bytes": 1243584,
+  "sha256": "702e68daade716f1e82b67b7c43e24bcc5146610a679aca810992803864e342d",
+  "built_at": "2026-01-27T06:58:53Z",
+  "min_hw_version": 2,
+  "max_hw_version": 2
+}

@@ -1527,6 +1527,10 @@ void setup()
     preferences.end();
   }
 
+  // Initialize hardware version from build-time constant
+  ae_smart_shunt_struct.hardwareVersion = HW_VERSION;
+  Serial.printf("Hardware Version: %d\n", ae_smart_shunt_struct.hardwareVersion);
+
   // Print calibration summary on boot
   Serial.println(F("\n--- Stored Calibration Summary ---"));
   uint16_t activeShuntA = ina226_adc.getActiveShunt();
