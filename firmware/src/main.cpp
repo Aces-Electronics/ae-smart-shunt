@@ -1649,6 +1649,7 @@ void setup()
   ina226_adc.readSensors(); // Read sensors to get initial values
   
   // Load Cloud Config
+  Preferences prefs;
   prefs.begin("config", true);
   g_cloudEnabled = prefs.getBool("cloud_enabled", false);
   prefs.end();
