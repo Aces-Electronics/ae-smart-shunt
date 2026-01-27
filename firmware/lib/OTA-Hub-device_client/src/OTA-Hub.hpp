@@ -278,13 +278,15 @@ namespace OTA
                  isValidContentType = true; 
             }
 
-            if (contentLength && isValidContentType)
+            if (contentLength > 0 || isValidContentType)
             {
-                Serial.printf("Size: %d bytes. Beginning Update...\n", contentLength);
+                size_t updateSize = (contentLength > 0) ? contentLength : UPDATE_SIZE_UNKNOWN;
+                Serial.printf("Size: %d bytes (UNKNOWN=%d). Beginning Update...\n", updateSize, UPDATE_SIZE_UNKNOWN);
+                
                 if (progress_callback) {
                     Update.onProgress(progress_callback);
                 }
-                if (Update.begin(contentLength))
+                if (Update.begin(updateSize))
                 {
                     Update.writeStream(*http_ota);
                     if (Update.end())
