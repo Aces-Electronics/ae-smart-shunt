@@ -21,6 +21,9 @@ public:
     String getWifiPass() { return wifi_pass; }
     void handleOtaControl(uint8_t command);
     void setPreUpdateCallback(std::function<void()> callback);
+    
+    // Polling when WiFi is already connected (e.g. during MQTT uplink)
+    void checkForUpdateAlreadyConnected();
 
 
 private:

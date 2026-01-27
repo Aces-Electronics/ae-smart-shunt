@@ -138,19 +138,29 @@ void OtaHandler::checkForUpdate() {
 
     Serial.println("\n[OTA] Connected to WiFi. Checking for updates...");
 
+    checkForUpdateAlreadyConnected();
+}
+
+void OtaHandler::checkForUpdateAlreadyConnected() {
+    Serial.println("[OTA_HANDLER] Starting version check...");
     latest_update_details = OTA::isUpdateAvailable();
 
-    Serial.printf("[OTA_HANDLER] Update details condition set to: %d\n", latest_update_details.condition);
+    Serial.printf("[OTA_HANDLER] Update check result: %d (Current: %s)\n", latest_update_details.condition, OTA_VERSION);
 
     if (OTA::NO_UPDATE == latest_update_details.condition) {
-        Serial.println("No new update available.");
+        Serial.println("[OTA_HANDLER] No new update available.");
         bleHandler.updateOtaStatus(3); // 3: No update available
-        WiFi.disconnect(true);
-        WiFi.mode(WIFI_OFF);
-        espNowHandler.begin();
-        ota_state = OTA_IDLE;
+        
+        // If we connected WiFi JUST for this check, we'd disconnect here.
+        // But if we're called via AlreadyConnected, we let the caller handle WiFi lifecycle.
+        if (ota_state != OTA_IDLE) {
+            WiFi.disconnect(true);
+            WiFi.mode(WIFI_OFF);
+            espNowHandler.begin();
+            ota_state = OTA_IDLE;
+        }
     } else {
-        Serial.printf("Update available: %s\n", latest_update_details.tag_name.c_str());
+        Serial.printf("[OTA_HANDLER] Update available: %s\n", latest_update_details.tag_name.c_str());
 
         // Create a minimal JSON payload with only the version number
         JsonDocument doc;
@@ -158,15 +168,12 @@ void OtaHandler::checkForUpdate() {
         String metadata;
         size_t written = serializeJson(doc, metadata);
         if (written == 0) {
-            Serial.println("[OTA_HANDLER] ERROR: serializeJson() failed. The JSON document is likely too large for the available memory.");
+            Serial.println("[OTA_HANDLER] ERROR: serializeJson() failed.");
         } else {
-            Serial.printf("[OTA_HANDLER] Generated metadata (length %d): %s\n", metadata.length(), metadata.c_str());
+            Serial.printf("[OTA_HANDLER] Generated metadata: %s\n", metadata.c_str());
         }
 
-        Serial.printf("[%lu] [OTA_HANDLER] Calling updateReleaseMetadata\n", millis());
         bleHandler.updateReleaseMetadata(metadata);
-        // It is critical to delay briefly AFTER setting the value and BEFORE sending the notification
-        // to ensure the BLE stack has processed the value update.
         delay(100);
         bleHandler.updateOtaStatus(2); // 2: Update available
         ota_state = OTA_UPDATE_AVAILABLE;
