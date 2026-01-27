@@ -218,7 +218,12 @@ namespace OTA
         request.addHeader("authorization", "Bearer " + String(OTA_BEARER)); // Used only in private repos. See the docs.
 #endif
 
-        HardStuffHttpResponse response = http_ota->getFromHTTPServer(OTA_CHECK_PATH, &request);
+        // Inject MAC address for backend device identification
+        String checkPath = String(OTA_CHECK_PATH);
+        String macParam = (checkPath.indexOf('?') > 0 ? "&mac=" : "?mac=") + getMacAddress();
+        checkPath += macParam;
+
+        HardStuffHttpResponse response = http_ota->getFromHTTPServer(checkPath.c_str(), &request);
 
         if (response.success())
         {
