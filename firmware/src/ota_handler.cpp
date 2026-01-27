@@ -199,6 +199,9 @@ void OtaHandler::checkForUpdateAlreadyConnected() {
         bleHandler.updateOtaStatus(2); // 2: Update available
         ota_state = OTA_UPDATE_AVAILABLE;
         ota_wifi_start_time = millis(); // Start the timeout timer
+
+        Serial.println("[OTA_HANDLER] Auto-starting update download...");
+        startUpdate();
     }
 }
 
