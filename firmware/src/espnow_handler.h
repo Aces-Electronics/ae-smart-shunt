@@ -58,6 +58,7 @@ public: // Made public for static callback access (or add friend/getter)
     uint8_t targetPeer[6];
     uint32_t lastGaugeRxTime = 0;
     bool m_forceBroadcast = false;
+    esp_now_send_cb_t m_sendCallback = nullptr;
 private:
 
     void printMacAddress(const uint8_t* mac);

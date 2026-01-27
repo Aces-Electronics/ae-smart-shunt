@@ -187,43 +187,70 @@ void ESPNowHandler::switchToSecureMode(const uint8_t* gaugeMac)
 bool ESPNowHandler::begin()
 {
     WiFi.mode(WIFI_MODE_STA);
-    // Disable WiFi scan power save if needed (optional).
     if (esp_now_init() != ESP_OK)
     {
         Serial.println("Error initializing ESP-NOW");
         return false;
     }
+    
+    // 1. Re-register Callbacks
     esp_now_register_recv_cb(OnDataRecv);
-    Serial.printf("[DEBUG] sizeof(struct_message_temp_sensor) = %d\n", sizeof(struct_message_temp_sensor));
+    if (m_sendCallback) {
+        esp_now_register_send_cb(m_sendCallback);
+        Serial.println("[ESP-NOW] Send callback re-registered");
+    }
 
-    // --- FIX: Load Saved Secure Peer from NVS ---
+    // 2. Add Broadcast Peer
+    addPeer(); 
+
+    // 3. Restore Saved Peers from NVS
     Preferences prefs;
-    prefs.begin("pairing", true); // Read-only
-    String macStr = prefs.getString("p_temp_mac", "");
-    String keyHex = prefs.getString("p_temp_key", "");
+    
+    // --- Gauge Peer ---
+    prefs.begin("pairing", true);
+    String g_macStr = prefs.getString("p_gauge_mac", "");
+    String g_keyHex = prefs.getString("p_key", "");
     prefs.end();
 
-    if (macStr.length() == 12 && keyHex.length() == 32) {
-        Serial.printf("[ESP-NOW] Loading Saved Peer: MAC=%s, Key=%s\n", macStr.c_str(), keyHex.c_str());
-        
+    if (g_macStr.length() > 0 && g_keyHex.length() == 32) {
+        Serial.printf("[ESP-NOW] Restoring Gauge Peer: MAC=%s\n", g_macStr.c_str());
         uint8_t mac[6];
         uint8_t key[16];
         
-        // Parse MAC (Hex string no colons)
+        g_macStr.replace(":", "");
+        if (g_macStr.length() == 12) {
+            for(int i=0; i<6; i++) {
+                char buf[3] = { g_macStr[i*2], g_macStr[i*2+1], '\0' };
+                mac[i] = (uint8_t)strtoul(buf, NULL, 16);
+            }
+            for(int i=0; i<16; i++) {
+                char buf[3] = { g_keyHex[i*2], g_keyHex[i*2+1], '\0' };
+                key[i] = (uint8_t)strtoul(buf, NULL, 16);
+            }
+            addEncryptedPeer(mac, key);
+            switchToSecureMode(mac);
+        }
+    }
+
+    // --- Temp Sensor Peer ---
+    prefs.begin("pairing", true);
+    String t_macStr = prefs.getString("p_temp_mac", "");
+    String t_keyHex = prefs.getString("p_temp_key", "");
+    prefs.end();
+
+    if (t_macStr.length() == 12 && t_keyHex.length() == 32) {
+        Serial.printf("[ESP-NOW] Restoring Temp Sensor Peer: MAC=%s\n", t_macStr.c_str());
+        uint8_t mac[6];
+        uint8_t key[16];
         for(int i=0; i<6; i++) {
-             char buf[3] = { macStr[i*2], macStr[i*2+1], '\0' };
-             mac[i] = (uint8_t)strtoul(buf, NULL, 16);
+            char buf[3] = { t_macStr[i*2], t_macStr[i*2+1], '\0' };
+            mac[i] = (uint8_t)strtoul(buf, NULL, 16);
         }
-        
-        // Parse Key
         for(int i=0; i<16; i++) {
-             char buf[3] = { keyHex[i*2], keyHex[i*2+1], '\0' };
-             key[i] = (uint8_t)strtoul(buf, NULL, 16);
+            char buf[3] = { t_keyHex[i*2], t_keyHex[i*2+1], '\0' };
+            key[i] = (uint8_t)strtoul(buf, NULL, 16);
         }
-        
         addEncryptedPeer(mac, key);
-    } else {
-        Serial.println("[ESP-NOW] No saved secure peer found in NVS.");
     }
 
     return true;
@@ -258,6 +285,7 @@ void ESPNowHandler::handleNewPeer(const uint8_t* mac, const uint8_t* key)
 
 void ESPNowHandler::registerSendCallback(esp_now_send_cb_t callback)
 {
+    m_sendCallback = callback;
     esp_now_register_send_cb(callback);
 }
 

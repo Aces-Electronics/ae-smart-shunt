@@ -1579,34 +1579,23 @@ void setup()
   BLEDevice::init("AE Smart Shunt");
   BLEDevice::setMTU(517);
 
-// Callback for TPMS Scan Complete - Send WiFi Packet IMMEDIATELY
-  // Initialize ESP-NOW
+  // Initialize ESP-NOW (restores all peers and callbacks)
   if (!espNowHandler.begin())
   {
     Serial.println("ESP-NOW init failed");
     return;
   }
   
-  // TPMS Setup
-  tpmsHandler.setScanCompleteCallback(onScanComplete);
-  tpmsHandler.begin();
-
   // Register callback for send status
   espNowHandler.registerSendCallback(onDataSent);
-  // Ensure broadcast peer exists (some SDKs require an explicit broadcast peer)
-  if (!espNowHandler.addPeer())
-  {
-    Serial.println("Warning: failed to add broadcast peer; esp_now_send may return ESP_ERR_ESPNOW_NOT_FOUND on some platforms");
-  }
-  else
-  {
-    Serial.println("Broadcast peer added");
-  }
+
+  // TPMS Setup (starts after ESP-NOW to avoid conflicts if any)
+  tpmsHandler.setScanCompleteCallback(onScanComplete);
+  tpmsHandler.begin();
 
   bleHandler.setLoadSwitchCallback(loadSwitchCallback);
   bleHandler.setSOCCallback(socCallback);
   bleHandler.setVoltageProtectionCallback(voltageProtectionCallback);
-  bleHandler.setLowVoltageDelayCallback(lowVoltageDelayCallback);
   bleHandler.setLowVoltageDelayCallback(lowVoltageDelayCallback);
   bleHandler.setDeviceNameSuffixCallback(deviceNameSuffixCallback);
   bleHandler.setRatedCapacityCallback(ratedCapacityCallback);
@@ -1655,48 +1644,6 @@ void setup()
   bleHandler.setMqttAuthCallback([](String user, String pass){
       mqttHandler.setAuth(user, pass);
   });
-
-  // Load Pairing Info if exists
-  Preferences prefs;
-  prefs.begin("pairing", true); // read-only check first
-  String storedMac = prefs.getString("p_gauge_mac", "");
-  String storedKey = prefs.getString("p_key", "");
-  prefs.end();
-  
-  if (storedMac != "" && storedKey != "") {
-      Serial.println("Restoring Encrypted Peer (Gauge) from NVS...");
-      uint8_t macBytes[6];
-      uint8_t keyBytes[16];
-      
-      // Sanitise MAC (remove colons if present)
-      storedMac.replace(":", "");
-      
-      hexStringToBytes(storedMac, macBytes, 6); 
-      hexStringToBytes(storedKey, keyBytes, 16);
-      
-      espNowHandler.addEncryptedPeer(macBytes, keyBytes);
-      espNowHandler.switchToSecureMode(macBytes);
-  }
-
-  // Load Temp Sensor Peer
-  String tempMac = prefs.getString("p_temp_mac", "");
-  String tempKey = prefs.getString("p_temp_key", "");
-  
-  if (tempMac != "" && tempKey != "") {
-      Serial.println("Restoring Encrypted Peer (Temp Sensor) from NVS...");
-      uint8_t macBytes[6];
-      uint8_t keyBytes[16];
-      
-      // Sanitise MAC (remove colons if present)
-      tempMac.replace(":", "");
-      
-      hexStringToBytes(tempMac, macBytes, 6);
-      hexStringToBytes(tempKey, keyBytes, 16);
-      
-      espNowHandler.addEncryptedPeer(macBytes, keyBytes);
-      // Do NOT switch secure mode target to Temp Sensor (we talk secure to Gauge primarily)
-      // But adding the peer allows us to Receive encrypted data from it.
-  }
 
   // Create initial telemetry data for the first advertisement
   ina226_adc.readSensors(); // Read sensors to get initial values
