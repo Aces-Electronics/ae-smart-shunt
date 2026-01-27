@@ -54,7 +54,7 @@ static void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len
           
           if (sensorData.id == 22 && g_espNowHandler != nullptr) {
                // Logged inside updateTempSensorData
-               g_espNowHandler->updateTempSensorData(sensorData.temperature, sensorData.batteryLevel, sensorData.updateInterval, sensorData.name);
+               g_espNowHandler->updateTempSensorData(sensorData.temperature, sensorData.batteryLevel, sensorData.updateInterval, sensorData.name, sensorData.hardwareVersion, sensorData.firmwareVersion);
                
                Serial.println("=== RX Temp Sensor ===");
                Serial.printf("  ID      : %d\n", sensorData.id);
@@ -83,7 +83,7 @@ static void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len
 // 🔒 Compile-time check: catch padding/alignment mismatches.
 // Update "EXPECTED_AE_SMART_SHUNT_STRUCT_SIZE" if your struct changes.
 // Update "EXPECTED_AE_SMART_SHUNT_STRUCT_SIZE" if your struct changes.
-#define EXPECTED_AE_SMART_SHUNT_STRUCT_SIZE 212   // Updated: 211 + 1 (HW Version)
+#define EXPECTED_AE_SMART_SHUNT_STRUCT_SIZE 225   // Updated for relaying peripheral versions
 static_assert(sizeof(struct_message_ae_smart_shunt_1) == EXPECTED_AE_SMART_SHUNT_STRUCT_SIZE,
               "struct_message_ae_smart_shunt_1 has unexpected size! Possible padding/alignment issue.");
 
@@ -276,26 +276,26 @@ bool ESPNowHandler::addPeer()
     return true;
 }
 
-void ESPNowHandler::updateTempSensorData(float temp, uint8_t batt, uint32_t interval, const char* name) {
+void ESPNowHandler::updateTempSensorData(float temp, uint8_t batt, uint32_t interval, const char* name, uint8_t hwVersion, const char* fwVersion)
+{
     rawTempC = temp;
     rawTempBatt = batt;
     rawTempInterval = interval;
-    if (name) {
-        strncpy(rawTempName, name, sizeof(rawTempName)-1);
-        rawTempName[sizeof(rawTempName)-1] = '\0';
-    }
     rawTempLastUpdate = millis();
-    Serial.printf("[ESP-NOW] Rx Temp Sensor: %.1f C, Batt %d%%, Interval %u ms, Name: %s\n", temp, batt, interval, rawTempName);
+    rawTempHwVersion = hwVersion;
+    if (name) strncpy(rawTempName, name, sizeof(rawTempName) - 1);
+    if (fwVersion) strncpy(rawTempFwVersion, fwVersion, sizeof(rawTempFwVersion) - 1);
 }
 
-void ESPNowHandler::getTempSensorData(float &temp, uint8_t &batt, uint32_t &lastUpdate, uint32_t &interval, char* nameBuf) {
+void ESPNowHandler::getTempSensorData(float &temp, uint8_t &batt, uint32_t &lastUpdate, uint32_t &interval, char* nameBuf, uint8_t &hwVersion, char* fwVersionBuf)
+{
     temp = rawTempC;
     batt = rawTempBatt;
     lastUpdate = rawTempLastUpdate;
     interval = rawTempInterval;
-    if (nameBuf) {
-        strncpy(nameBuf, rawTempName, 24); // Assuming caller buffer is sufficient (24)
-    }
+    hwVersion = rawTempHwVersion;
+    if (nameBuf) strncpy(nameBuf, rawTempName, 23);
+    if (fwVersionBuf) strncpy(fwVersionBuf, rawTempFwVersion, 11);
 }
 
 void ESPNowHandler::recordGaugeRx() {

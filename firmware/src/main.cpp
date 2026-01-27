@@ -2017,8 +2017,10 @@ void loop_deprecated()
     }
     
     // Populate Relayed Temp Sensor Data & Calculate Age
-    float t_temp = 0; uint8_t t_batt = 0; uint32_t t_last = 0; uint32_t t_interval = 0;
-    espNowHandler.getTempSensorData(t_temp, t_batt, t_last, t_interval, ae_smart_shunt_struct.tempSensorName);
+    float t_temp; uint8_t t_batt; uint32_t t_last; uint32_t t_interval;
+    espNowHandler.getTempSensorData(t_temp, t_batt, t_last, t_interval, ae_smart_shunt_struct.tempSensorName, 
+                                   ae_smart_shunt_struct.tempSensorHardwareVersion, 
+                                   ae_smart_shunt_struct.tempSensorFirmwareVersion);
     
     ae_smart_shunt_struct.tempSensorTemperature = t_temp;
     ae_smart_shunt_struct.tempSensorBatteryLevel = t_batt;
@@ -2265,11 +2267,10 @@ void updateStruct() {
     }
 
     // Relayed Temp Sensor Data (Always send freshest data)
-    float tsTemp = 0.0f;
-    uint8_t tsBatt = 0;
-    uint32_t tsUpdate = 0;
-    uint32_t tsInterval = 0;
-    espNowHandler.getTempSensorData(tsTemp, tsBatt, tsUpdate, tsInterval, ae_smart_shunt_struct.tempSensorName);
+    float tsTemp; uint8_t tsBatt; uint32_t tsUpdate; uint32_t tsInterval;
+    espNowHandler.getTempSensorData(tsTemp, tsBatt, tsUpdate, tsInterval, ae_smart_shunt_struct.tempSensorName, 
+                                   ae_smart_shunt_struct.tempSensorHardwareVersion, 
+                                   ae_smart_shunt_struct.tempSensorFirmwareVersion);
     
     // Check for Staleness (Dynamic TTL)
     // Relaxed TTL: We want to keep relaying cached data for a long time (e.g., 10x interval or 10 mins)

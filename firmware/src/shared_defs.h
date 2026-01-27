@@ -90,6 +90,8 @@ typedef struct struct_message_ae_smart_shunt_1 {
   uint32_t tempSensorUpdateInterval; // Added for Staleness Logic
   uint32_t tempSensorLastUpdate;
   char tempSensorName[24]; // ADDED: Relayed Device Name
+  uint8_t tempSensorHardwareVersion;
+  char tempSensorFirmwareVersion[12];
   
   // Hardware Version (injected at compile time)
   uint8_t hardwareVersion;
@@ -109,6 +111,8 @@ typedef struct struct_message_temp_sensor {
   uint8_t batteryLevel;
   uint32_t updateInterval;
   char name[16];
+  uint8_t hardwareVersion;
+  char firmwareVersion[12];
 } __attribute__((packed)) struct_message_temp_sensor;
 
 typedef struct struct_message_add_peer {
@@ -119,5 +123,19 @@ typedef struct struct_message_add_peer {
   bool encrypt;
 } __attribute__((packed)) struct_message_add_peer;
 
+// UI Helper Struct (Gauge only, but safe to include)
+typedef struct {
+    float inputVoltage;
+    float outputVoltage;
+    uint16_t alarmReason;
+    uint8_t deviceState;
+    uint8_t errorCode;
+    uint16_t warningReason;
+    uint32_t offReason;
+    char deviceName[32];
+} lv_ble_ui_data_t;
+
+// Backward Compatibility
+typedef struct_message_temp_sensor struct_message_ae_temp_sensor;
 
 #endif // SHARED_DEFS_H

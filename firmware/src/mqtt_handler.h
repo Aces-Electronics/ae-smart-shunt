@@ -65,6 +65,7 @@ public:
         JsonDocument doc; // ArduinoJson v7
         doc["gateway_mac"] = WiFi.macAddress();
         doc["timestamp"] = millis();
+        doc["fw_version"] = String(OTA_VERSION); // Global FW version (for the gateway itself)
 
         JsonArray sensors = doc["sensors"].to<JsonArray>();
 
@@ -101,6 +102,7 @@ public:
         
         // Hardware version
         shunt["hw_version"] = shuntStruct.hardwareVersion;
+        shunt["fw_version"] = String(OTA_VERSION);
         
         // TPMS Data (if any configured)
         JsonArray tpms = shunt["tpms"].to<JsonArray>();
@@ -121,8 +123,10 @@ public:
             tempSensor["type"] = "temp";
             tempSensor["temp"] = shuntStruct.tempSensorTemperature;
             tempSensor["battery"] = shuntStruct.tempSensorBatteryLevel;
-            tempSensor["age_ms"] = shuntStruct.tempSensorLastUpdate;
+            tempSensor["age_ms"] = millis() - shuntStruct.tempSensorLastUpdate;
             tempSensor["interval_ms"] = shuntStruct.tempSensorUpdateInterval;
+            tempSensor["hw_version"] = shuntStruct.tempSensorHardwareVersion;
+            tempSensor["fw_version"] = shuntStruct.tempSensorFirmwareVersion;
             if (strlen(shuntStruct.tempSensorName) > 0) {
                 tempSensor["name"] = String(shuntStruct.tempSensorName);
             }

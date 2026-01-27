@@ -27,8 +27,8 @@ public:
     void switchToSecureMode(const uint8_t* gaugeMac);
     
     // Process incoming Temp Sensor Data
-    void updateTempSensorData(float temp, uint8_t batt, uint32_t interval, const char* name);
-    void getTempSensorData(float &temp, uint8_t &batt, uint32_t &lastUpdate, uint32_t &interval, char* nameBuf);
+    void updateTempSensorData(float temp, uint8_t batt, uint32_t interval, const char* name, uint8_t hwVersion, const char* fwVersion);
+    void getTempSensorData(float &temp, uint8_t &batt, uint32_t &lastUpdate, uint32_t &interval, char* nameBuf, uint8_t &hwVersion, char* fwVersionBuf);
     
     // Gauge RX Tracking
     void recordGaugeRx();
@@ -50,6 +50,8 @@ private:
     uint32_t rawTempLastUpdate = 0; // Timestamp (millis) of last RX
     uint32_t rawTempInterval = 0;
     char rawTempName[24] = {0};
+    uint8_t rawTempHwVersion = 0;
+    char rawTempFwVersion[12] = {0};
 
     bool isSecure = false;
 public: // Made public for static callback access (or add friend/getter)
