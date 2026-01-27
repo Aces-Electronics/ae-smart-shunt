@@ -1217,7 +1217,14 @@ void INA226_ADC::setProtectionSettings(float lv_cutoff, float hyst,
   hysteresis = hyst;
   overcurrentThreshold = oc_thresh;
   saveProtectionSettings();
-  configureAlert(overcurrentThreshold); // Re-configure alert with new threshold
+  saveProtectionSettings();
+  
+  // Prefer proper E-Fuse limit if active
+  if (efuseLimit > 0.0f) {
+      configureAlert(efuseLimit);
+  } else {
+      configureAlert(overcurrentThreshold); // Re-configure alert with new threshold
+  }
 }
 
 void INA226_ADC::setVoltageProtection(float cutoff, float reconnect_voltage) {
