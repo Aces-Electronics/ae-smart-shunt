@@ -5,5 +5,5 @@
 .vscode/ipch
 .DS_Store
 hardware/smart_shunt_v0.0.1-backups/
-firmware/src/passwords.hreleases/
+releases/
 get-platformio.py

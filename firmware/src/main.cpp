@@ -8,7 +8,6 @@ SET_LOOP_TASK_STACK_SIZE(16 * 1024); // 16KB, GitHub responses are heavy
 #include "ble_handler.h"
 #include "espnow_handler.h"
 #include "gpio_adc.h"
-#include "passwords.h"
 #include "ota_handler.h"
 #include "tpms_handler.h"
 #include "crash_handler.h"
