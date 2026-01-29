@@ -47,10 +47,13 @@ public:
         if (client.connected()) return true;
 
         String clientId = "AEShunt-" + WiFi.macAddress();
-        if (client.connect(clientId.c_str(), _user.c_str(), _pass.c_str())) {
+        // connect(clientId, user, pass, willTopic, willQos, willRetain, willMessage, cleanSession)
+        // Set cleanSession = false to request persistent session (queuing of QoS 1+ messages)
+        if (client.connect(clientId.c_str(), _user.c_str(), _pass.c_str(), 0, 0, 0, 0, false)) {
             Serial.println("MQTT Connected");
             String subTopic = "ae/device/" + WiFi.macAddress() + "/command";
-            client.subscribe(subTopic.c_str());
+            // Subscribe with QoS 1 to ensure delivery of queued messages
+            client.subscribe(subTopic.c_str(), 1);
             return true;
         }
         return false;
@@ -117,25 +120,35 @@ public:
             }
         }
 
-        // 2. Temp Sensor (if available)
+        // 2. Temp Sensor (if available) - Sent as separate device for Device Tree visibility
         if (shuntStruct.tempSensorLastUpdate != 0xFFFFFFFF) {
             JsonObject tempSensor = sensors.add<JsonObject>();
             tempSensor["type"] = "temp";
             
+            // Use MAC if available, else derive from Shunt MAC to ensure parent-child relationship
             String tempMac = _espNow.getTempSensorMac();
             if (tempMac.length() > 0) {
                  tempSensor["mac"] = tempMac;
+            } else {
+                 // Create a pseudo-MAC by toggling the last bit of the Shunt MAC or appending
+                 // Note: Ideally we want a valid 12-char hex or 17-char colon-sep string.
+                 // Let's modify the Shunt MAC slightly.
+                 String base = WiFi.macAddress();
+                 // Simple hack: Replace last char with 'F' or '0' if different? 
+                 // Better: "AA:BB:CC:DD:EE:FF" -> "AA:BB:CC:DD:EE:FE" (if FF)
+                 // Or just append unique suffix if DB allows? Let's just use the Shunt MAC + "-T".
+                 // Postgres MACADDR type is strict, but VARCHAR is not. 
+                 // Assuming VARCHAR based on "New Gateway" logic.
+                 tempSensor["mac"] = base + "-TEMP";
             }
-            
+
+            tempSensor["name"] = (strlen(shuntStruct.tempSensorName) > 0) ? String(shuntStruct.tempSensorName) : "Temp Sensor";
             tempSensor["temp"] = shuntStruct.tempSensorTemperature;
             tempSensor["battery"] = shuntStruct.tempSensorBatteryLevel;
             tempSensor["age_ms"] = millis() - shuntStruct.tempSensorLastUpdate;
             tempSensor["interval_ms"] = shuntStruct.tempSensorUpdateInterval;
             tempSensor["hw_version"] = shuntStruct.tempSensorHardwareVersion;
             tempSensor["fw_version"] = shuntStruct.tempSensorFirmwareVersion;
-            if (strlen(shuntStruct.tempSensorName) > 0) {
-                tempSensor["name"] = String(shuntStruct.tempSensorName);
-            }
         }
 
         String output;
@@ -201,10 +214,35 @@ public:
     String getBroker() { return _broker; }
     String getUser() { return _user; }
 
+    void setUpdateCallback(std::function<void()> callback) {
+        _updateCallback = callback;
+    }
+
 private:
     void callback(char* topic, uint8_t* payload, unsigned int length) {
         Serial.printf("Message arrived [%s]\n", topic);
-        // Handle commands (Toggle Relay etc)
+        
+        // Parse Payload
+        JsonDocument doc;
+        DeserializationError error = deserializeJson(doc, payload, length);
+
+        if (error) {
+            Serial.print(F("deserializeJson() failed: "));
+            Serial.println(error.c_str());
+            return;
+        }
+
+        if (doc.containsKey("cmd")) {
+            String cmd = doc["cmd"];
+            Serial.println("MQTT Command: " + cmd);
+
+            if (cmd == "check_fw" || cmd == "update") {
+                Serial.println("Triggering Firmware Check...");
+                if (_updateCallback) {
+                    _updateCallback();
+                }
+            }
+        }
     }
 
     ESPNowHandler& _espNow;
@@ -214,6 +252,7 @@ private:
     String _broker;
     String _user;
     String _pass;
+    std::function<void()> _updateCallback = nullptr;
 };
 
 #endif

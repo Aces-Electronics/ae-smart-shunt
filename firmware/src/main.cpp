@@ -1645,6 +1645,14 @@ void setup()
       mqttHandler.setAuth(user, pass);
   });
 
+  // OTA Trigger from MQTT
+  mqttHandler.setUpdateCallback([](){
+      Serial.println("[MQTT] Callback: Requesting Firmware Check");
+      // Reuse the main loop OTA logic (thread-safe flag)
+      ota_command = 1;
+      ota_command_pending = true;
+  });
+
   // Create initial telemetry data for the first advertisement
   ina226_adc.readSensors(); // Read sensors to get initial values
   
@@ -2394,11 +2402,12 @@ void loop() {
                          // Update struct with fresh telemetry data before sending
                          updateStruct();
                          mqttHandler.sendUplink(ae_smart_shunt_struct);
-                         // CRITICAL: Give MQTT client time to send message before WiFi disconnect
-                         // PubSubClient needs multiple loop() calls to process outgoing queue
-                         for (int i = 0; i < 20; i++) {
+                         // CRITICAL: Give MQTT client time to send message AND receive queued commands (QoS 1)
+                         // PubSubClient needs multiple loop() calls.
+                         // Increased to 50 iterations * 20ms = 1000ms to allow for incoming message processing
+                         for (int i = 0; i < 50; i++) {
                              mqttHandler.loop();
-                             delay(100); // 20 * 100ms = 2 seconds total
+                             delay(20); 
                          }
                          runStatus = 1; // Success
                          g_lastCloudSuccessTime = millis();
