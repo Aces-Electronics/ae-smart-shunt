@@ -73,7 +73,7 @@ void TPMSHandler::begin() {
     pBLEScan->setAdvertisedDeviceCallbacks(new TPMSAdvertisedDeviceCallbacks());
     pBLEScan->setActiveScan(true);
     pBLEScan->setInterval(100);
-    pBLEScan->setWindow(99);
+    pBLEScan->setWindow(50);
     
     loadFromNVS();
 }

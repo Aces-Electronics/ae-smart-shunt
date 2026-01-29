@@ -107,13 +107,13 @@ public:
         // TPMS Data (if any configured)
         JsonArray tpms = shunt["tpms"].to<JsonArray>();
         for (int i = 0; i < 4; i++) {
-            if (shuntStruct.tpmsLastUpdate[i] != 0xFFFFFFFF) { // Valid data
+            if (shuntStruct.tpmsLastUpdate[i] != 0xFFFFFFFF && shuntStruct.tpmsLastUpdate[i] != 0xFFFFFFFE) { // Valid data
                 JsonObject tire = tpms.add<JsonObject>();
                 tire["index"] = i;
                 tire["pressure_psi"] = shuntStruct.tpmsPressurePsi[i];
                 tire["temp_c"] = shuntStruct.tpmsTemperature[i];
                 tire["battery_v"] = shuntStruct.tpmsVoltage[i];
-                tire["age_ms"] = shuntStruct.tpmsLastUpdate[i];
+                tire["age_ms"] = millis() - shuntStruct.tpmsLastUpdate[i];
             }
         }
 
