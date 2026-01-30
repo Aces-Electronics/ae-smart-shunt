@@ -2412,8 +2412,10 @@ void loop() {
                          runStatus = 1; // Success
                          g_lastCloudSuccessTime = millis();
 
-                         // --- AUTOMATIC OTA POLL ---
-                         otaHandler.checkForUpdateAlreadyConnected();
+                         g_lastCloudSuccessTime = millis();
+
+                         // Automatic OTA Poll Removed - Triggered via MQTT check_fw command
+
                      } else {
                          Serial.println("[MQTT] Broker Connection Failed.");
                          runStatus = 3; // MQTT Fail
