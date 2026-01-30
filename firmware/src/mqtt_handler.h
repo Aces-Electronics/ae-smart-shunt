@@ -233,7 +233,7 @@ private:
             return;
         }
 
-        if (doc.containsKey("cmd")) {
+        if (doc["cmd"].is<const char*>()) {
             String cmd = doc["cmd"];
             Serial.println("MQTT Command: " + cmd);
 

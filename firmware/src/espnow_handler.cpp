@@ -82,8 +82,7 @@ static void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len
 
 // 🔒 Compile-time check: catch padding/alignment mismatches.
 // Update "EXPECTED_AE_SMART_SHUNT_STRUCT_SIZE" if your struct changes.
-// Update "EXPECTED_AE_SMART_SHUNT_STRUCT_SIZE" if your struct changes.
-#define EXPECTED_AE_SMART_SHUNT_STRUCT_SIZE 241   // Updated for relaying peripheral versions
+#define EXPECTED_AE_SMART_SHUNT_STRUCT_SIZE 245   // Updated for relaying peripheral versions
 static_assert(sizeof(struct_message_ae_smart_shunt_1) == EXPECTED_AE_SMART_SHUNT_STRUCT_SIZE,
               "struct_message_ae_smart_shunt_1 has unexpected size! Possible padding/alignment issue.");
 
