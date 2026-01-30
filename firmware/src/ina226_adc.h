@@ -119,6 +119,11 @@ public:
   float getAverageCurrentFromEnergyBuffer_A() const;
   void resetEnergyStats();
 
+  // Uplink Averaging
+  void accumulateUplinkCurrent(float current_mA);
+  float getUplinkAverageCurrent_A() const;
+  void resetUplinkAverage();
+
 private:
   INA226_WE ina226;
   float defaultOhms;    // Original default shunt resistance
@@ -187,5 +192,9 @@ private:
                                           // Let's store Ws for consistency with accumulator.
   CircularBuffer<float, 24> hourBuffer;   // Last 24 hours (stores Wh)
   CircularBuffer<float, 7> dayBuffer;     // Last 7 days (stores Wh)
+
+  // Uplink Accumulator
+  double uplinkCurrentAccumulator; // Sum of current (mA)
+  uint32_t uplinkSampleCount;      // Number of samples
 };
 #endif

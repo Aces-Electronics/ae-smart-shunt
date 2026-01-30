@@ -202,6 +202,8 @@ void INA226_ADC::begin(int sdaPin, int sclPin) {
       configureAlert(overcurrentThreshold);
   }
   setInitialSOC();
+
+  resetUplinkAverage(); // Init accumulator
 }
 
 void INA226_ADC::readSensors() {
@@ -1740,3 +1742,34 @@ void INA226_ADC::setDeviceNameSuffix(String suffix) {
 }
 
 String INA226_ADC::getDeviceNameSuffix() const { return deviceNameSuffix; }
+// ---------------- Uplink Averaging ----------------
+
+void INA226_ADC::accumulateUplinkCurrent(float current_mA) {
+    if (isnan(current_mA) || isinf(current_mA)) return;
+    
+    // Safety clamp (optional but good practice)
+    if (fabs(current_mA) > 200000.0f) return; // Ignore > 200A spikes (unlikely)
+
+    uplinkCurrentAccumulator += current_mA;
+    uplinkSampleCount++;
+}
+
+float INA226_ADC::getUplinkAverageCurrent_A() const {
+    if (uplinkSampleCount == 0) return 0.0f;
+    
+    double avg_mA = uplinkCurrentAccumulator / (double)uplinkSampleCount;
+    
+    // Invert sign to match getCalibratedCurrent logic (Charge = Positive)
+    // The raw sum accumulates raw_mA which is often negative for charge depending on setup.
+    // wait, INA226::getCurrent_mA() returns -result_mA.
+    // So if we accumulate the OUTPUT of getCurrent_mA(), we are fine.
+    // If we accumulate raw, we need to flip.
+    // Let's assume caller passes the RESULT of getCurrent_mA().
+    
+    return (float)(avg_mA / 1000.0);
+}
+
+void INA226_ADC::resetUplinkAverage() {
+    uplinkCurrentAccumulator = 0.0;
+    uplinkSampleCount = 0;
+}

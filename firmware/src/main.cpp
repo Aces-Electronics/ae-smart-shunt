@@ -2118,6 +2118,7 @@ void updateStruct() {
 
       ae_smart_shunt_struct.batteryVoltage = ina226_adc.getBusVoltage_V();
       ae_smart_shunt_struct.batteryCurrent = ina226_adc.getCurrent_mA() / 1000.0f;
+      ae_smart_shunt_struct.batteryCurrentAvg = ina226_adc.getUplinkAverageCurrent_A(); // NEW: Averaged
       ae_smart_shunt_struct.batteryPower = ina226_adc.getPower_mW() / 1000.0f;
       ae_smart_shunt_struct.starterBatteryVoltage = starter_adc.readVoltage();
       ae_smart_shunt_struct.lastHourWh = ina226_adc.getLastHourEnergy_Wh();
@@ -2293,8 +2294,12 @@ void loop() {
       ina226_adc.readSensors();
       ina226_adc.checkAndHandleProtection(); 
       if (ina226_adc.isConfigured()) {
-          ina226_adc.updateBatteryCapacity(ina226_adc.getCurrent_mA() / 1000.0f);
+          float current_mA = ina226_adc.getCurrent_mA();
+          ina226_adc.updateBatteryCapacity(current_mA / 1000.0f);
           ina226_adc.updateEnergyUsage(ina226_adc.getPower_mW());
+          
+          // Accumulate for Uplink Average
+          ina226_adc.accumulateUplinkCurrent(current_mA);
       }
       last_polling_millis = millis();
   }
@@ -2413,6 +2418,9 @@ void loop() {
                          g_lastCloudSuccessTime = millis();
 
                          g_lastCloudSuccessTime = millis();
+                         
+                         // Reset Average after successful upload
+                         ina226_adc.resetUplinkAverage();
 
                          // Automatic OTA Poll Removed - Triggered via MQTT check_fw command
 

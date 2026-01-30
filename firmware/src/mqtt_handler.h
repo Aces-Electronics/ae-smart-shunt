@@ -80,6 +80,7 @@ public:
         // Core telemetry
         shunt["volts"] = shuntStruct.batteryVoltage;
         shunt["amps"] = shuntStruct.batteryCurrent;
+        shunt["amps_avg"] = shuntStruct.batteryCurrentAvg; // NEW: Averaged Current
         shunt["power"] = shuntStruct.batteryPower;
         shunt["soc"] = shuntStruct.batterySOC * 100.0f; // Convert 0-1 to 0-100
         shunt["capacity_ah"] = shuntStruct.batteryCapacity;
