@@ -219,6 +219,10 @@ public:
         _ota = ota;
     }
 
+    void setUpdateCallback(std::function<void()> callback) {
+        _updateCallback = callback;
+    }
+
 private:
     void callback(char* topic, uint8_t* payload, unsigned int length) {
         Serial.printf("Message arrived [%s]\n", topic);
