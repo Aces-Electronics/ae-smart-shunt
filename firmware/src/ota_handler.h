@@ -24,6 +24,9 @@ public:
     
     // Polling when WiFi is already connected (e.g. during MQTT uplink)
     void checkForUpdateAlreadyConnected();
+    
+    // Push-based update (Triggered via MQTT with direct URL)
+    void startUpdateDirect(const String& url, const String& version, const String& md5);
 
 
 private:

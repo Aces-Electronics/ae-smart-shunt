@@ -1645,6 +1645,8 @@ void setup()
       mqttHandler.setAuth(user, pass);
   });
 
+  mqttHandler.setOtaHandler(&otaHandler);
+
   // OTA Trigger from MQTT
   mqttHandler.setUpdateCallback([](){
       Serial.println("[MQTT] Callback: Requesting Firmware Check");
@@ -2407,13 +2409,13 @@ void loop() {
                          // Update struct with fresh telemetry data before sending
                          updateStruct();
                          mqttHandler.sendUplink(ae_smart_shunt_struct);
-                         // CRITICAL: Give MQTT client time to send message AND receive queued commands (QoS 1)
-                         // PubSubClient needs multiple loop() calls.
-                         // Increased to 50 iterations * 20ms = 1000ms to allow for incoming message processing
-                         for (int i = 0; i < 50; i++) {
-                             mqttHandler.loop();
-                             delay(20); 
-                         }
+                          // CRITICAL: Give MQTT client time to send message AND receive queued commands (QoS 1)
+                          // PubSubClient needs multiple loop() calls.
+                          // Increased to 250 iterations * 20ms = 5000ms to allow more time for worker to respond & JIT to trigger
+                          for (int i = 0; i < 250; i++) {
+                              mqttHandler.loop();
+                              delay(20); 
+                          }
                          runStatus = 1; // Success
                          g_lastCloudSuccessTime = millis();
 

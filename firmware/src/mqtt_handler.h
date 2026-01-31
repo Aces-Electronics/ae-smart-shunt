@@ -51,7 +51,7 @@ public:
         // Set cleanSession = false to request persistent session (queuing of QoS 1+ messages)
         if (client.connect(clientId.c_str(), _user.c_str(), _pass.c_str(), 0, 0, 0, 0, false)) {
             Serial.println("MQTT Connected");
-            String subTopic = "ae/device/" + WiFi.macAddress() + "/command";
+            String subTopic = "ae/downlink/" + WiFi.macAddress() + "/#";
             // Subscribe with QoS 1 to ensure delivery of queued messages
             client.subscribe(subTopic.c_str(), 1);
             return true;
@@ -215,13 +215,14 @@ public:
     String getBroker() { return _broker; }
     String getUser() { return _user; }
 
-    void setUpdateCallback(std::function<void()> callback) {
-        _updateCallback = callback;
+    void setOtaHandler(OtaHandler* ota) {
+        _ota = ota;
     }
 
 private:
     void callback(char* topic, uint8_t* payload, unsigned int length) {
         Serial.printf("Message arrived [%s]\n", topic);
+        String top = String(topic);
         
         // Parse Payload
         JsonDocument doc;
@@ -233,21 +234,42 @@ private:
             return;
         }
 
-        if (doc["cmd"].is<const char*>()) {
-            String cmd = doc["cmd"];
-            Serial.println("MQTT Command: " + cmd);
+        // 1. Handle legacy "ae/device/<MAC>/command"
+        if (top.endsWith("/command")) {
+            if (doc["cmd"].is<const char*>()) {
+                String cmd = doc["cmd"];
+                Serial.println("MQTT Legacy Command: " + cmd);
 
-            if (cmd == "check_fw" || cmd == "update") {
-                Serial.println("Triggering Firmware Check...");
-                if (_updateCallback) {
-                    _updateCallback();
+                if (cmd == "check_fw" || cmd == "update") {
+                    Serial.println("Triggering Firmware Check...");
+                    if (_updateCallback) {
+                        _updateCallback();
+                    }
                 }
+            }
+        }
+        // 2. Handle new "ae/downlink/<MAC>/OTA"
+        else if (top.endsWith("/OTA")) {
+            Serial.println("MQTT: Received Push OTA Command");
+            if (_ota) {
+                String url = doc["url"];
+                String version = doc["version"];
+                String md5 = doc["md5"];
+                
+                if (url.length() > 0 && version.length() > 0) {
+                     _ota->startUpdateDirect(url, version, md5);
+                } else {
+                     Serial.println("[MQTT] ERROR: Invalid OTA payload (missing url/version)");
+                }
+            } else {
+                Serial.println("[MQTT] ERROR: OtaHandler not linked");
             }
         }
     }
 
     ESPNowHandler& _espNow;
     INA226_ADC& _ina;
+    OtaHandler* _ota = nullptr;
     WiFiClient espClient;
     PubSubClient client;
     String _broker;

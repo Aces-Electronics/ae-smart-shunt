@@ -244,3 +244,32 @@ void OtaHandler::startUpdate() {
         ota_state = OTA_FAILED;
     }
 }
+
+void OtaHandler::startUpdateDirect(const String& url, const String& version, const String& md5) {
+    Serial.printf("[OTA_HANDLER] Direct update requested: %s (v%s)\n", url.c_str(), version.c_str());
+    
+    // Populate the UpdateObject with details provided via MQTT
+    latest_update_details.condition = OTA::NEW_DIFFERENT;
+    latest_update_details.tag_name = version;
+    
+    // Parse URL into server and endpoint if it's a full URL
+    if (url.startsWith("http")) {
+        int protoEnd = url.indexOf("://");
+        int pathStart = url.indexOf("/", protoEnd + 3);
+        if (pathStart > 0) {
+            String host = url.substring(protoEnd + 3, pathStart);
+            String path = url.substring(pathStart);
+            
+            latest_update_details.redirect_server = host;
+            latest_update_details.firmware_asset_endpoint = path;
+            Serial.printf("[OTA_HANDLER] Parsed URL: Host=%s, Path=%s\n", host.c_str(), path.c_str());
+        } else {
+            latest_update_details.firmware_asset_endpoint = url;
+        }
+    } else {
+        latest_update_details.firmware_asset_endpoint = url;
+    }
+    
+    // Start update
+    startUpdate();
+}
