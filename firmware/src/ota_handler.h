@@ -26,9 +26,10 @@ public:
     void checkForUpdateAlreadyConnected();
     
     // Push-based update (Triggered via MQTT with direct URL)
-    void startUpdateDirect(const String& url, const String& version, const String& md5);
+    void startUpdateDirect(const String& url, const String& version, const String& md5, bool force = false);
 
-
+    void forceUpdate() { force_update_pending = true; }
+    
 private:
     void checkForUpdate();
     void startUpdate();
@@ -44,6 +45,7 @@ private:
 
     bool check_for_update_pending = false;
     bool start_update_pending = false;
+    bool force_update_pending = false;
 
     enum OtaState {
         OTA_IDLE,

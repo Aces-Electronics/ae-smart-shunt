@@ -212,6 +212,89 @@ void pairingCallback(String payload) {
         return;
     }
 
+    if (payload == "FORCE_MQTT") {
+        Serial.println("Received FORCE_MQTT command via BLE.");
+        g_forceMqttUplink = true;
+        return;
+    }
+
+    if (payload == "FORCE_OTA") {
+        Serial.println("Received FORCE_OTA command via BLE.");
+        otaHandler.forceUpdate();
+        ota_command = 1; // Trigger update check
+        ota_command_pending = true;
+        return;
+    }
+
+    if (payload == "FORCE_OTA_GAUGE") {
+        Serial.println("Received FORCE_OTA_GAUGE command via BLE.");
+        
+        Preferences p; 
+        p.begin("pairing", true);
+        String macStr = p.getString("p_gauge_mac", ""); 
+        p.end();
+
+        if (macStr.length() == 0) {
+             Serial.println("No Gauge Paired. Cannot Force Update.");
+             return;
+        }
+
+        // Clean MAC
+        macStr.replace(":", "");
+        uint8_t mac[6];
+        if (macStr.length() == 12) {
+             hexStringToBytes(macStr, mac, 6);
+             
+             struct_message_ota_trigger msg;
+             memset(&msg, 0, sizeof(msg)); // Zero out
+             msg.messageID = 110;
+             strcpy(msg.ssid, otaHandler.getWifiSsid().c_str());
+             strcpy(msg.pass, otaHandler.getWifiPass().c_str());
+             msg.force = true; 
+             // Leaving URL empty implies "Check for yourself" to the receiver
+             
+             espNowHandler.sendOtaTrigger(mac, msg);
+             Serial.println("Sent FORCE OTA Trigger to Gauge.");
+        } else {
+             Serial.println("Invalid Paired Gauge MAC.");
+        }
+        return;
+    }
+
+    if (payload == "FORCE_OTA_TEMP") {
+        Serial.println("Received FORCE_OTA_TEMP command via BLE.");
+        
+        Preferences p; 
+        p.begin("pairing", true);
+        String macStr = p.getString("p_temp_mac", ""); 
+        p.end();
+
+        if (macStr.length() == 0) {
+             Serial.println("No Temp Sensor Paired. Cannot Force Update.");
+             return;
+        }
+
+        // Clean MAC
+        macStr.replace(":", "");
+        uint8_t mac[6];
+        if (macStr.length() == 12) {
+             hexStringToBytes(macStr, mac, 6);
+             
+             struct_message_ota_trigger msg;
+             memset(&msg, 0, sizeof(msg)); // Zero out
+             msg.messageID = 110;
+             strcpy(msg.ssid, otaHandler.getWifiSsid().c_str());
+             strcpy(msg.pass, otaHandler.getWifiPass().c_str());
+             msg.force = true; 
+             
+             espNowHandler.sendOtaTrigger(mac, msg);
+             Serial.println("Sent FORCE OTA Trigger to Temp Sensor.");
+        } else {
+             Serial.println("Invalid Paired Temp MAC.");
+        }
+        return;
+    }
+
     // Handle "MAC:KEY" format (e.g. "AABBCCDDEEFF:001122...33")
     // MAC (12) + : + Key (32) = 45 chars min.
     // Or MAC with colons (17) + : + Key (32) = 50 chars.

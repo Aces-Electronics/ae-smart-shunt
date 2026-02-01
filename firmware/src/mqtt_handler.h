@@ -261,7 +261,8 @@ private:
                 String md5 = doc["md5"];
                 
                 if (url.length() > 0 && version.length() > 0) {
-                     _ota->startUpdateDirect(url, version, md5);
+                     bool force = doc["force"] | false;
+                     _ota->startUpdateDirect(url, version, md5, force);
                 } else {
                      Serial.println("[MQTT] ERROR: Invalid OTA payload (missing url/version)");
                 }

@@ -168,7 +168,7 @@ void OtaHandler::checkForUpdateAlreadyConnected() {
 
     Serial.printf("[OTA_HANDLER] Update check result: %d (Current: %s)\n", latest_update_details.condition, OTA_VERSION);
 
-    if (OTA::NO_UPDATE == latest_update_details.condition) {
+    if (OTA::NO_UPDATE == latest_update_details.condition && !force_update_pending) {
         Serial.println("[OTA_HANDLER] No new update available.");
         bleHandler.updateOtaStatus(3); // 3: No update available
         
@@ -181,6 +181,11 @@ void OtaHandler::checkForUpdateAlreadyConnected() {
             ota_state = OTA_IDLE;
         }
     } else {
+        if (force_update_pending) {
+            Serial.println("[OTA_HANDLER] FORCE UPDATE triggered. Overriding check.");
+            latest_update_details.condition = OTA::NEW_DIFFERENT;
+            force_update_pending = false;
+        }
         Serial.printf("[OTA_HANDLER] Update available: %s\n", latest_update_details.tag_name.c_str());
 
         // Create a minimal JSON payload with only the version number
@@ -245,10 +250,10 @@ void OtaHandler::startUpdate() {
     }
 }
 
-void OtaHandler::startUpdateDirect(const String& url, const String& version, const String& md5) {
-    // Defensive Check: Don't update if we are already on this version
-    if (version == String(OTA_VERSION)) {
-        Serial.printf("[OTA_HANDLER] Direct update ignored: Already on version %s\n", version.c_str());
+void OtaHandler::startUpdateDirect(const String& url, const String& version, const String& md5, bool force) {
+    // Defensive Check: Don't update if we are already on this version, UNLESS forced
+    if (version == String(OTA_VERSION) && !force) {
+        Serial.printf("[OTA_HANDLER] Direct update ignored: Already on version %s (Use 'force': true to override)\n", version.c_str());
         return;
     }
 
