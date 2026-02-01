@@ -154,6 +154,32 @@ void ESPNowHandler::sendMessageAeSmartShunt()
     }
 }
 
+void ESPNowHandler::sendOtaTrigger(const uint8_t* targetMac, const struct_message_ota_trigger& trigger)
+{
+    Serial.print("[ESP-NOW] Sending OTA Trigger to: ");
+    printMacAddress(targetMac);
+    
+    // Ensure peer exists
+    if (!esp_now_is_peer_exist(targetMac)) {
+        esp_now_peer_info_t peer;
+        memset(&peer, 0, sizeof(peer));
+        memcpy(peer.peer_addr, targetMac, 6);
+        peer.channel = 0;
+        peer.encrypt = false;
+        if (esp_now_add_peer(&peer) != ESP_OK) {
+            Serial.println("[ESP-NOW] Failed to add Peer for OTA Trigger");
+            return;
+        }
+    }
+    
+    esp_err_t result = esp_now_send(targetMac, (const uint8_t *)&trigger, sizeof(trigger));
+    if (result == ESP_OK) {
+        Serial.println("[ESP-NOW] OTA Trigger sent successfully");
+    } else {
+        Serial.printf("[ESP-NOW] Error sending OTA Trigger: %s\n", esp_err_to_name(result));
+    }
+}
+
 bool ESPNowHandler::addEncryptedPeer(const uint8_t* mac, const uint8_t* key)
 {
     esp_now_peer_info_t securePeer;

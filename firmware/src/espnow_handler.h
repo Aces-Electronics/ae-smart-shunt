@@ -21,6 +21,7 @@ public:
     // If secure mode is active, sends encrypted unicast to targetPeer + insecure beacon (optional)
     // Else broadcasts insecurely.
     void sendMessageAeSmartShunt();
+    void sendOtaTrigger(const uint8_t* targetMac, const struct_message_ota_trigger& trigger);
     void setForceBroadcast(bool force) { m_forceBroadcast = force; }
     
     bool addEncryptedPeer(const uint8_t* mac, const uint8_t* key);

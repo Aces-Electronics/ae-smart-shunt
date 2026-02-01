@@ -269,6 +269,63 @@ private:
                 Serial.println("[MQTT] ERROR: OtaHandler not linked");
             }
         }
+        // 3. Handle sub-device "ae/downlink/<MAC>/subdevice/<CHILD_MAC>/OTA"
+        else if (top.indexOf("/subdevice/") > 0 && top.endsWith("/OTA")) {
+            Serial.println("MQTT: Received Indirect OTA Command for sub-device");
+            
+            // Extract Child MAC
+            int subIdx = top.indexOf("/subdevice/") + 11;
+            int nextSlash = top.indexOf("/", subIdx);
+            String childMacStr = top.substring(subIdx, nextSlash);
+            
+            uint8_t childMac[6];
+            // Format: "AA:BB:CC:DD:EE:FF" or "AABBCCDDEEFF"
+            if (childMacStr.length() == 17) {
+                for(int i=0; i<6; i++) {
+                    char buf[3] = { childMacStr[i*3], childMacStr[i*3+1], '\0' };
+                    childMac[i] = (uint8_t)strtoul(buf, NULL, 16);
+                }
+            } else if (childMacStr.length() == 12) {
+                for(int i=0; i<6; i++) {
+                    char buf[3] = { childMacStr[i*2], childMacStr[i*2+1], '\0' };
+                    childMac[i] = (uint8_t)strtoul(buf, NULL, 16);
+                }
+            } else {
+                Serial.println("[MQTT] ERROR: Invalid Child MAC in topic: " + childMacStr);
+                return;
+            }
+            
+            // Load WiFi Credentials from NVS
+            Preferences p;
+            p.begin("ota", true);
+            String ssid = p.getString("w_ssid", "");
+            String pass = p.getString("w_pass", "");
+            p.end();
+            
+            if (ssid.length() == 0) {
+                 Serial.println("[MQTT] ERROR: No WiFi credentials saved to relay to child");
+                 return;
+            }
+            
+            // Prepare Trigger Struct
+            struct_message_ota_trigger trigger;
+            memset(&trigger, 0, sizeof(trigger));
+            trigger.messageID = 110;
+            
+            strncpy(trigger.ssid, ssid.c_str(), sizeof(trigger.ssid)-1);
+            strncpy(trigger.pass, pass.c_str(), sizeof(trigger.pass)-1);
+            
+            String url = doc["url"];
+            String version = doc["version"];
+            String md5 = doc["md5"];
+            
+            strncpy(trigger.url, url.c_str(), sizeof(trigger.url)-1);
+            strncpy(trigger.version, version.c_str(), sizeof(trigger.version)-1);
+            strncpy(trigger.md5, md5.c_str(), sizeof(trigger.md5)-1);
+            
+            // Dispatch via ESP-NOW
+            _espNow.sendOtaTrigger(childMac, trigger);
+        }
     }
 
     ESPNowHandler& _espNow;
