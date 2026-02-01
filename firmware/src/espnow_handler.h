@@ -40,6 +40,10 @@ public:
     bool isGaugeMac(const uint8_t* mac);
     bool isPaired();
     
+    // Gauge Data Management
+    void loadGaugeDataFromNVS(); // Load paired Gauge info from NVS
+    void getGaugeData(char* nameBuf, uint8_t &hwVersion, char* fwVersionBuf, uint8_t* macBuf, uint32_t &lastUpdate);
+    
     // Handle new peer request (save to NVS + add to ESP-NOW)
     void handleNewPeer(const uint8_t* mac, const uint8_t* key);
 
@@ -57,6 +61,13 @@ private:
     uint8_t rawTempHwVersion = 0;
     char rawTempFwVersion[12] = {0};
     char rawTempMac[18] = {0}; // Add storage for MAC string "AA:BB:CC:DD:EE:FF"
+    
+    // Gauge Data Storage
+    char rawGaugeName[32] = {0};
+    uint8_t rawGaugeHwVersion = 0;
+    char rawGaugeFwVersion[12] = {0};
+    uint8_t rawGaugeMac[6] = {0}; // Binary MAC
+    uint32_t rawGaugeLastUpdate = 0;
 
     bool isSecure = false;
 public: // Made public for static callback access (or add friend/getter)

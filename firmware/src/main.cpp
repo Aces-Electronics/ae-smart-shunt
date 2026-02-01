@@ -2071,6 +2071,33 @@ void loop_deprecated()
     } else {
         ae_smart_shunt_struct.tempSensorLastUpdate = 0xFFFFFFFF; // Never updated
     }
+    
+    // Populate Temp Sensor MAC
+    String tempMacStr = espNowHandler.getTempSensorMac();
+    if (tempMacStr.length() > 0) {
+        tempMacStr.replace(":", "");
+        if (tempMacStr.length() == 12) {
+            for (int i = 0; i < 6; i++) {
+                char buf[3] = { tempMacStr[i*2], tempMacStr[i*2+1], '\0' };
+                ae_smart_shunt_struct.tempSensorMac[i] = (uint8_t)strtoul(buf, NULL, 16);
+            }
+        }
+    }
+    
+    // Load and Populate Gauge Data
+    espNowHandler.loadGaugeDataFromNVS();
+    uint32_t g_last;
+    espNowHandler.getGaugeData(ae_smart_shunt_struct.gaugeName, 
+                              ae_smart_shunt_struct.gaugeHardwareVersion,
+                              ae_smart_shunt_struct.gaugeFirmwareVersion,
+                              ae_smart_shunt_struct.gaugeMac,
+                              g_last);
+    
+    if (g_last > 0) {
+        ae_smart_shunt_struct.gaugeLastUpdate = millis() - g_last; // Age in ms
+    } else {
+        ae_smart_shunt_struct.gaugeLastUpdate = 0xFFFFFFFF; // Never updated
+    }
 
     // Update BLE characteristics
     Telemetry telemetry_data = {

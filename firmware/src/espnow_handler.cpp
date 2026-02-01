@@ -82,7 +82,7 @@ static void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len
 
 // 🔒 Compile-time check: catch padding/alignment mismatches.
 // Update "EXPECTED_AE_SMART_SHUNT_STRUCT_SIZE" if your struct changes.
-#define EXPECTED_AE_SMART_SHUNT_STRUCT_SIZE 245   // Updated for relaying peripheral versions
+#define EXPECTED_AE_SMART_SHUNT_STRUCT_SIZE 306   // Updated for Gauge relay + MAC fields
 static_assert(sizeof(struct_message_ae_smart_shunt_1) == EXPECTED_AE_SMART_SHUNT_STRUCT_SIZE,
               "struct_message_ae_smart_shunt_1 has unexpected size! Possible padding/alignment issue.");
 
@@ -380,4 +380,40 @@ uint32_t ESPNowHandler::getLastGaugeRx() {
 bool ESPNowHandler::isGaugeMac(const uint8_t* mac) {
     if (!isSecure) return false;
     return (memcmp(mac, targetPeer, 6) == 0);
+}
+
+void ESPNowHandler::loadGaugeDataFromNVS() {
+    Preferences prefs;
+    prefs.begin("pairing", true); // read-only
+    
+    String macStr = prefs.getString("p_gauge_mac", "");
+    String name = prefs.getString("p_gauge_name", "AE Gauge");
+    
+    prefs.end();
+    
+    if (macStr.length() > 0) {
+        // Parse MAC string to binary
+        macStr.replace(":", "");
+        if (macStr.length() == 12) {
+            for (int i = 0; i < 6; i++) {
+                char buf[3] = { macStr[i*2], macStr[i*2+1], '\0' };
+                rawGaugeMac[i] = (uint8_t)strtoul(buf, NULL, 16);
+            }
+        }
+        
+        strncpy(rawGaugeName, name.c_str(), sizeof(rawGaugeName) - 1);
+        rawGaugeHwVersion = 1; // Default, Gauge doesn't report this yet
+        strncpy(rawGaugeFwVersion, "unknown", sizeof(rawGaugeFwVersion) - 1);
+        rawGaugeLastUpdate = lastGaugeRxTime;
+        
+        Serial.printf("[ESP-NOW] Loaded Gauge from NVS: %s (%s)\n", rawGaugeName, macStr.c_str());
+    }
+}
+
+void ESPNowHandler::getGaugeData(char* nameBuf, uint8_t &hwVersion, char* fwVersionBuf, uint8_t* macBuf, uint32_t &lastUpdate) {
+    if (nameBuf) strncpy(nameBuf, rawGaugeName, 31);
+    hwVersion = rawGaugeHwVersion;
+    if (fwVersionBuf) strncpy(fwVersionBuf, rawGaugeFwVersion, 11);
+    if (macBuf) memcpy(macBuf, rawGaugeMac, 6);
+    lastUpdate = rawGaugeLastUpdate;
 }
