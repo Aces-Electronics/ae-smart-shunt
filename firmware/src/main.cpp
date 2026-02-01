@@ -2096,7 +2096,9 @@ void loop_deprecated()
     if (g_last > 0) {
         ae_smart_shunt_struct.gaugeLastUpdate = millis() - g_last; // Age in ms
     } else {
-        ae_smart_shunt_struct.gaugeLastUpdate = 0xFFFFFFFF; // Never updated
+        // If we have a MAC in NVS but no RX this session, set to 0.
+        // This allows mqtt_handler to still send the Gauge info for discovery/registration.
+        ae_smart_shunt_struct.gaugeLastUpdate = 0; 
     }
 
     // Update BLE characteristics
