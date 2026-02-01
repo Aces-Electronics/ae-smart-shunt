@@ -78,51 +78,51 @@ public:
         shunt["type"] = "shunt";
         
         // Core telemetry
-        shunt["volts"] = shuntStruct.batteryVoltage;
-        shunt["amps"] = shuntStruct.batteryCurrent;
-        shunt["amps_avg"] = shuntStruct.batteryCurrentAvg; // NEW: Averaged Current
-        shunt["power"] = shuntStruct.batteryPower;
-        shunt["soc"] = shuntStruct.batterySOC * 100.0f; // Convert 0-1 to 0-100
-        shunt["capacity_ah"] = shuntStruct.batteryCapacity;
-        shunt["state"] = shuntStruct.batteryState;
-        shunt["run_flat_time"] = String(shuntStruct.runFlatTime);
+        shunt["volts"] = shuntStruct.mesh.batteryVoltage;
+        shunt["amps"] = shuntStruct.mesh.batteryCurrent;
+        shunt["amps_avg"] = shuntStruct.mesh.batteryCurrentAvg; // NEW: Averaged Current
+        shunt["power"] = shuntStruct.mesh.batteryPower;
+        shunt["soc"] = shuntStruct.mesh.batterySOC * 100.0f; // Convert 0-1 to 0-100
+        shunt["capacity_ah"] = shuntStruct.mesh.batteryCapacity;
+        shunt["state"] = shuntStruct.mesh.batteryState;
+        shunt["run_flat_time"] = String(shuntStruct.mesh.runFlatTime);
         shunt["rssi"] = WiFi.RSSI();
         
         // Starter battery
-        shunt["starter_volts"] = shuntStruct.starterBatteryVoltage;
+        shunt["starter_volts"] = shuntStruct.mesh.starterBatteryVoltage;
         
         // Calibration status
-        shunt["calibrated"] = shuntStruct.isCalibrated;
+        shunt["calibrated"] = shuntStruct.mesh.isCalibrated;
         
         // Energy stats
-        shunt["last_hour_wh"] = shuntStruct.lastHourWh;
-        shunt["last_day_wh"] = shuntStruct.lastDayWh;
-        shunt["last_week_wh"] = shuntStruct.lastWeekWh;
+        shunt["last_hour_wh"] = shuntStruct.mesh.lastHourWh;
+        shunt["last_day_wh"] = shuntStruct.mesh.lastDayWh;
+        shunt["last_week_wh"] = shuntStruct.mesh.lastWeekWh;
         
         // Device name
-        if (strlen(shuntStruct.name) > 0) {
-            shunt["name"] = String(shuntStruct.name);
+        if (strlen(shuntStruct.mesh.name) > 0) {
+            shunt["name"] = String(shuntStruct.mesh.name);
         }
         
         // Hardware version
-        shunt["hw_version"] = shuntStruct.hardwareVersion;
+        shunt["hw_version"] = shuntStruct.mesh.hardwareVersion;
         shunt["fw_version"] = String(OTA_VERSION);
         
         // TPMS Data (if any configured)
         JsonArray tpms = shunt["tpms"].to<JsonArray>();
         for (int i = 0; i < 4; i++) {
-            if (shuntStruct.tpmsLastUpdate[i] != 0xFFFFFFFF && shuntStruct.tpmsLastUpdate[i] != 0xFFFFFFFE) { // Valid data
+            if (shuntStruct.mesh.tpmsLastUpdate[i] != 0xFFFFFFFF && shuntStruct.mesh.tpmsLastUpdate[i] != 0xFFFFFFFE) { // Valid data
                 JsonObject tire = tpms.add<JsonObject>();
                 tire["index"] = i;
-                tire["pressure_psi"] = shuntStruct.tpmsPressurePsi[i];
-                tire["temp_c"] = shuntStruct.tpmsTemperature[i];
-                tire["battery_v"] = shuntStruct.tpmsVoltage[i];
-                tire["age_ms"] = millis() - shuntStruct.tpmsLastUpdate[i];
+                tire["pressure_psi"] = shuntStruct.mesh.tpmsPressurePsi[i];
+                tire["temp_c"] = shuntStruct.mesh.tpmsTemperature[i];
+                tire["battery_v"] = shuntStruct.mesh.tpmsVoltage[i];
+                tire["age_ms"] = millis() - shuntStruct.mesh.tpmsLastUpdate[i];
             }
         }
 
         // 2. Temp Sensor (if available) - Sent as separate device for Device Tree visibility
-        if (shuntStruct.tempSensorLastUpdate != 0xFFFFFFFF) {
+        if (shuntStruct.mesh.tempSensorLastUpdate != 0xFFFFFFFF) {
             JsonObject tempSensor = sensors.add<JsonObject>();
             tempSensor["type"] = "temp";
             
@@ -143,11 +143,11 @@ public:
                  tempSensor["mac"] = base + "-TEMP";
             }
 
-            tempSensor["name"] = (strlen(shuntStruct.tempSensorName) > 0) ? String(shuntStruct.tempSensorName) : "Temp Sensor";
-            tempSensor["temp"] = shuntStruct.tempSensorTemperature;
-            tempSensor["battery"] = shuntStruct.tempSensorBatteryLevel;
-            tempSensor["age_ms"] = millis() - shuntStruct.tempSensorLastUpdate;
-            tempSensor["interval_ms"] = shuntStruct.tempSensorUpdateInterval;
+            tempSensor["name"] = (strlen(shuntStruct.mesh.tempSensorName) > 0) ? String(shuntStruct.mesh.tempSensorName) : "Temp Sensor";
+            tempSensor["temp"] = shuntStruct.mesh.tempSensorTemperature;
+            tempSensor["battery"] = shuntStruct.mesh.tempSensorBatteryLevel;
+            tempSensor["age_ms"] = millis() - shuntStruct.mesh.tempSensorLastUpdate;
+            tempSensor["interval_ms"] = shuntStruct.mesh.tempSensorUpdateInterval;
             tempSensor["hw_version"] = shuntStruct.tempSensorHardwareVersion;
             tempSensor["fw_version"] = shuntStruct.tempSensorFirmwareVersion;
         }

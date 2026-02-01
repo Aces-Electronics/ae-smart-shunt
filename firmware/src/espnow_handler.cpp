@@ -82,7 +82,7 @@ static void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len
 
 // 🔒 Compile-time check: catch padding/alignment mismatches.
 // Update "EXPECTED_AE_SMART_SHUNT_STRUCT_SIZE" if your struct changes.
-#define EXPECTED_AE_SMART_SHUNT_STRUCT_SIZE 306   // Updated for Gauge relay + MAC fields
+#define EXPECTED_AE_SMART_SHUNT_STRUCT_SIZE 298   // Updated for Gauge relay + MAC fields
 static_assert(sizeof(struct_message_ae_smart_shunt_1) == EXPECTED_AE_SMART_SHUNT_STRUCT_SIZE,
               "struct_message_ae_smart_shunt_1 has unexpected size! Possible padding/alignment issue.");
 
@@ -119,10 +119,11 @@ void ESPNowHandler::printMacAddress(const uint8_t* mac) {
 
 void ESPNowHandler::sendMessageAeSmartShunt()
 {
-    uint8_t *data = (uint8_t *)&localAeSmartShuntStruct;
-    size_t len = sizeof(localAeSmartShuntStruct);
+    // We only send the core mesh telemetry over ESP-NOW to stay under 250-byte limit
+    uint8_t *data = (uint8_t *)&localAeSmartShuntStruct.mesh;
+    size_t len = sizeof(struct_message_ae_smart_shunt_mesh);
 
-    Serial.printf("Struct size: %d bytes\n", len);
+    Serial.printf("Struct size: %d bytes (Full: %d)\n", len, sizeof(localAeSmartShuntStruct));
     
     if (isSecure && !m_forceBroadcast) {
         // Send Encrypted Unicast to Target (no broadcast in secure mode unless forced)
@@ -138,7 +139,7 @@ void ESPNowHandler::sendMessageAeSmartShunt()
     printMacAddress(broadcastAddress);
     
     // Explicitly set ID to 33 (Discovery Beacon) for unencrypted broadcasts
-    localAeSmartShuntStruct.messageID = 33;
+    localAeSmartShuntStruct.mesh.messageID = 33;
 
     Serial.println();
 
@@ -152,6 +153,7 @@ void ESPNowHandler::sendMessageAeSmartShunt()
         Serial.print("Error sending AeSmartShunt data: ");
         Serial.println(esp_err_to_name(result));
     }
+    localAeSmartShuntStruct.mesh.messageID = 11; // Restore standard ID after broadcast
 }
 
 void ESPNowHandler::sendOtaTrigger(const uint8_t* targetMac, const struct_message_ota_trigger& trigger)

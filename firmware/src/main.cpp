@@ -968,48 +968,48 @@ void printShunt(const struct_message_ae_smart_shunt_1 *p)
       "Last Week      : %.2f Wh\n"
       "Load Output    : %s\n"
       "===================\n",
-      p->messageID,
-      p->dataChanged ? "true" : "false",
-      p->batteryVoltage,
-      p->batteryCurrent,
-      p->batteryPower,
-      p->batterySOC * 100.0f,
-      p->batteryCapacity,
-      p->starterBatteryVoltage,
-      p->batteryState,
-      p->runFlatTime,
-      p->lastHourWh,
-      p->lastDayWh,
-      p->lastWeekWh,
+      p->mesh.messageID,
+      p->mesh.dataChanged ? "true" : "false",
+      p->mesh.batteryVoltage,
+      p->mesh.batteryCurrent,
+      p->mesh.batteryPower,
+      p->mesh.batterySOC * 100.0f,
+      p->mesh.batteryCapacity,
+      p->mesh.starterBatteryVoltage,
+      p->mesh.batteryState,
+      p->mesh.runFlatTime,
+      p->mesh.lastHourWh,
+      p->mesh.lastDayWh,
+      p->mesh.lastWeekWh,
       ina226_adc.isLoadConnected() ? "ON" : "OFF"
   );
   
   // Print Temp Sensor Data (Relay) - Always show what is in the struct!
   Serial.println("--- Relayed Temp Sensor ---");
-  Serial.printf("  Temp : %.1f C\n", p->tempSensorTemperature);
-  Serial.printf("  Batt : %d %%\n", p->tempSensorBatteryLevel);
-  if (p->tempSensorLastUpdate == 0xFFFFFFFF) {
+  Serial.printf("  Temp : %.1f C\n", p->mesh.tempSensorTemperature);
+  Serial.printf("  Batt : %d %%\n", p->mesh.tempSensorBatteryLevel);
+  if (p->mesh.tempSensorLastUpdate == 0xFFFFFFFF) {
       Serial.printf("  Age  : (NO DATA)\n");
   } else {
-      if (p->tempSensorLastUpdate < 60000) {
-          Serial.printf("  Age  : %u s\n", p->tempSensorLastUpdate / 1000);
+      if (p->mesh.tempSensorLastUpdate < 60000) {
+          Serial.printf("  Age  : %u s\n", p->mesh.tempSensorLastUpdate / 1000);
       } else {
-          Serial.printf("  Age  : %u min\n", p->tempSensorLastUpdate / 60000);
+          Serial.printf("  Age  : %u min\n", p->mesh.tempSensorLastUpdate / 60000);
       }
   }
   Serial.println("===========================");
 
   Serial.println("--- TPMS Data ---");
   for(int i=0; i<4; i++) {
-      if (p->tpmsLastUpdate[i] != 0xFFFFFFFF) {
+      if (p->mesh.tpmsLastUpdate[i] != 0xFFFFFFFF) {
           Serial.printf("  %s: %.1f PSI, %d C, %.1f V (Age: %u ms)\n", 
               TPMS_POSITION_SHORT[i], 
-              p->tpmsPressurePsi[i], 
-              p->tpmsTemperature[i], 
-              p->tpmsVoltage[i],
-              p->tpmsLastUpdate[i]);
+              p->mesh.tpmsPressurePsi[i], 
+              p->mesh.tpmsTemperature[i], 
+              p->mesh.tpmsVoltage[i],
+              p->mesh.tpmsLastUpdate[i]);
       } else {
-           if (p->tpmsLastUpdate[i] == 0xFFFFFFFE) {
+           if (p->mesh.tpmsLastUpdate[i] == 0xFFFFFFFE) {
                  Serial.printf("  %s: Waiting for Data...\n", TPMS_POSITION_SHORT[i]);
            } else {
                  Serial.printf("  %s: (Not Configured)\n", TPMS_POSITION_SHORT[i]);
@@ -1610,8 +1610,8 @@ void setup()
   }
 
   // Initialize hardware version from build-time constant
-  ae_smart_shunt_struct.hardwareVersion = HW_VERSION;
-  Serial.printf("Hardware Version: %d\n", ae_smart_shunt_struct.hardwareVersion);
+  ae_smart_shunt_struct.mesh.hardwareVersion = HW_VERSION;
+  Serial.printf("Hardware Version: %d\n", ae_smart_shunt_struct.mesh.hardwareVersion);
 
   // Print calibration summary on boot
   Serial.println(F("\n--- Stored Calibration Summary ---"));
@@ -1954,22 +1954,22 @@ void loop_deprecated()
   if (millis() - last_telemetry_millis > telemetry_interval)
   {
     // Populate struct fields based on configuration status
-    ae_smart_shunt_struct.messageID = 11;
-    ae_smart_shunt_struct.dataChanged = true;
+    ae_smart_shunt_struct.mesh.messageID = 11;
+    ae_smart_shunt_struct.mesh.dataChanged = true;
 
     if (ina226_adc.isConfigured())
     {
       // --- CONFIGURED ---
-      ae_smart_shunt_struct.isCalibrated = true;
+      ae_smart_shunt_struct.mesh.isCalibrated = true;
       // Note: We don't need to call checkAndHandleProtection here as it's done in the fast loop
 
-      ae_smart_shunt_struct.batteryVoltage = ina226_adc.getBusVoltage_V();
-      ae_smart_shunt_struct.batteryCurrent = ina226_adc.getCurrent_mA() / 1000.0f;
-      ae_smart_shunt_struct.batteryPower = ina226_adc.getPower_mW() / 1000.0f;
-      ae_smart_shunt_struct.starterBatteryVoltage = starter_adc.readVoltage();
-      ae_smart_shunt_struct.lastHourWh = ina226_adc.getLastHourEnergy_Wh();
-      ae_smart_shunt_struct.lastDayWh = ina226_adc.getLastDayEnergy_Wh();
-      ae_smart_shunt_struct.lastWeekWh = ina226_adc.getLastWeekEnergy_Wh();
+      ae_smart_shunt_struct.mesh.batteryVoltage = ina226_adc.getBusVoltage_V();
+      ae_smart_shunt_struct.mesh.batteryCurrent = ina226_adc.getCurrent_mA() / 1000.0f;
+      ae_smart_shunt_struct.mesh.batteryPower = ina226_adc.getPower_mW() / 1000.0f;
+      ae_smart_shunt_struct.mesh.starterBatteryVoltage = starter_adc.readVoltage();
+      ae_smart_shunt_struct.mesh.lastHourWh = ina226_adc.getLastHourEnergy_Wh();
+      ae_smart_shunt_struct.mesh.lastDayWh = ina226_adc.getLastDayEnergy_Wh();
+      ae_smart_shunt_struct.mesh.lastWeekWh = ina226_adc.getLastWeekEnergy_Wh();
 
 #ifdef SIMULATION_MODE
       // Mock Daily/Weekly Energy for UI Testing
@@ -1978,35 +1978,35 @@ void loop_deprecated()
       float day_angle = (sim_t % 30000) / 30000.0f * 2 * PI;
       float week_angle = (sim_t % 60000) / 60000.0f * 2 * PI;
       
-      ae_smart_shunt_struct.lastDayWh = 1200.0f * sin(day_angle);
-      ae_smart_shunt_struct.lastWeekWh = 5000.0f * sin(week_angle);
+      ae_smart_shunt_struct.mesh.lastDayWh = 1200.0f * sin(day_angle);
+      ae_smart_shunt_struct.mesh.lastWeekWh = 5000.0f * sin(week_angle);
 #endif
 
-      ae_smart_shunt_struct.batteryState = 0; // 0 = Normal, 1 = Warning, 2 = Critical
+      ae_smart_shunt_struct.mesh.batteryState = 0; // 0 = Normal, 1 = Warning, 2 = Critical
       
       if (!ina226_adc.isLoadConnected() && ina226_adc.getDisconnectReason() == OVERCURRENT) {
-          ae_smart_shunt_struct.batteryState = 5; // 5 = E-Fuse Tripped
+          ae_smart_shunt_struct.mesh.batteryState = 5; // 5 = E-Fuse Tripped
       }
 
       // Get remaining Ah from INA helper
       float remainingAh = ina226_adc.getBatteryCapacity();
-      ae_smart_shunt_struct.batteryCapacity = remainingAh; // remaining capacity in Ah
+      ae_smart_shunt_struct.mesh.batteryCapacity = remainingAh; // remaining capacity in Ah
       
       // Use the dynamic max capacity for SOC calc
       float maxCap = ina226_adc.getMaxBatteryCapacity();
       if (maxCap > 0.0f)
       {
-        ae_smart_shunt_struct.batterySOC = remainingAh / maxCap; // fraction 0..1
+        ae_smart_shunt_struct.mesh.batterySOC = remainingAh / maxCap; // fraction 0..1
       }
       else
       {
-        ae_smart_shunt_struct.batterySOC = 0.0f;
+        ae_smart_shunt_struct.mesh.batterySOC = 0.0f;
       }
 
       if (ina226_adc.isOverflow())
       {
         Serial.println("Overflow! Choose higher current range");
-        ae_smart_shunt_struct.batteryState = 3; // overflow indicator
+        ae_smart_shunt_struct.mesh.batteryState = 3; // overflow indicator
       }
 
       // Calculate and print run-flat time with warning threshold
@@ -2014,29 +2014,29 @@ void loop_deprecated()
       float currentA = ina226_adc.getCurrent_mA() / 1000.0f; // convert mA to A
       float warningThresholdHours = 10.0f;
       String avgRunFlatTimeStr = ina226_adc.getAveragedRunFlatTime(currentA, warningThresholdHours, warning);
-      memset(ae_smart_shunt_struct.runFlatTime, 0, sizeof(ae_smart_shunt_struct.runFlatTime));  // Clear buffer
-      strncpy(ae_smart_shunt_struct.runFlatTime, avgRunFlatTimeStr.c_str(), sizeof(ae_smart_shunt_struct.runFlatTime) - 1);
+      memset(ae_smart_shunt_struct.mesh.runFlatTime, 0, sizeof(ae_smart_shunt_struct.mesh.runFlatTime));  // Clear buffer
+      strncpy(ae_smart_shunt_struct.mesh.runFlatTime, avgRunFlatTimeStr.c_str(), sizeof(ae_smart_shunt_struct.mesh.runFlatTime) - 1);
     }
     else
     {
       // --- NOT CONFIGURED ---
-      ae_smart_shunt_struct.isCalibrated = false;
-      ae_smart_shunt_struct.batteryVoltage = ina226_adc.getBusVoltage_V();
-      ae_smart_shunt_struct.starterBatteryVoltage = starter_adc.readVoltage();
+      ae_smart_shunt_struct.mesh.isCalibrated = false;
+      ae_smart_shunt_struct.mesh.batteryVoltage = ina226_adc.getBusVoltage_V();
+      ae_smart_shunt_struct.mesh.starterBatteryVoltage = starter_adc.readVoltage();
 
       // Set other fields to default/error values
-      ae_smart_shunt_struct.batteryCurrent = 0.0f;
-      ae_smart_shunt_struct.batteryPower = 0.0f;
-      ae_smart_shunt_struct.batterySOC = 0.0f;
-      ae_smart_shunt_struct.batteryCapacity = 0.0f;
-      ae_smart_shunt_struct.batteryState = 4; // Use 4 for "Not Calibrated"
-      memset(ae_smart_shunt_struct.runFlatTime, 0, sizeof(ae_smart_shunt_struct.runFlatTime));  // Clear buffer
-      strncpy(ae_smart_shunt_struct.runFlatTime, "NOT CALIBRATED", sizeof(ae_smart_shunt_struct.runFlatTime) - 1);
-      ae_smart_shunt_struct.lastHourWh = 0.0f;
-      ae_smart_shunt_struct.lastDayWh = 0.0f;
-      ae_smart_shunt_struct.lastWeekWh = 0.0f;
+      ae_smart_shunt_struct.mesh.batteryCurrent = 0.0f;
+      ae_smart_shunt_struct.mesh.batteryPower = 0.0f;
+      ae_smart_shunt_struct.mesh.batterySOC = 0.0f;
+      ae_smart_shunt_struct.mesh.batteryCapacity = 0.0f;
+      ae_smart_shunt_struct.mesh.batteryState = 4; // Use 4 for "Not Calibrated"
+      memset(ae_smart_shunt_struct.mesh.runFlatTime, 0, sizeof(ae_smart_shunt_struct.mesh.runFlatTime));  // Clear buffer
+      strncpy(ae_smart_shunt_struct.mesh.runFlatTime, "NOT CALIBRATED", sizeof(ae_smart_shunt_struct.mesh.runFlatTime) - 1);
+      ae_smart_shunt_struct.mesh.lastHourWh = 0.0f;
+      ae_smart_shunt_struct.mesh.lastDayWh = 0.0f;
+      ae_smart_shunt_struct.mesh.lastWeekWh = 0.0f;
     }
-    ae_smart_shunt_struct.runFlatTime[sizeof(ae_smart_shunt_struct.runFlatTime) - 1] = '\0'; // ensure null termination
+    ae_smart_shunt_struct.mesh.runFlatTime[sizeof(ae_smart_shunt_struct.mesh.runFlatTime) - 1] = '\0'; // ensure null termination
 
     // Populate device name (use suffix if configured, otherwise default)
     String suffix = ina226_adc.getDeviceNameSuffix();
@@ -2044,32 +2044,32 @@ void loop_deprecated()
     if (suffix.length() > 0) {
         deviceName = suffix;  // Use just the suffix as the display name
     }
-    strncpy(ae_smart_shunt_struct.name, deviceName.c_str(), sizeof(ae_smart_shunt_struct.name) - 1);
-    ae_smart_shunt_struct.name[sizeof(ae_smart_shunt_struct.name) - 1] = '\0';
+    strncpy(ae_smart_shunt_struct.mesh.name, deviceName.c_str(), sizeof(ae_smart_shunt_struct.mesh.name) - 1);
+    ae_smart_shunt_struct.mesh.name[sizeof(ae_smart_shunt_struct.mesh.name) - 1] = '\0';
 
     // Populate Offloaded TPMS Data
     for(int i=0; i<TPMS_COUNT; i++) {
         const TPMSSensor* s = tpmsHandler.getSensor(i);
-        ae_smart_shunt_struct.tpmsPressurePsi[i] = s->pressurePsi;
-        ae_smart_shunt_struct.tpmsTemperature[i] = s->temperature;
-        ae_smart_shunt_struct.tpmsVoltage[i] = s->batteryVoltage;
-        ae_smart_shunt_struct.tpmsLastUpdate[i] = s->lastUpdate;
+        ae_smart_shunt_struct.mesh.tpmsPressurePsi[i] = s->pressurePsi;
+        ae_smart_shunt_struct.mesh.tpmsTemperature[i] = s->temperature;
+        ae_smart_shunt_struct.mesh.tpmsVoltage[i] = s->batteryVoltage;
+        ae_smart_shunt_struct.mesh.tpmsLastUpdate[i] = s->lastUpdate;
     }
     
     // Populate Relayed Temp Sensor Data & Calculate Age
     float t_temp; uint8_t t_batt; uint32_t t_last; uint32_t t_interval;
-    espNowHandler.getTempSensorData(t_temp, t_batt, t_last, t_interval, ae_smart_shunt_struct.tempSensorName, 
+    espNowHandler.getTempSensorData(t_temp, t_batt, t_last, t_interval, ae_smart_shunt_struct.mesh.tempSensorName, 
                                    ae_smart_shunt_struct.tempSensorHardwareVersion, 
                                    ae_smart_shunt_struct.tempSensorFirmwareVersion);
     
-    ae_smart_shunt_struct.tempSensorTemperature = t_temp;
-    ae_smart_shunt_struct.tempSensorBatteryLevel = t_batt;
-    ae_smart_shunt_struct.tempSensorUpdateInterval = t_interval; // Relay the interval!
+    ae_smart_shunt_struct.mesh.tempSensorTemperature = t_temp;
+    ae_smart_shunt_struct.mesh.tempSensorBatteryLevel = t_batt;
+    ae_smart_shunt_struct.mesh.tempSensorUpdateInterval = t_interval; // Relay the interval!
     
     if (t_last > 0) {
-        ae_smart_shunt_struct.tempSensorLastUpdate = millis() - t_last; // Age in ms
+        ae_smart_shunt_struct.mesh.tempSensorLastUpdate = millis() - t_last; // Age in ms
     } else {
-        ae_smart_shunt_struct.tempSensorLastUpdate = 0xFFFFFFFF; // Never updated
+        ae_smart_shunt_struct.mesh.tempSensorLastUpdate = 0xFFFFFFFF; // Never updated
     }
     
     // Populate Temp Sensor MAC
@@ -2101,14 +2101,14 @@ void loop_deprecated()
 
     // Update BLE characteristics
     Telemetry telemetry_data = {
-        .batteryVoltage = ae_smart_shunt_struct.batteryVoltage,
-        .batteryCurrent = ae_smart_shunt_struct.batteryCurrent,
-        .batteryPower = ae_smart_shunt_struct.batteryPower,
-        .batterySOC = ae_smart_shunt_struct.batterySOC,
-        .batteryCapacity = ae_smart_shunt_struct.batteryCapacity, // Remaining capacity
-        .starterBatteryVoltage = ae_smart_shunt_struct.starterBatteryVoltage,
-        .isCalibrated = ae_smart_shunt_struct.isCalibrated,
-        .errorState = ae_smart_shunt_struct.batteryState,
+        .batteryVoltage = ae_smart_shunt_struct.mesh.batteryVoltage,
+        .batteryCurrent = ae_smart_shunt_struct.mesh.batteryCurrent,
+        .batteryPower = ae_smart_shunt_struct.mesh.batteryPower,
+        .batterySOC = ae_smart_shunt_struct.mesh.batterySOC,
+        .batteryCapacity = ae_smart_shunt_struct.mesh.batteryCapacity, // Remaining capacity
+        .starterBatteryVoltage = ae_smart_shunt_struct.mesh.starterBatteryVoltage,
+        .isCalibrated = ae_smart_shunt_struct.mesh.isCalibrated,
+        .errorState = ae_smart_shunt_struct.mesh.batteryState,
         .loadState = ina226_adc.isLoadConnected(),
         .cutoffVoltage = ina226_adc.getLowVoltageCutoff(),
         .reconnectVoltage = (ina226_adc.getLowVoltageCutoff() + ina226_adc.getHysteresis()),
@@ -2162,11 +2162,11 @@ void sendBleUpdate() {
           .batteryVoltage = ina226_adc.getBusVoltage_V(),
           .batteryCurrent = ina226_adc.getCurrent_mA() / 1000.0f,
           .batteryPower = ina226_adc.getPower_mW() / 1000.0f,
-          .batterySOC = ae_smart_shunt_struct.batterySOC * 100.0f,
+          .batterySOC = ae_smart_shunt_struct.mesh.batterySOC * 100.0f,
           .batteryCapacity = ina226_adc.getBatteryCapacity(),
           .starterBatteryVoltage = starter_adc.readVoltage(),
           .isCalibrated = ina226_adc.isConfigured(),
-          .errorState = ae_smart_shunt_struct.batteryState,
+          .errorState = ae_smart_shunt_struct.mesh.batteryState,
           .loadState = ina226_adc.isLoadConnected(),
           .cutoffVoltage = ina226_adc.getLowVoltageCutoff(),
           .reconnectVoltage = (ina226_adc.getLowVoltageCutoff() + ina226_adc.getHysteresis()),
@@ -2178,15 +2178,15 @@ void sendBleUpdate() {
           .eFuseLimit = ina226_adc.getEfuseLimit(),
           .activeShuntRating = ina226_adc.getActiveShunt(),
           .ratedCapacity = ina226_adc.getMaxBatteryCapacity(),
-          .runFlatTime = String(ae_smart_shunt_struct.runFlatTime),
+          .runFlatTime = String(ae_smart_shunt_struct.mesh.runFlatTime),
           // Diagnostics
           .diagnostics = "", 
           // New Telemetry
-          .tempSensorTemperature = ae_smart_shunt_struct.tempSensorTemperature,
-          .tempSensorBatteryLevel = ae_smart_shunt_struct.tempSensorBatteryLevel,
-          .tempSensorLastUpdate = ae_smart_shunt_struct.tempSensorLastUpdate,
-          .tempSensorUpdateInterval = ae_smart_shunt_struct.tempSensorUpdateInterval,
-          .tpmsPressurePsi = {ae_smart_shunt_struct.tpmsPressurePsi[0], ae_smart_shunt_struct.tpmsPressurePsi[1], ae_smart_shunt_struct.tpmsPressurePsi[2], ae_smart_shunt_struct.tpmsPressurePsi[3]},
+          .tempSensorTemperature = ae_smart_shunt_struct.mesh.tempSensorTemperature,
+          .tempSensorBatteryLevel = ae_smart_shunt_struct.mesh.tempSensorBatteryLevel,
+          .tempSensorLastUpdate = ae_smart_shunt_struct.mesh.tempSensorLastUpdate,
+          .tempSensorUpdateInterval = ae_smart_shunt_struct.mesh.tempSensorUpdateInterval,
+          .tpmsPressurePsi = {ae_smart_shunt_struct.mesh.tpmsPressurePsi[0], ae_smart_shunt_struct.mesh.tpmsPressurePsi[1], ae_smart_shunt_struct.mesh.tpmsPressurePsi[2], ae_smart_shunt_struct.mesh.tpmsPressurePsi[3]},
           .gaugeLastRx = espNowHandler.getLastGaugeRx(),
           .gaugeLastTxSuccess = g_gaugeLastTxSuccess
       };
@@ -2219,23 +2219,23 @@ void onScanComplete() {
 
 void updateStruct() {
     // Populate struct fields based on configuration status
-    ae_smart_shunt_struct.messageID = 11;
-    ae_smart_shunt_struct.dataChanged = true;
+    ae_smart_shunt_struct.mesh.messageID = 11;
+    ae_smart_shunt_struct.mesh.dataChanged = true;
 
     if (ina226_adc.isConfigured())
     {
       // --- CONFIGURED ---
-      ae_smart_shunt_struct.isCalibrated = true;
+      ae_smart_shunt_struct.mesh.isCalibrated = true;
       // Note: We don't need to call checkAndHandleProtection here as it's done in the fast loop
 
-      ae_smart_shunt_struct.batteryVoltage = ina226_adc.getBusVoltage_V();
-      ae_smart_shunt_struct.batteryCurrent = ina226_adc.getCurrent_mA() / 1000.0f;
-      ae_smart_shunt_struct.batteryCurrentAvg = ina226_adc.getUplinkAverageCurrent_A(); // NEW: Averaged
-      ae_smart_shunt_struct.batteryPower = ina226_adc.getPower_mW() / 1000.0f;
-      ae_smart_shunt_struct.starterBatteryVoltage = starter_adc.readVoltage();
-      ae_smart_shunt_struct.lastHourWh = ina226_adc.getLastHourEnergy_Wh();
-      ae_smart_shunt_struct.lastDayWh = ina226_adc.getLastDayEnergy_Wh();
-      ae_smart_shunt_struct.lastWeekWh = ina226_adc.getLastWeekEnergy_Wh();
+      ae_smart_shunt_struct.mesh.batteryVoltage = ina226_adc.getBusVoltage_V();
+      ae_smart_shunt_struct.mesh.batteryCurrent = ina226_adc.getCurrent_mA() / 1000.0f;
+      ae_smart_shunt_struct.mesh.batteryCurrentAvg = ina226_adc.getUplinkAverageCurrent_A(); // NEW: Averaged
+      ae_smart_shunt_struct.mesh.batteryPower = ina226_adc.getPower_mW() / 1000.0f;
+      ae_smart_shunt_struct.mesh.starterBatteryVoltage = starter_adc.readVoltage();
+      ae_smart_shunt_struct.mesh.lastHourWh = ina226_adc.getLastHourEnergy_Wh();
+      ae_smart_shunt_struct.mesh.lastDayWh = ina226_adc.getLastDayEnergy_Wh();
+      ae_smart_shunt_struct.mesh.lastWeekWh = ina226_adc.getLastWeekEnergy_Wh();
 
       // Populate Device Name (Consistency with BLE Advertised Name)
       String suffix = ina226_adc.getDeviceNameSuffix();
@@ -2243,8 +2243,8 @@ void updateStruct() {
       if (suffix.length() > 0) {
           deviceName += " - " + suffix;
       }
-      strncpy(ae_smart_shunt_struct.name, deviceName.c_str(), sizeof(ae_smart_shunt_struct.name) - 1);
-      ae_smart_shunt_struct.name[sizeof(ae_smart_shunt_struct.name) - 1] = '\0';
+      strncpy(ae_smart_shunt_struct.mesh.name, deviceName.c_str(), sizeof(ae_smart_shunt_struct.mesh.name) - 1);
+      ae_smart_shunt_struct.mesh.name[sizeof(ae_smart_shunt_struct.mesh.name) - 1] = '\0';
 
 #ifdef SIMULATION_MODE
       // Mock Daily/Weekly Energy for UI Testing
@@ -2253,41 +2253,41 @@ void updateStruct() {
       float day_angle = (sim_t % 30000) / 30000.0f * 2 * PI;
       float week_angle = (sim_t % 60000) / 60000.0f * 2 * PI;
       
-      ae_smart_shunt_struct.lastDayWh = 1200.0f * sin(day_angle);
-      ae_smart_shunt_struct.lastWeekWh = 5000.0f * sin(week_angle);
+      ae_smart_shunt_struct.mesh.lastDayWh = 1200.0f * sin(day_angle);
+      ae_smart_shunt_struct.mesh.lastWeekWh = 5000.0f * sin(week_angle);
 #endif
 
-      ae_smart_shunt_struct.batteryState = 0; // 0 = Normal, 1 = Warning, 2 = Critical
+      ae_smart_shunt_struct.mesh.batteryState = 0; // 0 = Normal, 1 = Warning, 2 = Critical
       
       if (!ina226_adc.isLoadConnected() && ina226_adc.getDisconnectReason() == OVERCURRENT) {
-          ae_smart_shunt_struct.batteryState = 5; // 5 = E-Fuse Tripped
+          ae_smart_shunt_struct.mesh.batteryState = 5; // 5 = E-Fuse Tripped
       }
 
       // Get remaining Ah from INA helper
       float remainingAh = ina226_adc.getBatteryCapacity();
-      ae_smart_shunt_struct.batteryCapacity = remainingAh; // remaining capacity in Ah
+      ae_smart_shunt_struct.mesh.batteryCapacity = remainingAh; // remaining capacity in Ah
       
       // Use the dynamic max capacity for SOC calc
       float maxCap = ina226_adc.getMaxBatteryCapacity();
       if (maxCap > 0.0f)
       {
-        ae_smart_shunt_struct.batterySOC = remainingAh / maxCap; // fraction 0..1
+        ae_smart_shunt_struct.mesh.batterySOC = remainingAh / maxCap; // fraction 0..1
       }
       else
       {
-        ae_smart_shunt_struct.batterySOC = 0.0f;
+        ae_smart_shunt_struct.mesh.batterySOC = 0.0f;
       }
 
       // Check for low SOC or low Voltage to set state
-      if (ae_smart_shunt_struct.batterySOC < 0.2f || ae_smart_shunt_struct.batteryVoltage < 11.8f)
+      if (ae_smart_shunt_struct.mesh.batterySOC < 0.2f || ae_smart_shunt_struct.mesh.batteryVoltage < 11.8f)
       {
-        if (ae_smart_shunt_struct.batterySOC < 0.1f || ae_smart_shunt_struct.batteryVoltage < 11.5f)
+        if (ae_smart_shunt_struct.mesh.batterySOC < 0.1f || ae_smart_shunt_struct.mesh.batteryVoltage < 11.5f)
         {
-          ae_smart_shunt_struct.batteryState = 2; // Critical
+          ae_smart_shunt_struct.mesh.batteryState = 2; // Critical
         }
         else
         {
-          ae_smart_shunt_struct.batteryState = 1; // Warning
+          ae_smart_shunt_struct.mesh.batteryState = 1; // Warning
         }
       }
       
@@ -2296,47 +2296,47 @@ void updateStruct() {
       bool warning = false;
       float avgCurrentA = ina226_adc.getAverageCurrentFromEnergyBuffer_A();
       String runFlatTimeStr = ina226_adc.getAveragedRunFlatTime(avgCurrentA, 10.0f, warning);
-      memset(ae_smart_shunt_struct.runFlatTime, 0, sizeof(ae_smart_shunt_struct.runFlatTime));  // Clear buffer
-      strncpy(ae_smart_shunt_struct.runFlatTime, runFlatTimeStr.c_str(), sizeof(ae_smart_shunt_struct.runFlatTime) - 1);
-      ae_smart_shunt_struct.runFlatTime[sizeof(ae_smart_shunt_struct.runFlatTime) - 1] = '\0';
+      memset(ae_smart_shunt_struct.mesh.runFlatTime, 0, sizeof(ae_smart_shunt_struct.mesh.runFlatTime));  // Clear buffer
+      strncpy(ae_smart_shunt_struct.mesh.runFlatTime, runFlatTimeStr.c_str(), sizeof(ae_smart_shunt_struct.mesh.runFlatTime) - 1);
+      ae_smart_shunt_struct.mesh.runFlatTime[sizeof(ae_smart_shunt_struct.mesh.runFlatTime) - 1] = '\0';
 
     }
     else
     {
       // --- NOT CONFIGURED ---
-      ae_smart_shunt_struct.isCalibrated = false;
-      ae_smart_shunt_struct.batteryVoltage = 0.0f;
-      ae_smart_shunt_struct.batteryCurrent = 0.0f;
-      ae_smart_shunt_struct.batteryPower = 0.0f;
-      ae_smart_shunt_struct.batterySOC = 0.0f;
-      ae_smart_shunt_struct.batteryState = 0;
-      snprintf(ae_smart_shunt_struct.runFlatTime, sizeof(ae_smart_shunt_struct.runFlatTime), "--");
+      ae_smart_shunt_struct.mesh.isCalibrated = false;
+      ae_smart_shunt_struct.mesh.batteryVoltage = 0.0f;
+      ae_smart_shunt_struct.mesh.batteryCurrent = 0.0f;
+      ae_smart_shunt_struct.mesh.batteryPower = 0.0f;
+      ae_smart_shunt_struct.mesh.batterySOC = 0.0f;
+      ae_smart_shunt_struct.mesh.batteryState = 0;
+      snprintf(ae_smart_shunt_struct.mesh.runFlatTime, sizeof(ae_smart_shunt_struct.mesh.runFlatTime), "--");
     }
     
     // Add TPMS Data (Sent with EVERY update)
     for(int i=0; i<TPMS_COUNT; i++) {
         const TPMSSensor* s = tpmsHandler.getSensor(i);
         if (s && s->configured) {
-            ae_smart_shunt_struct.tpmsPressurePsi[i] = s->pressurePsi;
-            ae_smart_shunt_struct.tpmsTemperature[i] = s->temperature;
-            ae_smart_shunt_struct.tpmsVoltage[i] = s->batteryVoltage;
+            ae_smart_shunt_struct.mesh.tpmsPressurePsi[i] = s->pressurePsi;
+            ae_smart_shunt_struct.mesh.tpmsTemperature[i] = s->temperature;
+            ae_smart_shunt_struct.mesh.tpmsVoltage[i] = s->batteryVoltage;
             // Report Age (Time since last packet)
             if (s->lastUpdate > 0) {
-                ae_smart_shunt_struct.tpmsLastUpdate[i] = millis() - s->lastUpdate;
+                ae_smart_shunt_struct.mesh.tpmsLastUpdate[i] = millis() - s->lastUpdate;
             } else {
-                ae_smart_shunt_struct.tpmsLastUpdate[i] = 0xFFFFFFFE; // Configured, Waiting for Data
+                ae_smart_shunt_struct.mesh.tpmsLastUpdate[i] = 0xFFFFFFFE; // Configured, Waiting for Data
             }
         } else {
-            ae_smart_shunt_struct.tpmsPressurePsi[i] = 0;
-            ae_smart_shunt_struct.tpmsTemperature[i] = 0;
-            ae_smart_shunt_struct.tpmsVoltage[i] = 0;
-            ae_smart_shunt_struct.tpmsLastUpdate[i] = 0xFFFFFFFF;
+            ae_smart_shunt_struct.mesh.tpmsPressurePsi[i] = 0;
+            ae_smart_shunt_struct.mesh.tpmsTemperature[i] = 0;
+            ae_smart_shunt_struct.mesh.tpmsVoltage[i] = 0;
+            ae_smart_shunt_struct.mesh.tpmsLastUpdate[i] = 0xFFFFFFFF;
         }
     }
 
     // Relayed Temp Sensor Data (Always send freshest data)
     float tsTemp; uint8_t tsBatt; uint32_t tsUpdate; uint32_t tsInterval;
-    espNowHandler.getTempSensorData(tsTemp, tsBatt, tsUpdate, tsInterval, ae_smart_shunt_struct.tempSensorName, 
+    espNowHandler.getTempSensorData(tsTemp, tsBatt, tsUpdate, tsInterval, ae_smart_shunt_struct.mesh.tempSensorName, 
                                    ae_smart_shunt_struct.tempSensorHardwareVersion, 
                                    ae_smart_shunt_struct.tempSensorFirmwareVersion);
     
@@ -2355,10 +2355,10 @@ void updateStruct() {
         tsBatt = 0;
     }
     
-    ae_smart_shunt_struct.tempSensorTemperature = tsTemp;
-    ae_smart_shunt_struct.tempSensorBatteryLevel = tsBatt;
-    ae_smart_shunt_struct.tempSensorUpdateInterval = tsInterval;
-    ae_smart_shunt_struct.tempSensorLastUpdate = age;
+    ae_smart_shunt_struct.mesh.tempSensorTemperature = tsTemp;
+    ae_smart_shunt_struct.mesh.tempSensorBatteryLevel = tsBatt;
+    ae_smart_shunt_struct.mesh.tempSensorUpdateInterval = tsInterval;
+    ae_smart_shunt_struct.mesh.tempSensorLastUpdate = age;
     
     // DEBUG PRINT
     Serial.printf("[DEBUG] Telemetry #%u sent. TPMS=YES, Temp=%s (Interval: %u ms)\n", 
@@ -2561,32 +2561,32 @@ void loop() {
           // Resume BLE (restart advertising) - BLE stack still running, bonding preserved
           // Construct Telemetry for advertising (reuse existing struct data)
            Telemetry telemetry_data = {
-              .batteryVoltage = ae_smart_shunt_struct.batteryVoltage,
-              .batteryCurrent = ae_smart_shunt_struct.batteryCurrent,
-              .batteryPower = ae_smart_shunt_struct.batteryPower,
-              .batterySOC = ae_smart_shunt_struct.batterySOC,
-              .batteryCapacity = ae_smart_shunt_struct.batteryCapacity,
-              .starterBatteryVoltage = ae_smart_shunt_struct.starterBatteryVoltage,
-              .isCalibrated = ae_smart_shunt_struct.isCalibrated,
-              .errorState = ae_smart_shunt_struct.batteryState,
+              .batteryVoltage = ae_smart_shunt_struct.mesh.batteryVoltage,
+              .batteryCurrent = ae_smart_shunt_struct.mesh.batteryCurrent,
+              .batteryPower = ae_smart_shunt_struct.mesh.batteryPower,
+              .batterySOC = ae_smart_shunt_struct.mesh.batterySOC,
+              .batteryCapacity = ae_smart_shunt_struct.mesh.batteryCapacity,
+              .starterBatteryVoltage = ae_smart_shunt_struct.mesh.starterBatteryVoltage,
+              .isCalibrated = ae_smart_shunt_struct.mesh.isCalibrated,
+              .errorState = ae_smart_shunt_struct.mesh.batteryState,
               .loadState = ina226_adc.isLoadConnected(),
               .cutoffVoltage = ina226_adc.getLowVoltageCutoff(),
               .reconnectVoltage = (ina226_adc.getLowVoltageCutoff() + ina226_adc.getHysteresis()),
-              .lastHourWh = ae_smart_shunt_struct.lastHourWh,
-              .lastDayWh = ae_smart_shunt_struct.lastDayWh,
-              .lastWeekWh = ae_smart_shunt_struct.lastWeekWh,
+              .lastHourWh = ae_smart_shunt_struct.mesh.lastHourWh,
+              .lastDayWh = ae_smart_shunt_struct.mesh.lastDayWh,
+              .lastWeekWh = ae_smart_shunt_struct.mesh.lastWeekWh,
               .lowVoltageDelayS = ina226_adc.getLowVoltageDelay(),
               .deviceNameSuffix = ina226_adc.getDeviceNameSuffix(),
               .eFuseLimit = ina226_adc.getEfuseLimit(),
               .activeShuntRating = ina226_adc.getActiveShunt(),
               .ratedCapacity = ina226_adc.getMaxBatteryCapacity(),
-              .runFlatTime = String(ae_smart_shunt_struct.runFlatTime),
+              .runFlatTime = String(ae_smart_shunt_struct.mesh.runFlatTime),
               .diagnostics = "", 
-              .tempSensorTemperature = ae_smart_shunt_struct.tempSensorTemperature,
-              .tempSensorBatteryLevel = ae_smart_shunt_struct.tempSensorBatteryLevel,
-              .tempSensorLastUpdate = ae_smart_shunt_struct.tempSensorLastUpdate,
-              .tempSensorUpdateInterval = ae_smart_shunt_struct.tempSensorUpdateInterval,
-              .tpmsPressurePsi = {ae_smart_shunt_struct.tpmsPressurePsi[0], ae_smart_shunt_struct.tpmsPressurePsi[1], ae_smart_shunt_struct.tpmsPressurePsi[2], ae_smart_shunt_struct.tpmsPressurePsi[3]},
+              .tempSensorTemperature = ae_smart_shunt_struct.mesh.tempSensorTemperature,
+              .tempSensorBatteryLevel = ae_smart_shunt_struct.mesh.tempSensorBatteryLevel,
+              .tempSensorLastUpdate = ae_smart_shunt_struct.mesh.tempSensorLastUpdate,
+              .tempSensorUpdateInterval = ae_smart_shunt_struct.mesh.tempSensorUpdateInterval,
+              .tpmsPressurePsi = {ae_smart_shunt_struct.mesh.tpmsPressurePsi[0], ae_smart_shunt_struct.mesh.tpmsPressurePsi[1], ae_smart_shunt_struct.mesh.tpmsPressurePsi[2], ae_smart_shunt_struct.mesh.tpmsPressurePsi[3]},
               .gaugeLastRx = espNowHandler.getLastGaugeRx(),
               .gaugeLastTxSuccess = g_gaugeLastTxSuccess
           };
