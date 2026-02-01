@@ -246,6 +246,12 @@ void OtaHandler::startUpdate() {
 }
 
 void OtaHandler::startUpdateDirect(const String& url, const String& version, const String& md5) {
+    // Defensive Check: Don't update if we are already on this version
+    if (version == String(OTA_VERSION)) {
+        Serial.printf("[OTA_HANDLER] Direct update ignored: Already on version %s\n", version.c_str());
+        return;
+    }
+
     Serial.printf("[OTA_HANDLER] Direct update requested: %s (v%s)\n", url.c_str(), version.c_str());
     
     // Populate the UpdateObject with details provided via MQTT
