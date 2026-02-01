@@ -152,6 +152,31 @@ public:
             tempSensor["fw_version"] = shuntStruct.tempSensorFirmwareVersion;
         }
 
+        // 3. Gauge (if available) - Sent as separate device for visibility
+        if (shuntStruct.gaugeLastUpdate != 0xFFFFFFFF) {
+            // Check if MAC is non-zero
+            bool macValid = false;
+            for (int i=0; i<6; i++) { if (shuntStruct.gaugeMac[i] != 0) { macValid = true; break; } }
+            
+            if (macValid) {
+                JsonObject gauge = sensors.add<JsonObject>();
+                gauge["type"] = "gauge";
+                
+                String gMac = "";
+                for (int i=0; i<6; i++) {
+                    if (i>0) gMac += ":";
+                    char buf[3];
+                    sprintf(buf, "%02X", shuntStruct.gaugeMac[i]);
+                    gMac += buf;
+                }
+                gauge["mac"] = gMac;
+                gauge["name"] = (strlen(shuntStruct.gaugeName) > 0) ? String(shuntStruct.gaugeName) : "AE Gauge";
+                gauge["hw_version"] = shuntStruct.gaugeHardwareVersion;
+                gauge["fw_version"] = shuntStruct.gaugeFirmwareVersion;
+                gauge["age_ms"] = millis() - shuntStruct.gaugeLastUpdate;
+            }
+        }
+
         String output;
         serializeJson(doc, output);
         
