@@ -66,7 +66,7 @@ typedef struct struct_message_ae_smart_shunt_1 {
   bool dataChanged;
   float batteryVoltage;
   float batteryCurrent;
-  float batteryCurrentAvg; // Averaged over uplink interval
+  float batteryCurrentAvg; 
   float batteryPower;
   float batterySOC;
   float batteryCapacity;
@@ -77,7 +77,7 @@ typedef struct struct_message_ae_smart_shunt_1 {
   float lastHourWh;
   float lastDayWh;
   float lastWeekWh;
-  char name[32];   // Device name (e.g., "AE Smart Shunt" or custom)
+  char name[32];   
   
   // TPMS Data (Offloaded)
   float tpmsPressurePsi[4];
@@ -88,18 +88,18 @@ typedef struct struct_message_ae_smart_shunt_1 {
   // Temp Sensor Data (Relayed)
   float tempSensorTemperature;
   uint8_t tempSensorBatteryLevel;
-  uint32_t tempSensorUpdateInterval; // Added for Staleness Logic
+  uint32_t tempSensorUpdateInterval; 
   uint32_t tempSensorLastUpdate;
-  char tempSensorName[32]; // ADDED: Relayed Device Name
+  char tempSensorName[32]; 
   uint8_t tempSensorHardwareVersion;
   char tempSensorFirmwareVersion[12];
-  uint8_t tempSensorMac[6]; // MAC address of temp sensor
+  uint8_t tempSensorMac[6]; 
   
   // Gauge Data (Relayed)
   char gaugeName[32];
   uint8_t gaugeHardwareVersion;
   char gaugeFirmwareVersion[12];
-  uint8_t gaugeMac[6]; // MAC address of gauge
+  uint8_t gaugeMac[6]; 
   uint32_t gaugeLastUpdate;
   
   // Hardware Version (injected at compile time)
