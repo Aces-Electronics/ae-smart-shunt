@@ -174,7 +174,11 @@ public:
                 gauge["hw_version"] = shuntStruct.gaugeHardwareVersion;
                 gauge["fw_version"] = shuntStruct.gaugeFirmwareVersion;
                 gauge["age_ms"] = millis() - shuntStruct.gaugeLastUpdate;
+            } else {
+                 Serial.println("[MQTT] Gauge Update Valid but MAC is ZERO.");
             }
+        } else {
+            Serial.printf("[MQTT] Gauge skipped: Update Age %u (0xFFFFFFFF = invalid)\n", shuntStruct.gaugeLastUpdate);
         }
 
         String output;

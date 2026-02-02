@@ -409,6 +409,8 @@ void ESPNowHandler::loadGaugeDataFromNVS() {
         rawGaugeLastUpdate = lastGaugeRxTime;
         
         Serial.printf("[ESP-NOW] Loaded Gauge from NVS: %s (%s)\n", rawGaugeName, macStr.c_str());
+    } else {
+        Serial.println("[ESP-NOW] loadGaugeDataFromNVS: MAC String is empty or invalid (Len=0)");
     }
 }
 
