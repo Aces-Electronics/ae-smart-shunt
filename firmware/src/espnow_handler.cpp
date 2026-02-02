@@ -208,6 +208,8 @@ bool ESPNowHandler::addEncryptedPeer(const uint8_t* mac, const uint8_t* key)
 void ESPNowHandler::switchToSecureMode(const uint8_t* gaugeMac)
 {
     memcpy(targetPeer, gaugeMac, 6);
+    // Also save to rawGaugeMac for MQTT uplink visibility
+    memcpy(rawGaugeMac, gaugeMac, 6);
     isSecure = true;
     Serial.println("Switched to Secure Mode");
 }
