@@ -2368,6 +2368,13 @@ void updateStruct() {
     
     // Update local copy in Handler (Ready to Send)
     espNowHandler.setAeSmartShuntStruct(ae_smart_shunt_struct);
+
+    // FIX: Populate Gauge Data from Handler so MQTT can see it
+    espNowHandler.getGaugeData(ae_smart_shunt_struct.gaugeName,
+                               ae_smart_shunt_struct.gaugeHardwareVersion,
+                               ae_smart_shunt_struct.gaugeFirmwareVersion,
+                               ae_smart_shunt_struct.gaugeMac,
+                               ae_smart_shunt_struct.gaugeLastUpdate);
 }
 
 
