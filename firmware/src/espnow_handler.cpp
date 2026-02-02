@@ -401,6 +401,14 @@ void ESPNowHandler::loadGaugeDataFromNVS() {
                 char buf[3] = { macStr[i*2], macStr[i*2+1], '\0' };
                 rawGaugeMac[i] = (uint8_t)strtoul(buf, NULL, 16);
             }
+            
+            // CRITICAL: Update Last Update Logic
+            // If we have just loaded valid gauge data from NVS, and we have live data, ensure timestamps align?
+            // Actually, rawGaugeMac being non-zero is enough for MQTT uplink to send "Offline/Old" status
+            // instead of "Missing" status.
+            
+        } else {
+             Serial.printf("[ESP-NOW] loadGaugeDataFromNVS: MAC Length Invalid (%d bytes): '%s'\n", macStr.length(), macStr.c_str());
         }
         
         strncpy(rawGaugeName, name.c_str(), sizeof(rawGaugeName) - 1);
