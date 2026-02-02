@@ -75,9 +75,18 @@ public: // Made public for static callback access (or add friend/getter)
     uint32_t lastGaugeRxTime = 0;
     bool m_forceBroadcast = false;
     esp_now_send_cb_t m_sendCallback = nullptr;
-private:
 
+    // OTA Trigger Queueing (for when ESP-NOW is paused during WiFi uplink)
+    void queueOtaTrigger(const uint8_t* targetMac, const struct_message_ota_trigger& trigger);
+    void processQueuedOtaTrigger();
+
+private:
     void printMacAddress(const uint8_t* mac);
+
+    // Queue storage
+    bool pendingOtaTrigger = false;
+    struct_message_ota_trigger queuedOtaTrigger;
+    uint8_t queuedOtaTarget[6];
 };
 
 #endif // ESPNOW_HANDLER_H

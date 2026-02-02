@@ -338,8 +338,8 @@ private:
             strncpy(trigger.md5, md5.c_str(), sizeof(trigger.md5)-1);
             trigger.force = force;
             
-            // Dispatch via ESP-NOW
-            _espNow.sendOtaTrigger(childMac, trigger);
+            // Dispatch via ESP-NOW (Queued until Radio Stack Restored)
+            _espNow.queueOtaTrigger(childMac, trigger);
         }
         // 3. Handle new "ae/downlink/<MAC>/OTA" (Local Device)
         else if (top.endsWith("/OTA")) {

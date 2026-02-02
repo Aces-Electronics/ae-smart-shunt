@@ -429,5 +429,18 @@ void ESPNowHandler::getGaugeData(char* nameBuf, uint8_t &hwVersion, char* fwVers
     hwVersion = rawGaugeHwVersion;
     if (fwVersionBuf) strncpy(fwVersionBuf, rawGaugeFwVersion, 11);
     if (macBuf) memcpy(macBuf, rawGaugeMac, 6);
-    lastUpdate = rawGaugeLastUpdate;
+
+void ESPNowHandler::queueOtaTrigger(const uint8_t* targetMac, const struct_message_ota_trigger& trigger) {
+    Serial.println("[ESP-NOW] Main Radio Stack is busy (WiFi). Queuing OTA Trigger...");
+    memcpy(queuedOtaTarget, targetMac, 6);
+    queuedOtaTrigger = trigger;
+    pendingOtaTrigger = true;
+}
+
+void ESPNowHandler::processQueuedOtaTrigger() {
+    if (pendingOtaTrigger) {
+        Serial.println("[ESP-NOW] Processing Queued OTA Trigger...");
+        sendOtaTrigger(queuedOtaTarget, queuedOtaTrigger);
+        pendingOtaTrigger = false;
+    }
 }

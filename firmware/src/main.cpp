@@ -2573,6 +2573,9 @@ void loop() {
           esp_wifi_set_channel(espnow_channel, WIFI_SECOND_CHAN_NONE);
           Serial.printf("[MQTT] Restored ESP-NOW channel: %d\n", espnow_channel);
 
+          // Process and pending OTA triggers received during MQTT session
+          espNowHandler.processQueuedOtaTrigger();
+
           // Resume BLE (restart advertising) - BLE stack still running, bonding preserved
           // Construct Telemetry for advertising (reuse existing struct data)
            Telemetry telemetry_data = {
