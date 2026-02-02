@@ -281,25 +281,7 @@ private:
                 }
             }
         }
-        // 2. Handle new "ae/downlink/<MAC>/OTA"
-        else if (top.endsWith("/OTA")) {
-            Serial.println("MQTT: Received Push OTA Command");
-            if (_ota) {
-                String url = doc["url"];
-                String version = doc["version"];
-                String md5 = doc["md5"];
-                
-                if (url.length() > 0 && version.length() > 0) {
-                     bool force = doc["force"] | false;
-                     _ota->startUpdateDirect(url, version, md5, force);
-                } else {
-                     Serial.println("[MQTT] ERROR: Invalid OTA payload (missing url/version)");
-                }
-            } else {
-                Serial.println("[MQTT] ERROR: OtaHandler not linked");
-            }
-        }
-        // 3. Handle sub-device "ae/downlink/<MAC>/subdevice/<CHILD_MAC>/OTA"
+        // 2. Handle sub-device "ae/downlink/<MAC>/subdevice/<CHILD_MAC>/OTA"
         else if (top.indexOf("/subdevice/") > 0 && top.endsWith("/OTA")) {
             Serial.println("MQTT: Received Indirect OTA Command for sub-device");
             
@@ -348,13 +330,34 @@ private:
             String url = doc["url"];
             String version = doc["version"];
             String md5 = doc["md5"];
+            // Check for force flag
+            bool force = doc["force"] | false;
             
             strncpy(trigger.url, url.c_str(), sizeof(trigger.url)-1);
             strncpy(trigger.version, version.c_str(), sizeof(trigger.version)-1);
             strncpy(trigger.md5, md5.c_str(), sizeof(trigger.md5)-1);
+            trigger.force = force;
             
             // Dispatch via ESP-NOW
             _espNow.sendOtaTrigger(childMac, trigger);
+        }
+        // 3. Handle new "ae/downlink/<MAC>/OTA" (Local Device)
+        else if (top.endsWith("/OTA")) {
+            Serial.println("MQTT: Received Push OTA Command");
+            if (_ota) {
+                String url = doc["url"];
+                String version = doc["version"];
+                String md5 = doc["md5"];
+                
+                if (url.length() > 0 && version.length() > 0) {
+                     bool force = doc["force"] | false;
+                     _ota->startUpdateDirect(url, version, md5, force);
+                } else {
+                     Serial.println("[MQTT] ERROR: Invalid OTA payload (missing url/version)");
+                }
+            } else {
+                Serial.println("[MQTT] ERROR: OtaHandler not linked");
+            }
         }
     }
 
