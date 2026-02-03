@@ -78,6 +78,19 @@ static void OnDataRecv(const uint8_t * mac, const uint8_t *incomingData, int len
          }
          return;
     }
+
+    // 4. Gauge Heartbeat (ID 120)
+    if (len == sizeof(struct_message_gauge_info)) {
+        struct_message_gauge_info info;
+        memcpy(&info, incomingData, sizeof(info));
+        
+        if (info.messageID == 120 && g_espNowHandler != nullptr) {
+             Serial.printf("[ESP-NOW] Rx Gauge Heartbeat (Ver: %s)\n", info.fwVersion);
+             g_espNowHandler->updateGaugeVersion(mac, info.fwVersion, info.type);
+             g_espNowHandler->recordGaugeRx(); // Keep alive
+        }
+        return;
+    }
 }
 
 // 🔒 Compile-time check: catch padding/alignment mismatches.
@@ -446,4 +459,21 @@ void ESPNowHandler::processQueuedOtaTrigger() {
         sendOtaTrigger(queuedOtaTarget, queuedOtaTrigger);
         pendingOtaTrigger = false;
     }
+}
+
+// Helper for MQTT Filtering
+String ESPNowHandler::getGaugeFwVersion() {
+    return String(rawGaugeFwVersion);
+}
+
+void ESPNowHandler::updateGaugeVersion(const uint8_t* mac, const char* version, uint8_t type) {
+    // Only update if MAC matches paired gauge (or if generic?)
+    // Actually, just update the cache.
+    strncpy(rawGaugeFwVersion, version, sizeof(rawGaugeFwVersion) - 1);
+    rawGaugeFwVersion[sizeof(rawGaugeFwVersion) - 1] = '\0';
+    
+    // Also capture MAC if we don't have it? 
+    // Usually handled by loading NVS, but good to have current
+    memcpy(rawGaugeMac, mac, 6);
+    rawGaugeLastUpdate = millis();
 }

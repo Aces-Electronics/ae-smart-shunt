@@ -41,6 +41,19 @@ public:
         if (client.connected()) {
             client.loop();
         }
+
+        // Process Debounced Load Command
+        if (_loadCommandPending && (millis() - _loadCommandTime > 500)) {
+            Serial.printf("[MQTT] Executing Debounced Load: %s\n", _pendingLoadState ? "ON" : "OFF");
+            
+            // Use INA226 ADC directly as we have access
+            if (_pendingLoadState) {
+                _ina.setLoadConnected(true, NONE); 
+            } else {
+                _ina.setLoadConnected(false, MANUAL);
+            }
+            _loadCommandPending = false;
+        }
     }
 
     bool connect() {
@@ -279,6 +292,18 @@ private:
                         _updateCallback();
                     }
                 }
+                else if (cmd == "load_on") {
+                    Serial.println("MQTT: Queuing Load ON (Debounced)");
+                    _pendingLoadState = true;
+                    _loadCommandTime = millis();
+                    _loadCommandPending = true;
+                }
+                else if (cmd == "load_off") {
+                    Serial.println("MQTT: Queuing Load OFF (Debounced)");
+                    _pendingLoadState = false;
+                    _loadCommandTime = millis();
+                    _loadCommandPending = true;
+                }
             }
         }
         // 2. Handle sub-device "ae/downlink/<MAC>/subdevice/<CHILD_MAC>/OTA"
@@ -343,6 +368,14 @@ private:
             Serial.printf("[OTA] Indirect Trigger Parsed: Ver='%s' Force=%d URL='%s'\n", 
                           version.c_str(), force, url.c_str());
 
+            // SMART FILTER: Check if Gauge is already on this version (Telemetry Cache)
+            String currentGaugeVer = _espNow.getGaugeFwVersion();
+            // Note: If cache is empty (""), we allow the trigger to pass just in case.
+            if (!force && currentGaugeVer.length() > 0 && version == currentGaugeVer) {
+                 Serial.printf("[OTA] Filtered: Gauge already on %s. Dropping OTA Trigger.\n", currentGaugeVer.c_str());
+                 return; 
+            }
+
             // Dispatch via ESP-NOW (Queued until Radio Stack Restored)
             _espNow.queueOtaTrigger(childMac, trigger);
         }
@@ -375,6 +408,11 @@ private:
     String _user;
     String _pass;
     std::function<void()> _updateCallback = nullptr;
+
+    // Debounce State
+    bool _pendingLoadState = false;
+    bool _loadCommandPending = false;
+    uint32_t _loadCommandTime = 0;
 };
 
 #endif

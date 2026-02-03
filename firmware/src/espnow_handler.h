@@ -43,6 +43,8 @@ public:
     // Gauge Data Management
     void loadGaugeDataFromNVS(); // Load paired Gauge info from NVS
     void getGaugeData(char* nameBuf, uint8_t &hwVersion, char* fwVersionBuf, uint8_t* macBuf, uint32_t &lastUpdate);
+    String getGaugeFwVersion(); // Helper for MQTT filtering
+    void updateGaugeVersion(const uint8_t* mac, const char* version, uint8_t type);
     
     // Handle new peer request (save to NVS + add to ESP-NOW)
     void handleNewPeer(const uint8_t* mac, const uint8_t* key);
