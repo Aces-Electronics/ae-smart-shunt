@@ -338,6 +338,11 @@ private:
             strncpy(trigger.md5, md5.c_str(), sizeof(trigger.md5)-1);
             trigger.force = force;
             
+            trigger.force = force;
+            
+            Serial.printf("[OTA] Indirect Trigger Parsed: Ver='%s' Force=%d URL='%s'\n", 
+                          version.c_str(), force, url.c_str());
+
             // Dispatch via ESP-NOW (Queued until Radio Stack Restored)
             _espNow.queueOtaTrigger(childMac, trigger);
         }
