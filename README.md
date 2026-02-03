@@ -81,5 +81,11 @@ Use the `simulation` environment in PlatformIO:
 pio run -e simulation -t upload
 ```
 
+## OTA Reliability & Loop Prevention
+The firmware includes advanced logic to prevent infinite update loops and redundant network traffic:
+- **Version Check**: The Shunt checks the incoming firmware version against its current version. If they match, the update is rejected immediately.
+- **Sub-Device Filtering**: The Shunt caches the version of connected Gauges and Temp Sensors. If the server sends an update for a sub-device that is *already* on that version, the Shunt drops the packet silently, preventing "Ghost Traffic" and unnecessary ESP-NOW triggers.
+- **JIT Delivery**: Updates are only accepted within a 5-second window after an MQTT uplink, minimizing the attack surface and power consumption.
+
 ## Support:
 Contact me direct via ace<@>aceselectronics.com.au, just make it look like a normal email address. (hiding from the bots ;)
